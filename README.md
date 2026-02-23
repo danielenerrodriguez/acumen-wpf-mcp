@@ -39,6 +39,59 @@ Target WPF Application
 
 The `--mcp-connect` process auto-launches the elevated server if it isn't already running. The elevated server persists across client reconnections (5 min idle timeout) and remembers the last attached process for auto-reattach.
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  MCP Client (OpenCode, Claude Desktop, etc.)                    │
+│  Launches server via stdio                                      │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ stdio (JSON-RPC)
+                           v
+┌─────────────────────────────────────────────────────────────────┐
+│  WpfMcp.exe --mcp-connect              (non-elevated process)   │
+│                                                                 │
+│  Program.cs         Mode routing, auto-launches elevated server │
+│  Tools.cs           13 MCP tool definitions                     │
+│  UiaProxyClient     Sends JSON requests over named pipe         │
+│  ElementCache       Thread-safe ref cache (e1, e2, ...)         │
+│  Constants          Shared config (pipe name, timeouts, etc.)   │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ named pipe (WpfMcp_UIA)
+                           │ JSON protocol: {"method":"...","args":{...}}
+                           v
+┌─────────────────────────────────────────────────────────────────┐
+│  WpfMcp.exe --server                   (elevated process)       │
+│                                                                 │
+│  UiaProxyServer     Listens on pipe, dispatches to UiaEngine    │
+│  UiaEngine          Singleton, dedicated STA thread for UIA     │
+│    ├─ Attach        Process.GetProcessesByName → FromHandle     │
+│    ├─ Snapshot      TreeWalker.RawViewWalker recursive walk     │
+│    ├─ Find          PropertyCondition + FindFirst/descendants   │
+│    ├─ Click         SetCursorPos + mouse_event (via P/Invoke)   │
+│    ├─ SendKeys      SendInput API (modifiers + key combos)      │
+│    ├─ TypeText      VkKeyScan per char + keybd_event            │
+│    └─ Screenshot    GetWindowRect + Graphics.CopyFromScreen     │
+│  ElementCache       Server-side ref cache (persists across      │
+│                     client reconnections)                       │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │ System.Windows.Automation (COM/UIA)
+                           v
+┌─────────────────────────────────────────────────────────────────┐
+│  Target WPF Application (e.g., Deltek Acumen Fuse)              │
+│  Automation peers exposed via WPF's built-in UIA support        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Decisions
+
+- **STA thread** — All UIA calls run on a dedicated STA thread (`UIA-STA`). WPF automation peers require STA COM marshaling; without it, only the Win32 window layer is visible.
+- **Lazy singleton** — `UiaEngine` uses `Lazy<T>` with a private constructor. Only one instance exists per process.
+- **Reflection-based lookups** — `ControlType` matching uses a dictionary built via reflection on `ControlType`'s static fields, avoiding a manual mapping that would need updating when new types are added.
+- **WPF Key enum** — Virtual key parsing uses `System.Windows.Input.Key` + `KeyInterop.VirtualKeyFromKey()` instead of a hardcoded VK table, supporting all 200+ keys automatically.
+- **Pipe ACL** — The elevated server creates the named pipe with `PipeSecurity` granting `ReadWrite` to `AuthenticatedUserSid`, allowing the non-elevated client to connect.
+- **Auto-reattach** — The server saves the last process name to `last_client.txt` and reattaches on new client connections, so the AI agent doesn't need to re-attach after reconnecting.
+
 ## Prerequisites
 
 - Windows 10/11
