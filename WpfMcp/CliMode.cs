@@ -32,6 +32,7 @@ public static class CliMode
         Console.WriteLine("  status                     - Show attachment status");
         Console.WriteLine("  macros                     - List available macros");
         Console.WriteLine("  macro <name> [k=v ...]     - Run a macro with optional parameters");
+        Console.WriteLine("  run <path.yaml> [k=v ...]  - Run a YAML macro file directly (or drag file here)");
         Console.WriteLine("  record-start <name>        - Start recording a macro");
         Console.WriteLine("  record-stop                - Stop recording and save");
         Console.WriteLine("  record-status              - Show recording status");
@@ -51,6 +52,14 @@ public static class CliMode
             if (line == null) break;
             line = line.Trim();
             if (string.IsNullOrEmpty(line)) continue;
+
+            // Detect bare .yaml path (typed, pasted, or from drag-drop onto console)
+            var trimmedLine = line.Trim('"'); // Windows sometimes wraps dragged paths in quotes
+            if (trimmedLine.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase) && File.Exists(trimmedLine))
+            {
+                await RunYamlFileAsync(trimmedLine, "", macroEngine, engine, cache);
+                continue;
+            }
 
             var parts = line.Split(' ', 2, StringSplitOptions.TrimEntries);
             var cmd = parts[0].ToLower();
@@ -289,6 +298,19 @@ public static class CliMode
                         }
                         break;
 
+                    case "run":
+                        if (string.IsNullOrEmpty(arg))
+                        {
+                            Console.WriteLine("Usage: run <path.yaml> [param1=value1 param2=value2 ...]");
+                            break;
+                        }
+                        // Split: first token is the file path, rest are params
+                        var runParts = arg.Split(' ', 2, StringSplitOptions.TrimEntries);
+                        var runPath = runParts[0].Trim('"');
+                        var runParamsStr = runParts.Length > 1 ? runParts[1] : "";
+                        await RunYamlFileAsync(runPath, runParamsStr, macroEngine, engine, cache);
+                        break;
+
                     default:
                         Console.WriteLine($"Unknown command: {cmd}. Type 'quit' to exit.");
                         break;
@@ -298,6 +320,79 @@ public static class CliMode
             {
                 Console.WriteLine($"Exception: {ex.Message}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Load a YAML macro file, prompt for missing required parameters, and execute it.
+    /// </summary>
+    private static async Task RunYamlFileAsync(
+        string yamlPath, string paramsStr,
+        MacroEngine macroEngine, UiaEngine engine, ElementCache cache)
+    {
+        if (!File.Exists(yamlPath))
+        {
+            Console.WriteLine($"File not found: {yamlPath}");
+            return;
+        }
+
+        MacroDefinition macro;
+        try
+        {
+            var yaml = File.ReadAllText(yamlPath);
+            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance)
+                .IgnoreUnmatchedProperties()
+                .Build();
+            macro = deserializer.Deserialize<MacroDefinition>(yaml);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Failed to parse YAML: {ex.Message}");
+            return;
+        }
+
+        if (macro == null || macro.Steps.Count == 0)
+        {
+            Console.WriteLine("Invalid macro: no steps defined.");
+            return;
+        }
+
+        // Parse any inline params
+        var runParams = new Dictionary<string, string>();
+        if (!string.IsNullOrEmpty(paramsStr))
+        {
+            foreach (var pair in paramsStr.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var kv = pair.Split('=', 2);
+                if (kv.Length == 2) runParams[kv[0]] = kv[1];
+            }
+        }
+
+        // Prompt for missing required parameters
+        foreach (var p in macro.Parameters)
+        {
+            if (p.Required && !runParams.ContainsKey(p.Name) && p.Default == null)
+            {
+                Console.Write($"  {p.Name}{(string.IsNullOrEmpty(p.Description) ? "" : $" ({p.Description})")}: ");
+                var value = Console.ReadLine()?.Trim();
+                if (!string.IsNullOrEmpty(value))
+                    runParams[p.Name] = value;
+            }
+        }
+
+        var displayName = macro.Name ?? Path.GetFileNameWithoutExtension(yamlPath);
+        Console.WriteLine($"Running '{displayName}' ({macro.Steps.Count} steps)...");
+
+        var result = await macroEngine.ExecuteDefinitionAsync(macro, displayName, runParams, engine, cache);
+        if (result.Success)
+            Console.WriteLine($"OK: {result.Message}");
+        else
+        {
+            Console.WriteLine($"FAILED: {result.Message}");
+            if (result.Error != null)
+                Console.WriteLine($"  Error: {result.Error}");
+            Console.WriteLine($"  Steps completed: {result.StepsExecuted}/{result.TotalSteps}");
         }
     }
 }

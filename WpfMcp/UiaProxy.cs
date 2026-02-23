@@ -381,6 +381,49 @@ public static class UiaProxyServer
                             macroName, parsedParams, engine, _cache).GetAwaiter().GetResult();
                         return JsonSerializer.Serialize(new { ok = macroResult.Success, result = macroResult });
                     }
+                    case "executeMacroYaml":
+                    {
+                        var yamlContent = GetStringArg(args, "yaml");
+                        if (string.IsNullOrEmpty(yamlContent))
+                            return Json(false, "YAML content is required");
+
+                        MacroDefinition macroDef;
+                        try
+                        {
+                            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance)
+                                .IgnoreUnmatchedProperties()
+                                .Build();
+                            macroDef = deserializer.Deserialize<MacroDefinition>(yamlContent);
+                        }
+                        catch (Exception ex)
+                        {
+                            return Json(false, $"Failed to parse YAML: {ex.Message}");
+                        }
+
+                        if (macroDef == null || macroDef.Steps.Count == 0)
+                            return Json(false, "Invalid macro: no steps defined");
+
+                        var execParams = new Dictionary<string, string>();
+                        var execParamsJson = GetStringArg(args, "parameters");
+                        if (!string.IsNullOrEmpty(execParamsJson))
+                        {
+                            try
+                            {
+                                var p = JsonSerializer.Deserialize<Dictionary<string, string>>(execParamsJson);
+                                if (p != null) execParams = p;
+                            }
+                            catch (Exception ex)
+                            {
+                                return Json(false, $"Invalid parameters JSON: {ex.Message}");
+                            }
+                        }
+
+                        var displayName = macroDef.Name ?? "inline-macro";
+                        var execResult = _macroEngine.Value.ExecuteDefinitionAsync(
+                            macroDef, displayName, execParams, engine, _cache).GetAwaiter().GetResult();
+                        return JsonSerializer.Serialize(new { ok = execResult.Success, result = execResult });
+                    }
                     case "startRecording":
                     {
                         var recName = GetStringArg(args, "name");

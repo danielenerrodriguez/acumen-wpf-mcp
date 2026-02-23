@@ -157,6 +157,20 @@ public class MacroEngine : IDisposable
         _macros.TryGetValue(name, out var m) ? m : null;
 
     /// <summary>
+    /// Execute a macro definition directly (for drag-drop / run-file scenarios).
+    /// </summary>
+    public async Task<MacroResult> ExecuteDefinitionAsync(
+        MacroDefinition macro,
+        string displayName,
+        Dictionary<string, string>? parameters = null,
+        UiaEngine? engine = null,
+        ElementCache? cache = null,
+        CancellationToken cancellation = default)
+    {
+        return await ExecuteInternalAsync(macro, displayName, parameters, engine, cache, cancellation);
+    }
+
+    /// <summary>
     /// Execute a macro by name with the given parameters.
     /// Uses UiaEngine directly (for elevated server / CLI mode).
     /// </summary>
@@ -167,12 +181,23 @@ public class MacroEngine : IDisposable
         ElementCache? cache = null,
         CancellationToken cancellation = default)
     {
+        if (!_macros.TryGetValue(macroName, out var macro))
+            return new MacroResult(false, 0, 0, $"Macro '{macroName}' not found");
+
+        return await ExecuteInternalAsync(macro, macroName, parameters, engine, cache, cancellation);
+    }
+
+    private async Task<MacroResult> ExecuteInternalAsync(
+        MacroDefinition macro,
+        string macroName,
+        Dictionary<string, string>? parameters = null,
+        UiaEngine? engine = null,
+        ElementCache? cache = null,
+        CancellationToken cancellation = default)
+    {
         engine ??= UiaEngine.Instance;
         cache ??= new ElementCache();
         parameters ??= new Dictionary<string, string>();
-
-        if (!_macros.TryGetValue(macroName, out var macro))
-            return new MacroResult(false, 0, 0, $"Macro '{macroName}' not found");
 
         // Validate required parameters
         var validationError = ValidateParameters(macro, parameters);

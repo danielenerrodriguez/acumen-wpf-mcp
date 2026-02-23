@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -14,6 +15,15 @@ for (int i = 0; i < args.Length - 1; i++)
         macrosPath = args[i + 1];
         break;
     }
+}
+
+// Drag-and-drop: first arg is a .yaml file dropped onto the exe
+if (args.Length > 0
+    && args[0].EndsWith(".yaml", StringComparison.OrdinalIgnoreCase)
+    && File.Exists(args[0]))
+{
+    await RunDragDropMacroAsync(args[0]);
+    return;
 }
 
 // --server: run elevated, listen on named pipe for UIA commands
@@ -183,4 +193,149 @@ bool LaunchElevatedServer()
         Console.Error.WriteLine($"[WPF MCP] Launch error: {ex.Message}");
         return false;
     }
+}
+
+// =====================================================================
+// Drag-and-drop YAML macro execution
+// =====================================================================
+async Task RunDragDropMacroAsync(string yamlPath)
+{
+    Console.WriteLine($"WPF MCP - Running macro: {Path.GetFileName(yamlPath)}");
+    Console.WriteLine(new string('=', 50));
+
+    // Read and parse the YAML
+    string yamlContent;
+    MacroDefinition macro;
+    try
+    {
+        yamlContent = File.ReadAllText(yamlPath);
+        var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+            .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance)
+            .IgnoreUnmatchedProperties()
+            .Build();
+        macro = deserializer.Deserialize<MacroDefinition>(yamlContent);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Failed to parse YAML: {ex.Message}");
+        WaitForKeypress();
+        return;
+    }
+
+    if (macro == null || macro.Steps.Count == 0)
+    {
+        Console.WriteLine("Invalid macro: no steps defined.");
+        WaitForKeypress();
+        return;
+    }
+
+    var displayName = macro.Name ?? Path.GetFileNameWithoutExtension(yamlPath);
+    Console.WriteLine($"Macro: {displayName}");
+    if (!string.IsNullOrEmpty(macro.Description))
+        Console.WriteLine($"Description: {macro.Description}");
+    Console.WriteLine($"Steps: {macro.Steps.Count}");
+    Console.WriteLine();
+
+    // Prompt for required parameters
+    var macroParams = new Dictionary<string, string>();
+    foreach (var p in macro.Parameters)
+    {
+        if (p.Required && p.Default == null)
+        {
+            Console.Write($"  {p.Name}{(string.IsNullOrEmpty(p.Description) ? "" : $" ({p.Description})")}: ");
+            var value = Console.ReadLine()?.Trim();
+            if (!string.IsNullOrEmpty(value))
+                macroParams[p.Name] = value;
+        }
+    }
+
+    // Ensure elevated server is running
+    if (!IsServerRunning(Constants.MutexName))
+    {
+        Console.WriteLine("Starting elevated server (approve the elevation prompt)...");
+        if (!LaunchElevatedServer())
+        {
+            Console.WriteLine("ERROR: Failed to launch elevated server.");
+            WaitForKeypress();
+            return;
+        }
+
+        bool ready = false;
+        for (int i = 0; i < Constants.ServerStartupTimeoutSeconds; i++)
+        {
+            await Task.Delay(Constants.ServerStartupPollMs);
+            if (IsServerRunning(Constants.MutexName)) { ready = true; break; }
+        }
+
+        if (!ready)
+        {
+            Console.WriteLine("ERROR: Server did not start in time.");
+            WaitForKeypress();
+            return;
+        }
+
+        await Task.Delay(Constants.ServerPostStartDelayMs);
+    }
+
+    // Connect to elevated server
+    using var proxy = new UiaProxyClient();
+    try
+    {
+        Console.WriteLine("Connecting to elevated server...");
+        await proxy.ConnectAsync(timeoutMs: Constants.PipeConnectTimeoutMs);
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"ERROR: Could not connect to pipe: {ex.Message}");
+        WaitForKeypress();
+        return;
+    }
+
+    // Execute via proxy
+    Console.WriteLine($"Executing '{displayName}'...");
+    Console.WriteLine();
+    try
+    {
+        var proxyArgs = new Dictionary<string, object?>
+        {
+            ["yaml"] = yamlContent,
+            ["parameters"] = macroParams.Count > 0
+                ? System.Text.Json.JsonSerializer.Serialize(macroParams)
+                : null
+        };
+        var response = await proxy.CallAsync("executeMacroYaml", proxyArgs);
+
+        var ok = response.GetProperty("ok").GetBoolean();
+        if (ok)
+        {
+            var result = response.GetProperty("result");
+            var steps = result.GetProperty("StepsExecuted").GetInt32();
+            var total = result.GetProperty("TotalSteps").GetInt32();
+            Console.WriteLine($"SUCCESS: {displayName} completed ({steps}/{total} steps)");
+        }
+        else
+        {
+            var result = response.GetProperty("result");
+            var msg = result.GetProperty("Message").GetString();
+            Console.WriteLine($"FAILED: {msg}");
+            if (result.TryGetProperty("Error", out var err) && err.ValueKind == System.Text.Json.JsonValueKind.String)
+                Console.WriteLine($"  Error: {err.GetString()}");
+            var steps = result.GetProperty("StepsExecuted").GetInt32();
+            var total = result.GetProperty("TotalSteps").GetInt32();
+            Console.WriteLine($"  Steps completed: {steps}/{total}");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"ERROR: {ex.Message}");
+    }
+
+    WaitForKeypress();
+}
+
+static void WaitForKeypress()
+{
+    Console.WriteLine();
+    Console.WriteLine("Press any key to exit...");
+    Console.ReadKey(intercept: true);
 }
