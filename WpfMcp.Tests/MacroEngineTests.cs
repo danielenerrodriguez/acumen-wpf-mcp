@@ -49,7 +49,7 @@ steps:
     seconds: 1.5
 ");
 
-        var engine = new MacroEngine(_tempDir);
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
         var macros = engine.List();
         Assert.Single(macros);
         Assert.Equal("test", macros[0].Name);
@@ -70,7 +70,7 @@ steps:
   - action: focus
 ");
 
-        var engine = new MacroEngine(_tempDir);
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
         var macros = engine.List();
         Assert.Single(macros);
         Assert.Equal("acumen-fuse/open-menu", macros[0].Name);
@@ -79,14 +79,14 @@ steps:
     [Fact]
     public void Load_EmptyDirectory_ReturnsNoMacros()
     {
-        var engine = new MacroEngine(_tempDir);
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
         Assert.Empty(engine.List());
     }
 
     [Fact]
     public void Load_NonexistentDirectory_ReturnsNoMacros()
     {
-        var engine = new MacroEngine(Path.Combine(_tempDir, "doesnotexist"));
+        using var engine = new MacroEngine(Path.Combine(_tempDir, "doesnotexist"), enableWatcher: false);
         Assert.Empty(engine.List());
     }
 
@@ -101,7 +101,7 @@ steps:
   - action: focus
 ");
 
-        var engine = new MacroEngine(_tempDir);
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
         var macros = engine.List();
         // Bad yaml is skipped, good one is loaded
         Assert.True(macros.Count >= 1);
@@ -118,7 +118,7 @@ steps:
   - action: focus
 ");
 
-        var engine = new MacroEngine(_tempDir);
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
         var macro = engine.Get("test");
         Assert.NotNull(macro);
         Assert.Equal("Test", macro!.Name);
@@ -127,7 +127,7 @@ steps:
     [Fact]
     public void Get_NonexistentMacro_ReturnsNull()
     {
-        var engine = new MacroEngine(_tempDir);
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
         Assert.Null(engine.Get("nonexistent"));
     }
 
@@ -228,7 +228,7 @@ steps:
     [Fact]
     public async Task Execute_MacroNotFound_ReturnsError()
     {
-        var engine = new MacroEngine(_tempDir);
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
         var result = await engine.ExecuteAsync("nonexistent");
         Assert.False(result.Success);
         Assert.Contains("not found", result.Message);
@@ -247,7 +247,7 @@ steps:
   - action: focus
 ");
 
-        var engine = new MacroEngine(_tempDir);
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
         var result = await engine.ExecuteAsync("test");
         Assert.False(result.Success);
         Assert.Contains("filePath", result.Message);
@@ -301,7 +301,7 @@ steps:
       key: value
 ");
 
-        var engine = new MacroEngine(_tempDir);
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
         var macro = engine.Get("all-steps");
         Assert.NotNull(macro);
         Assert.Equal(14, macro!.Steps.Count);
@@ -324,7 +324,7 @@ steps:
     [Fact]
     public void Reload_PicksUpNewFiles()
     {
-        var engine = new MacroEngine(_tempDir);
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
         Assert.Empty(engine.List());
 
         WriteMacro("new.yaml", @"
@@ -336,5 +336,180 @@ steps:
 
         engine.Reload();
         Assert.Single(engine.List());
+    }
+
+    // --- Load Errors ---
+
+    [Fact]
+    public void LoadErrors_InvalidYaml_PopulatesErrors()
+    {
+        WriteMacro("bad.yaml", "this is not valid yaml: [[[");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        Assert.Empty(engine.List());
+        Assert.Single(engine.LoadErrors);
+        Assert.Equal("bad", engine.LoadErrors[0].MacroName);
+        Assert.Contains("bad.yaml", engine.LoadErrors[0].FilePath);
+        Assert.NotEmpty(engine.LoadErrors[0].Error);
+    }
+
+    [Fact]
+    public void LoadErrors_EmptyFile_PopulatesErrors()
+    {
+        WriteMacro("empty.yaml", "");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        Assert.Empty(engine.List());
+        Assert.Single(engine.LoadErrors);
+        Assert.Contains("null", engine.LoadErrors[0].Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LoadErrors_NoSteps_PopulatesErrors()
+    {
+        WriteMacro("nosteps.yaml", @"
+name: No Steps
+description: Missing steps
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        Assert.Empty(engine.List());
+        Assert.Single(engine.LoadErrors);
+        Assert.Contains("no steps", engine.LoadErrors[0].Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void LoadErrors_MixedFiles_ReportsOnlyBadOnes()
+    {
+        WriteMacro("good.yaml", @"
+name: Good
+description: Works
+steps:
+  - action: focus
+");
+        WriteMacro("bad1.yaml", "not yaml: [[[");
+        WriteMacro("bad2.yaml", "");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        Assert.Single(engine.List());
+        Assert.Equal(2, engine.LoadErrors.Count);
+    }
+
+    [Fact]
+    public void LoadErrors_ClearedOnReload()
+    {
+        WriteMacro("bad.yaml", "not yaml: [[[");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        Assert.Single(engine.LoadErrors);
+
+        // Fix the file
+        WriteMacro("bad.yaml", @"
+name: Fixed
+description: Now valid
+steps:
+  - action: focus
+");
+
+        engine.Reload();
+        Assert.Empty(engine.LoadErrors);
+        Assert.Single(engine.List());
+    }
+
+    // --- File Watcher ---
+
+    [Fact]
+    public async Task Watcher_NewFile_AutoReloads()
+    {
+        using var engine = new MacroEngine(_tempDir, enableWatcher: true);
+        Assert.Empty(engine.List());
+
+        // Add a new macro file
+        WriteMacro("watched.yaml", @"
+name: Watched
+description: Added while watching
+steps:
+  - action: focus
+");
+
+        // Wait for debounce (500ms) + processing time
+        await Task.Delay(1500);
+
+        Assert.Single(engine.List());
+        Assert.Equal("watched", engine.List()[0].Name);
+    }
+
+    [Fact]
+    public async Task Watcher_ModifiedFile_AutoReloads()
+    {
+        WriteMacro("mutable.yaml", @"
+name: Original
+description: First version
+steps:
+  - action: focus
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: true);
+        Assert.Equal("Original", engine.Get("mutable")!.Name);
+
+        // Modify the file
+        WriteMacro("mutable.yaml", @"
+name: Updated
+description: Second version
+steps:
+  - action: focus
+  - action: wait
+    seconds: 1
+");
+
+        await Task.Delay(1500);
+
+        Assert.Equal("Updated", engine.Get("mutable")!.Name);
+        Assert.Equal(2, engine.Get("mutable")!.Steps.Count);
+    }
+
+    [Fact]
+    public async Task Watcher_DeletedFile_AutoReloads()
+    {
+        WriteMacro("doomed.yaml", @"
+name: Doomed
+description: Will be deleted
+steps:
+  - action: focus
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: true);
+        Assert.Single(engine.List());
+
+        File.Delete(Path.Combine(_tempDir, "doomed.yaml"));
+
+        await Task.Delay(1500);
+
+        Assert.Empty(engine.List());
+    }
+
+    [Fact]
+    public async Task Watcher_BadFile_ReportsLoadError()
+    {
+        WriteMacro("good.yaml", @"
+name: Good
+description: Works
+steps:
+  - action: focus
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: true);
+        Assert.Single(engine.List());
+        Assert.Empty(engine.LoadErrors);
+
+        // Add a bad file while watching
+        WriteMacro("broken.yaml", "not valid yaml: [[[");
+
+        await Task.Delay(1500);
+
+        // Good macro still loaded, bad one reported as error
+        Assert.Single(engine.List());
+        Assert.Single(engine.LoadErrors);
+        Assert.Equal("broken", engine.LoadErrors[0].MacroName);
     }
 }

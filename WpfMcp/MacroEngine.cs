@@ -9,11 +9,17 @@ namespace WpfMcp;
 /// Loads, validates, and executes macro YAML files.
 /// Macros are discovered from the macros/ folder next to the exe,
 /// or from the path specified by WPFMCP_MACROS_PATH env var.
+/// Watches the macros directory for changes and auto-reloads.
 /// </summary>
-public class MacroEngine
+public class MacroEngine : IDisposable
 {
     private readonly Dictionary<string, MacroDefinition> _macros = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<MacroLoadError> _loadErrors = new();
     private readonly string _macrosPath;
+    private FileSystemWatcher? _watcher;
+    private Timer? _debounceTimer;
+    private readonly object _reloadLock = new();
+    private bool _disposed;
 
     private static readonly IDeserializer s_yaml = new DeserializerBuilder()
         .WithNamingConvention(UnderscoredNamingConvention.Instance)
@@ -22,41 +28,114 @@ public class MacroEngine
 
     private static readonly Regex s_paramPattern = new(@"\{\{(\w+)\}\}", RegexOptions.Compiled);
 
-    public MacroEngine(string? macrosPath = null)
+    /// <summary>YAML files that failed to parse on the last reload.</summary>
+    public IReadOnlyList<MacroLoadError> LoadErrors
+    {
+        get { lock (_reloadLock) return _loadErrors.ToList(); }
+    }
+
+    public MacroEngine(string? macrosPath = null, bool enableWatcher = true)
     {
         _macrosPath = macrosPath
             ?? Environment.GetEnvironmentVariable("WPFMCP_MACROS_PATH")
             ?? Path.Combine(AppContext.BaseDirectory, "macros");
         Reload();
+
+        if (enableWatcher && Directory.Exists(_macrosPath))
+            StartWatcher();
     }
 
     /// <summary>Scan the macros directory and load all .yaml files.</summary>
     public void Reload()
     {
-        _macros.Clear();
-        if (!Directory.Exists(_macrosPath)) return;
-
-        foreach (var file in Directory.GetFiles(_macrosPath, "*.yaml", SearchOption.AllDirectories))
+        lock (_reloadLock)
         {
-            try
-            {
-                var yaml = File.ReadAllText(file);
-                var macro = s_yaml.Deserialize<MacroDefinition>(yaml);
-                if (macro == null) continue;
+            _macros.Clear();
+            _loadErrors.Clear();
+            if (!Directory.Exists(_macrosPath)) return;
 
-                // Macro name = relative path without extension, using forward slashes
+            foreach (var file in Directory.GetFiles(_macrosPath, "*.yaml", SearchOption.AllDirectories))
+            {
                 var relativePath = Path.GetRelativePath(_macrosPath, file);
                 var macroName = relativePath
                     .Replace(Path.DirectorySeparatorChar, '/')
                     .Replace(".yaml", "", StringComparison.OrdinalIgnoreCase);
 
-                _macros[macroName] = macro;
+                try
+                {
+                    var yaml = File.ReadAllText(file);
+                    var macro = s_yaml.Deserialize<MacroDefinition>(yaml);
+                    if (macro == null)
+                    {
+                        _loadErrors.Add(new MacroLoadError(relativePath, macroName,
+                            "YAML deserialized to null (empty or invalid file)"));
+                        continue;
+                    }
+
+                    if (macro.Steps.Count == 0)
+                    {
+                        _loadErrors.Add(new MacroLoadError(relativePath, macroName,
+                            "Macro has no steps defined"));
+                        continue;
+                    }
+
+                    _macros[macroName] = macro;
+                }
+                catch (Exception ex)
+                {
+                    _loadErrors.Add(new MacroLoadError(relativePath, macroName, ex.Message));
+                    Console.Error.WriteLine($"Warning: Failed to load macro '{file}': {ex.Message}");
+                }
             }
+
+            if (_loadErrors.Count > 0)
+                Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss}] Macros reloaded: {_macros.Count} loaded, {_loadErrors.Count} errors");
+            else if (_macros.Count > 0)
+                Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss}] Macros reloaded: {_macros.Count} loaded");
+        }
+    }
+
+    private void StartWatcher()
+    {
+        _watcher = new FileSystemWatcher(_macrosPath, "*.yaml")
+        {
+            IncludeSubdirectories = true,
+            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime
+        };
+
+        _watcher.Created += OnFileChanged;
+        _watcher.Changed += OnFileChanged;
+        _watcher.Deleted += OnFileChanged;
+        _watcher.Renamed += OnFileRenamed;
+        _watcher.EnableRaisingEvents = true;
+    }
+
+    private void OnFileChanged(object sender, FileSystemEventArgs e) => DebouncedReload();
+    private void OnFileRenamed(object sender, RenamedEventArgs e) => DebouncedReload();
+
+    /// <summary>
+    /// Debounce reload: wait 500ms of quiet before actually reloading.
+    /// Prevents rapid-fire reloads when editors save multiple times.
+    /// </summary>
+    private void DebouncedReload()
+    {
+        _debounceTimer?.Dispose();
+        _debounceTimer = new Timer(_ =>
+        {
+            try { Reload(); }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"Warning: Failed to load macro '{file}': {ex.Message}");
+                Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss}] Macro reload error: {ex.Message}");
             }
-        }
+        }, null, Constants.MacroReloadDebounceMs, Timeout.Infinite);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _debounceTimer?.Dispose();
+        _watcher?.Dispose();
     }
 
     /// <summary>List all loaded macros with their metadata.</summary>
@@ -406,3 +485,9 @@ public record MacroParamInfo(
     string Description,
     bool Required,
     string? Default);
+
+/// <summary>Describes a YAML file that failed to load.</summary>
+public record MacroLoadError(
+    string FilePath,
+    string MacroName,
+    string Error);

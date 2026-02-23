@@ -348,8 +348,10 @@ public static class UiaProxyServer
                     }
                     case "macroList":
                     {
-                        var macros = _macroEngine.Value.List();
-                        return JsonSerializer.Serialize(new { ok = true, result = macros });
+                        var macroEng = _macroEngine.Value;
+                        var macros = macroEng.List();
+                        var loadErrors = macroEng.LoadErrors;
+                        return JsonSerializer.Serialize(new { ok = true, result = macros, loadErrors });
                     }
                     case "macro":
                     {

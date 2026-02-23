@@ -273,14 +273,30 @@ public static class WpfTools
         {
             var resp = await Proxy.CallAsync("macroList");
             if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
-                return JsonSerializer.Serialize(resp.GetProperty("result"), Constants.IndentedJson);
+            {
+                var output = JsonSerializer.Serialize(resp.GetProperty("result"), Constants.IndentedJson);
+                if (resp.TryGetProperty("loadErrors", out var errors) && errors.GetArrayLength() > 0)
+                    output += $"\n\nLoad Errors:\n{JsonSerializer.Serialize(errors, Constants.IndentedJson)}";
+                return output;
+            }
             return $"Error: {resp.GetProperty("error").GetString()}";
         }
 
-        var macros = _macroEngine.Value.List();
-        if (macros.Count == 0)
+        var engine = _macroEngine.Value;
+        var macros = engine.List();
+        var loadErrors = engine.LoadErrors;
+
+        if (macros.Count == 0 && loadErrors.Count == 0)
             return "No macros found. Place .yaml files in the macros/ folder.";
-        return JsonSerializer.Serialize(macros, Constants.IndentedJson);
+
+        var result = macros.Count > 0
+            ? JsonSerializer.Serialize(macros, Constants.IndentedJson)
+            : "No valid macros loaded.";
+
+        if (loadErrors.Count > 0)
+            result += $"\n\nLoad Errors ({loadErrors.Count}):\n{JsonSerializer.Serialize(loadErrors, Constants.IndentedJson)}";
+
+        return result;
     }
 
     [McpServerTool, Description("Run a named macro with optional parameters. Use wpf_macro_list to see available macros.")]

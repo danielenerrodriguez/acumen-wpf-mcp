@@ -36,6 +36,7 @@ public static class Constants
     public const int DefaultMacroTimeoutSec = 60;
     public const int DefaultStepTimeoutSec = 5;
     public const double DefaultRetryIntervalSec = 1.0;
+    public const int MacroReloadDebounceMs = 500;
 
     // Shared JSON options
     public static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
