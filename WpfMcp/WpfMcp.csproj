@@ -15,11 +15,4 @@
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
   </ItemGroup>
 
-  <!-- Copy macros/ folder to output directory -->
-  <ItemGroup>
-    <Content Include="..\macros\**\*.yaml" Link="macros\%(RecursiveDir)%(Filename)%(Extension)">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
-
 </Project>

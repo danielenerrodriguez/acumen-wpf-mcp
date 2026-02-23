@@ -38,6 +38,13 @@ public static class Constants
     public const double DefaultRetryIntervalSec = 1.0;
     public const int MacroReloadDebounceMs = 500;
 
+    // Recording
+    public const int TypingCoalesceMs = 300;
+    public const double WaitDetectionThresholdSec = 1.5;
+    public const double MaxRecordedWaitSec = 10.0;
+    public const int AltSequentialTimeoutMs = 500;
+    public const int DefaultRecordingStepTimeoutSec = 5;
+
     // Shared JSON options
     public static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
 }

@@ -29,6 +29,7 @@ public class UiaEngine
     public bool IsAttached => _attachedProcess != null && _mainWindow != null && !_attachedProcess.HasExited;
     public string? WindowTitle { get { try { return RunOnSta(() => _mainWindow?.Current.Name); } catch { return null; } } }
     public int? ProcessId => _attachedProcess?.Id;
+    public IntPtr TargetWindowHandle => _attachedProcess?.MainWindowHandle ?? IntPtr.Zero;
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -54,6 +55,11 @@ public class UiaEngine
     private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(POINT point);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct POINT { public int X, Y; }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
@@ -222,6 +228,53 @@ public class UiaEngine
             }
             catch (Exception ex) { return (false, $"Failed to attach: {ex.Message}"); }
         });
+    }
+
+    /// <summary>
+    /// Get the UIA element at screen coordinates (x, y).
+    /// Returns element properties suitable for building a find step.
+    /// Returns null if the point is outside the target process.
+    /// </summary>
+    public ElementAtPointResult? ElementFromPoint(int x, int y)
+    {
+        return RunOnSta(() =>
+        {
+            try
+            {
+                var element = AutomationElement.FromPoint(new System.Windows.Point(x, y));
+                if (element == null) return null;
+
+                // Verify the element belongs to our target process
+                if (_attachedProcess != null && element.Current.ProcessId != _attachedProcess.Id)
+                    return null;
+
+                var c = element.Current;
+                return new ElementAtPointResult(
+                    AutomationId: string.IsNullOrEmpty(c.AutomationId) ? null : c.AutomationId,
+                    Name: string.IsNullOrEmpty(c.Name) ? null : c.Name,
+                    ClassName: string.IsNullOrEmpty(c.ClassName) ? null : c.ClassName,
+                    ControlType: c.ControlType.ProgrammaticName.Replace("ControlType.", ""),
+                    FrameworkId: string.IsNullOrEmpty(c.FrameworkId) ? null : c.FrameworkId
+                );
+            }
+            catch
+            {
+                return null;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Check if screen coordinates belong to the attached process's window hierarchy.
+    /// Uses Win32 WindowFromPoint + GetWindowThreadProcessId.
+    /// </summary>
+    public bool IsPointInTargetProcess(int x, int y)
+    {
+        if (_attachedProcess == null) return false;
+        var hwnd = WindowFromPoint(new POINT { X = x, Y = y });
+        if (hwnd == IntPtr.Zero) return false;
+        GetWindowThreadProcessId(hwnd, out uint pid);
+        return pid == (uint)_attachedProcess.Id;
     }
 
     public (bool success, string message) FocusWindow()
@@ -743,3 +796,11 @@ public class UiaEngine
         throw new ArgumentException($"Unknown key: '{keyName}'");
     }
 }
+
+/// <summary>Properties of a UIA element found at a screen point.</summary>
+public record ElementAtPointResult(
+    string? AutomationId,
+    string? Name,
+    string? ClassName,
+    string ControlType,
+    string? FrameworkId);

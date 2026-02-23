@@ -5,10 +5,21 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using WpfMcp;
 
+// Parse --macros-path argument (used by both server and client modes)
+string? macrosPath = null;
+for (int i = 0; i < args.Length - 1; i++)
+{
+    if (args[i] == "--macros-path")
+    {
+        macrosPath = args[i + 1];
+        break;
+    }
+}
+
 // --server: run elevated, listen on named pipe for UIA commands
 if (args.Contains("--server"))
 {
-    await UiaProxyServer.RunAsync();
+    await UiaProxyServer.RunAsync(macrosPath);
     return;
 }
 
@@ -28,7 +39,7 @@ if (args.Contains("--mcp"))
 }
 
 // Default (no args / double-click): interactive CLI mode
-await CliMode.RunAsync(args);
+await CliMode.RunAsync(args, macrosPath);
 
 // =====================================================================
 // --mcp-connect implementation
@@ -139,17 +150,21 @@ static bool IsServerRunning(string mutexName)
     catch { return false; }
 }
 
-static bool LaunchElevatedServer()
+bool LaunchElevatedServer()
 {
     try
     {
         var exePath = Process.GetCurrentProcess().MainModule?.FileName
             ?? System.IO.Path.Combine(AppContext.BaseDirectory, "WpfMcp.exe");
 
+        var serverArgs = "--server";
+        if (macrosPath != null)
+            serverArgs += $" --macros-path \"{macrosPath}\"";
+
         var psi = new ProcessStartInfo
         {
             FileName = exePath,
-            Arguments = "--server",
+            Arguments = serverArgs,
             Verb = "runas",
             UseShellExecute = true,
             WindowStyle = ProcessWindowStyle.Normal

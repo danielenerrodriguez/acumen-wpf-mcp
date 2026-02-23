@@ -332,6 +332,67 @@ public static class WpfTools
         return JsonSerializer.Serialize(result, Constants.IndentedJson);
     }
 
+    [McpServerTool, Description("Start recording a macro. Captures mouse clicks and keyboard input on the attached application. Call wpf_record_stop to finish.")]
+    public static async Task<string> wpf_record_start(
+        [Description("Macro name including subfolder (e.g., 'acumen-fuse/my-workflow')")] string name,
+        [Description("Path to macros folder (optional, uses WPFMCP_MACROS_PATH or default)")] string? macros_path = null)
+    {
+        if (Proxy != null)
+        {
+            var args = new Dictionary<string, object?> { ["name"] = name, ["macrosPath"] = macros_path };
+            return FormatResponse(await Proxy.CallAsync("startRecording", args));
+        }
+
+        return "Error: Recording requires the elevated server (use --mcp-connect mode)";
+    }
+
+    [McpServerTool, Description("Stop recording and save the macro as a YAML file. Returns the generated YAML for review.")]
+    public static async Task<string> wpf_record_stop()
+    {
+        if (Proxy != null)
+        {
+            var resp = await Proxy.CallAsync("stopRecording");
+            if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
+            {
+                var msg = resp.GetProperty("result").GetString();
+                var yaml = resp.TryGetProperty("yaml", out var y) && y.ValueKind == JsonValueKind.String ? y.GetString() : null;
+                var filePath = resp.TryGetProperty("filePath", out var fp) && fp.ValueKind == JsonValueKind.String ? fp.GetString() : null;
+                var output = $"OK: {msg}";
+                if (filePath != null)
+                    output += $"\nFile: {filePath}";
+                if (yaml != null)
+                    output += $"\n\n--- Generated YAML ---\n{yaml}";
+                return output;
+            }
+            return $"Error: {resp.GetProperty("error").GetString()}";
+        }
+
+        return "Error: Recording requires the elevated server (use --mcp-connect mode)";
+    }
+
+    [McpServerTool, Description("Check the current recording status (idle or recording, action count, duration).")]
+    public static async Task<string> wpf_record_status()
+    {
+        if (Proxy != null)
+        {
+            var resp = await Proxy.CallAsync("recordingStatus");
+            if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
+            {
+                var state = resp.GetProperty("state").GetString();
+                var macroName = resp.TryGetProperty("macroName", out var mn) ? mn.GetString() : "";
+                var actionCount = resp.TryGetProperty("actionCount", out var ac) ? ac.GetInt32() : 0;
+                var durationSec = resp.TryGetProperty("durationSec", out var ds) ? ds.GetDouble() : 0;
+
+                if (state == "Idle")
+                    return "Not recording.";
+                return $"Recording: {macroName} ({actionCount} actions, {durationSec:F1}s)";
+            }
+            return $"Error: {resp.GetProperty("error").GetString()}";
+        }
+
+        return "Error: Recording requires the elevated server (use --mcp-connect mode)";
+    }
+
     // Helper: format simple ok/error response from proxy
     private static string FormatResponse(JsonElement resp)
     {

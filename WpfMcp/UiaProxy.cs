@@ -78,6 +78,8 @@ public static class UiaProxyServer
 
     private static readonly ElementCache _cache = new();
     private static readonly Lazy<MacroEngine> _macroEngine = new(() => new MacroEngine());
+    private static readonly Lazy<InputRecorder> _recorder = new(() => new InputRecorder(UiaEngine.Instance));
+    private static string? _macrosPath;
 
     /// <summary>Save last attached process name so we can auto-reattach.</summary>
     private static void SaveLastClient(string processName)
@@ -117,8 +119,9 @@ public static class UiaProxyServer
     private static int? GetIntArg(JsonElement args, string name) =>
         args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : (int?)null;
 
-    public static async Task RunAsync()
+    public static async Task RunAsync(string? macrosPath = null)
     {
+        _macrosPath = macrosPath;
         Console.WriteLine("========================================");
         Console.WriteLine("  WPF UIA Server (Elevated)");
         Console.WriteLine("========================================");
@@ -377,6 +380,42 @@ public static class UiaProxyServer
                         var macroResult = _macroEngine.Value.ExecuteAsync(
                             macroName, parsedParams, engine, _cache).GetAwaiter().GetResult();
                         return JsonSerializer.Serialize(new { ok = macroResult.Success, result = macroResult });
+                    }
+                    case "startRecording":
+                    {
+                        var recName = GetStringArg(args, "name");
+                        if (string.IsNullOrEmpty(recName))
+                            return Json(false, "Macro name is required");
+                        var recPath = GetStringArg(args, "macrosPath") ?? _macrosPath
+                            ?? Environment.GetEnvironmentVariable("WPFMCP_MACROS_PATH")
+                            ?? Path.Combine(AppContext.BaseDirectory, "macros");
+                        var result = _recorder.Value.StartRecording(recName, recPath);
+                        return Json(result.success, result.message);
+                    }
+                    case "stopRecording":
+                    {
+                        var result = _recorder.Value.StopRecording();
+                        if (result.success)
+                            return JsonSerializer.Serialize(new
+                            {
+                                ok = true,
+                                result = result.message,
+                                yaml = result.yaml,
+                                filePath = result.filePath
+                            });
+                        return Json(false, result.message);
+                    }
+                    case "recordingStatus":
+                    {
+                        var rec = _recorder.Value;
+                        return JsonSerializer.Serialize(new
+                        {
+                            ok = true,
+                            state = rec.State.ToString(),
+                            macroName = rec.MacroName,
+                            actionCount = rec.ActionCount,
+                            durationSec = rec.Duration.TotalSeconds
+                        });
                     }
                     default:
                         return Json(false, $"Unknown method: {method}");

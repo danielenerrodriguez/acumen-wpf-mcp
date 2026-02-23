@@ -52,7 +52,7 @@ The `--mcp-connect` process auto-launches the elevated server if it isn't alread
 │  WpfMcp.exe --mcp-connect              (non-elevated process)   │
 │                                                                 │
 │  Program.cs         Mode routing, auto-launches elevated server │
-│  Tools.cs           15 MCP tool definitions (incl. macros)      │
+│  Tools.cs           18 MCP tool definitions (incl. macros+rec)  │
 │  UiaProxyClient     Sends JSON requests over named pipe         │
 │  ElementCache       Thread-safe ref cache (e1, e2, ...)         │
 │  Constants          Shared config (pipe name, timeouts, etc.)   │
@@ -178,6 +178,9 @@ Runs a standard MCP stdio server without elevation. Only works if the target app
 | `wpf_properties` | Get detailed properties of a cached element |
 | `wpf_macro` | Execute a named macro with optional parameters |
 | `wpf_macro_list` | List all available macros and their parameters |
+| `wpf_record_start` | Start recording user interactions as a macro |
+| `wpf_record_stop` | Stop recording and save the macro YAML file |
+| `wpf_record_status` | Check recording state, action count, and duration |
 
 ### Element References
 
@@ -338,6 +341,60 @@ steps:
     keys: Enter
 ```
 
+## Macro Recording
+
+The macro recording feature captures user interactions with the target WPF application and generates YAML macro files automatically. This is useful for creating macro drafts that can then be reviewed and refined.
+
+### How It Works
+
+Recording uses **low-level Windows input hooks** (`WH_MOUSE_LL` and `WH_KEYBOARD_LL`) combined with UIA `AutomationElement.FromPoint()` to identify which element the user clicked:
+
+1. **Mouse clicks** are filtered to only the target application's window. Each click resolves the element at the cursor position and records its AutomationId, Name, ClassName, and ControlType.
+2. **Keyboard input** goes through a state machine that detects:
+   - **Typing**: Consecutive character keystrokes are coalesced into a single `type` step (300ms window)
+   - **Keyboard combos**: `Ctrl+S`, `Alt+Shift+N` (modifier keys held simultaneously)
+   - **Sequential keys**: `Alt,F` (Alt released alone, then F pressed within 500ms — for ribbon keytips)
+   - **Special keys**: `Enter`, `Tab`, `Escape`, F-keys, etc.
+3. **Wait detection**: Gaps longer than 1.5 seconds between actions produce `wait` steps, capped at 10 seconds.
+4. Each recorded click becomes a `find` + `click` step pair, using the best available element identifier (AutomationId > Name+ControlType > ClassName+ControlType).
+
+### Recording Workflow
+
+```
+1. Attach to the target app     →  wpf_attach  process_name="Fuse"
+2. Start recording               →  wpf_record_start  name="acumen-fuse/my-workflow"
+3. Interact with the app         →  (click buttons, type text, use keyboard shortcuts)
+4. Stop recording                →  wpf_record_stop
+5. Review the generated YAML     →  AI reviews and edits the macro before use
+6. Run the macro                 →  wpf_macro  name="acumen-fuse/my-workflow"
+```
+
+### CLI Commands
+
+```
+record-start <name>   Start recording (e.g., record-start acumen-fuse/my-workflow)
+record-stop           Stop recording and save the YAML file
+record-status         Show recording state, action count, and duration
+```
+
+### Output
+
+The recorded macro is saved to the `macros/` folder using the name as a relative path:
+
+- `record-start acumen-fuse/my-workflow` → `macros/acumen-fuse/my-workflow.yaml`
+- `record-start quick-test` → `macros/quick-test.yaml`
+
+Subdirectories are created automatically. The file watcher picks up the new file immediately.
+
+The `wpf_record_stop` tool also returns the generated YAML in the response, so the AI agent can review and suggest edits before the macro is used in production.
+
+### Important Notes
+
+- Recording runs on the **elevated server process** (hooks require the same privilege level as the target)
+- Only interactions with the **attached target process** are captured (mouse clicks filtered by window ownership, keyboard filtered by foreground window check)
+- Mouse **moves** are ignored — only clicks are recorded
+- The recorder must be started and stopped through the proxy (`--mcp-connect` mode) or CLI mode — not direct MCP mode
+
 ## Project Structure
 
 ```
@@ -350,11 +407,13 @@ C:\WpfMcp\
     Program.cs                          Entry point, mode routing, auto-launch logic
     Constants.cs                        Shared constants (pipe name, timeouts, JSON options)
     ElementCache.cs                     Thread-safe element reference cache (e1, e2, ...)
-    Tools.cs                            MCP tool definitions (proxied and direct modes)
+    Tools.cs                            18 MCP tool definitions (15 core + 3 recording)
     UiaEngine.cs                        Core UI Automation engine (STA thread, SendInput)
     UiaProxy.cs                         Proxy client/server for named pipe communication
     MacroDefinition.cs                  YAML-deserialized POCOs for macros
     MacroEngine.cs                      Load, validate, and execute macro YAML files
+    MacroSerializer.cs                  YAML serialization and BuildFromRecordedActions
+    InputRecorder.cs                    Low-level hooks, keyboard state machine, recording
     CliMode.cs                          Interactive CLI for manual testing
   macros/
     acumen-fuse/
@@ -362,8 +421,10 @@ C:\WpfMcp\
       find-projects-view.yaml          Find element with retry (example)
       import-file.yaml                 Full workflow with parameters (example)
   WpfMcp.Tests/
-    WpfMcp.Tests.csproj                 xUnit test project (46 tests)
-    MacroEngineTests.cs                 18 tests for macro loading, validation, execution
+    WpfMcp.Tests.csproj                 xUnit test project (87 tests)
+    MacroEngineTests.cs                 27 tests for macro loading, validation, execution
+    MacroSerializerTests.cs             16 tests for YAML serialization and action building
+    InputRecorderTests.cs               13 tests for recorder state and wait computation
 ```
 
 ## Troubleshooting
