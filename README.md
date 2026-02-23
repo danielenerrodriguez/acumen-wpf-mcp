@@ -53,7 +53,13 @@ cd C:\WpfMcp
 dotnet build -c Release
 ```
 
-Output: `C:\WpfMcp\bin\Release\net9.0-windows\WpfMcp.exe`
+Output: `C:\WpfMcp\WpfMcp\bin\Release\net9.0-windows\WpfMcp.exe`
+
+### Running Tests
+
+```
+dotnet test
+```
 
 ## Usage Modes
 
@@ -65,7 +71,7 @@ Configure your MCP client to launch:
 {
   "wpf-uia": {
     "type": "local",
-    "command": ["cmd.exe", "/c", "C:\\WpfMcp\\bin\\Release\\net9.0-windows\\WpfMcp.exe --mcp-connect"]
+    "command": ["cmd.exe", "/c", "C:\\WpfMcp\\WpfMcp\\bin\\Release\\net9.0-windows\\WpfMcp.exe --mcp-connect"]
   }
 }
 ```
@@ -132,14 +138,17 @@ This is useful for navigating deep into the control tree where a simple `wpf_fin
 
 ```
 C:\WpfMcp\
-  Program.cs        Entry point, mode routing, auto-launch logic
-  Tools.cs          MCP tool definitions (proxied and direct modes)
-  UiaEngine.cs      Core UI Automation engine (STA thread, SendInput, TreeWalker)
-  UiaProxy.cs       Proxy client/server for named pipe communication
-  CliMode.cs        Interactive CLI for manual testing
-  PipeServer.cs     (obsolete, kept for reference)
-  WpfMcp.csproj     .NET 9 project file
-  nuget.config      NuGet source configuration
+  WpfMcp.slnx                          Solution file
+  nuget.config                          NuGet source configuration
+  WpfMcp/
+    WpfMcp.csproj                       Main project (.NET 9, WPF)
+    Program.cs                          Entry point, mode routing, auto-launch logic
+    Tools.cs                            MCP tool definitions (proxied and direct modes)
+    UiaEngine.cs                        Core UI Automation engine (STA thread, SendInput)
+    UiaProxy.cs                         Proxy client/server for named pipe communication
+    CliMode.cs                          Interactive CLI for manual testing
+  WpfMcp.Tests/
+    WpfMcp.Tests.csproj                 xUnit test project
 ```
 
 ## Troubleshooting

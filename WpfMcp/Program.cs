@@ -13,7 +13,7 @@ if (args.Contains("--server"))
 }
 
 // --mcp-connect: non-elevated MCP server that proxies UIA calls to elevated --server
-// This is what OpenCode launches.
+// This is what ClaudeCode launches.
 if (args.Contains("--mcp-connect"))
 {
     await RunMcpConnectAsync(args);

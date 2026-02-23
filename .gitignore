@@ -3,9 +3,4 @@ obj/
 *.user
 *.suo
 .vs/
-Diag/
-Diag48/
 last_client.txt
-check_fuse.ps1
-check_modules.ps1
-mcp_init.json
