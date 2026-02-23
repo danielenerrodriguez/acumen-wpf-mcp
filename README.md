@@ -114,6 +114,16 @@ Output: `C:\WpfMcp\WpfMcp\bin\Release\net9.0-windows\WpfMcp.exe`
 dotnet test
 ```
 
+### CI/CD
+
+A GitHub Actions workflow (`.github/workflows/build-release.yml`) runs on every push to `master`:
+
+1. Builds and runs all tests on `windows-latest`
+2. Publishes a self-contained single-file exe (no .NET runtime required)
+3. Creates a GitHub Release with `WpfMcp.exe` attached
+
+Pull requests to `master` trigger build and test only (no release).
+
 ## Usage Modes
 
 ### MCP Mode (for AI agents)
