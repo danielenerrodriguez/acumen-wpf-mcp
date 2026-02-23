@@ -386,9 +386,8 @@ public static class UiaProxyServer
                         var recName = GetStringArg(args, "name");
                         if (string.IsNullOrEmpty(recName))
                             return Json(false, "Macro name is required");
-                        var recPath = GetStringArg(args, "macrosPath") ?? _macrosPath
-                            ?? Environment.GetEnvironmentVariable("WPFMCP_MACROS_PATH")
-                            ?? Path.Combine(AppContext.BaseDirectory, "macros");
+                        var recPath = Constants.ResolveMacrosPath(
+                            GetStringArg(args, "macrosPath") ?? _macrosPath);
                         var result = _recorder.Value.StartRecording(recName, recPath);
                         return Json(result.success, result.message);
                     }

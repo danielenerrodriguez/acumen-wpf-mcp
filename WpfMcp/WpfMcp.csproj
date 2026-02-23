@@ -15,4 +15,14 @@
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
   </ItemGroup>
 
+  <!-- Copy macros/ folder to build output so the default path works -->
+  <Target Name="CopyMacros" AfterTargets="Build">
+    <ItemGroup>
+      <MacroFiles Include="..\macros\**\*.yaml" />
+    </ItemGroup>
+    <Copy SourceFiles="@(MacroFiles)"
+          DestinationFiles="@(MacroFiles->'$(TargetDir)macros\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>

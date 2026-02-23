@@ -120,9 +120,12 @@ A GitHub Actions workflow (`.github/workflows/build-release.yml`) runs on every 
 
 1. Builds and runs all tests on `windows-latest`
 2. Publishes a self-contained single-file exe (no .NET runtime required)
-3. Creates a GitHub Release with `WpfMcp.exe` attached
+3. Copies the `macros/` folder alongside the exe
+4. Creates a GitHub Release with `WpfMcp.zip` (exe + macros) attached
 
 Pull requests to `master` trigger build and test only (no release).
+
+Extract the zip and keep `WpfMcp.exe` and the `macros/` folder in the same directory. The server discovers macros from the `macros/` folder next to the exe by default.
 
 ## Usage Modes
 
@@ -219,7 +222,12 @@ macros/
     some-workflow.yaml
 ```
 
-Macros are discovered from the `macros/` folder next to the exe (copied at build time), or from a custom path via the `WPFMCP_MACROS_PATH` environment variable. Macro names are derived from the relative path without extension, using forward slashes (e.g., `acumen-fuse/import-file`).
+Macros are discovered from the `macros/` folder next to the exe. This folder is copied automatically on build (`dotnet build`) and included in the release zip. You can override the location with:
+
+- The `--macros-path <path>` CLI argument
+- The `WPFMCP_MACROS_PATH` environment variable
+
+Macro names are derived from the relative path without extension, using forward slashes (e.g., `acumen-fuse/import-file`).
 
 ### YAML Schema
 

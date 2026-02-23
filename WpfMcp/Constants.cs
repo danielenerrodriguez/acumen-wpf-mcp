@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json;
 
 namespace WpfMcp;
@@ -7,6 +8,18 @@ namespace WpfMcp;
 /// </summary>
 public static class Constants
 {
+    /// <summary>
+    /// Resolve the macros folder path. Priority: explicit path > env var > macros/ next to exe.
+    /// Uses Environment.ProcessPath (actual exe location on disk) rather than
+    /// AppContext.BaseDirectory (which points to a temp extraction dir for single-file publish).
+    /// </summary>
+    public static string ResolveMacrosPath(string? explicitPath = null) =>
+        explicitPath
+        ?? Environment.GetEnvironmentVariable("WPFMCP_MACROS_PATH")
+        ?? Path.Combine(
+            Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory,
+            "macros");
+
     // Named pipe and mutex
     public const string PipeName = "WpfMcp_UIA";
     public const string MutexName = "Global\\WpfMcp_Server_Running";

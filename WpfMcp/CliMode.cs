@@ -42,9 +42,7 @@ public static class CliMode
         var cache = new ElementCache();
         var macroEngine = new MacroEngine(macrosPath);
         var recorder = new InputRecorder(engine);
-        var resolvedMacrosPath = macrosPath
-            ?? Environment.GetEnvironmentVariable("WPFMCP_MACROS_PATH")
-            ?? Path.Combine(AppContext.BaseDirectory, "macros");
+        var resolvedMacrosPath = Constants.ResolveMacrosPath(macrosPath);
 
         while (true)
         {

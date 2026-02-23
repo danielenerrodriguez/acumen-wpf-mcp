@@ -36,9 +36,7 @@ public class MacroEngine : IDisposable
 
     public MacroEngine(string? macrosPath = null, bool enableWatcher = true)
     {
-        _macrosPath = macrosPath
-            ?? Environment.GetEnvironmentVariable("WPFMCP_MACROS_PATH")
-            ?? Path.Combine(AppContext.BaseDirectory, "macros");
+        _macrosPath = Constants.ResolveMacrosPath(macrosPath);
         Reload();
 
         if (enableWatcher && Directory.Exists(_macrosPath))
