@@ -1,8 +1,19 @@
 name: Open File Menu
 description: Opens the Acumen Fuse File menu via ribbon keytips
-timeout: 10
+timeout: 130
+
+parameters:
+  - name: exePath
+    description: Path to Fuse.exe (passed to launch macro)
+    required: false
+    default: "C:\\Program Files\\Deltek\\Acumen 8.12\\Fuse.exe"
 
 steps:
+  - action: macro
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: "{{exePath}}"
+      
   - action: focus
   - action: send_keys
     keys: "Alt,F"

@@ -1,18 +1,23 @@
 name: Launch Acumen Fuse
 description: Starts Acumen Fuse if not already running and waits for the main window to be ready
-timeout: 60
+timeout: 120
 parameters:
   - name: exePath
     description: Path to Fuse.exe
     required: false
     default: "C:\\Program Files\\Deltek\\Acumen 8.12\\Fuse.exe"
+
+# Fuse startup phases (same PID, different window handles):
+#   0-2s:  "Please wait while the application opens" (splash)
+#   2-12s: "Deltek Acumen" (loading/initializing)
+#   12s+:  "Workbook1 - Deltek Acumen" (ready)
 steps:
   - action: launch
     exe_path: "{{exePath}}"
     if_not_running: true
-    timeout: 45
+    timeout: 60
 
   - action: wait_for_window
-    title_contains: "Deltek Acumen"
-    timeout: 45
-    retry_interval: 3
+    title_contains: "Workbook1"
+    timeout: 90
+    retry_interval: 2
