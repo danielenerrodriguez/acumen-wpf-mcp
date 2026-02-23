@@ -755,6 +755,45 @@ public class UiaEngine
     }
 
     /// <summary>
+    /// Set the value of an element using the UIA ValuePattern.
+    /// Works reliably with edit fields, combo boxes, etc. without focus issues.
+    /// </summary>
+    public (bool success, string message) SetElementValue(AutomationElement element, string value)
+    {
+        if (!IsAttached) return (false, "Not attached");
+        try
+        {
+            if (element.TryGetCurrentPattern(ValuePattern.Pattern, out object? pattern))
+            {
+                var valuePattern = (ValuePattern)pattern;
+                valuePattern.SetValue(value);
+                return (true, $"Set value: {value}");
+            }
+            return (false, "Element does not support ValuePattern");
+        }
+        catch (Exception ex) { return (false, $"SetValue failed: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Get the current value of an element using the UIA ValuePattern.
+    /// </summary>
+    public (bool success, string? value, string message) GetElementValue(AutomationElement element)
+    {
+        if (!IsAttached) return (false, null, "Not attached");
+        try
+        {
+            if (element.TryGetCurrentPattern(ValuePattern.Pattern, out object? pattern))
+            {
+                var valuePattern = (ValuePattern)pattern;
+                var val = valuePattern.Current.Value;
+                return (true, val, $"Value: {val}");
+            }
+            return (false, null, "Element does not support ValuePattern");
+        }
+        catch (Exception ex) { return (false, null, $"GetValue failed: {ex.Message}"); }
+    }
+
+    /// <summary>
     /// Send keyboard input using SendInput API.
     /// Supports:
     ///   - Simultaneous: "Ctrl+S", "Alt+F4" (modifier held while key pressed)
@@ -766,7 +805,9 @@ public class UiaEngine
         if (!IsAttached) return (false, "Not attached");
         try
         {
-            FocusWindow(); Thread.Sleep(Constants.PreKeyDelayMs);
+            // Don't call FocusWindow() — it steals focus from dialogs.
+            // Callers should use the explicit 'focus' action when needed.
+            Thread.Sleep(Constants.PreKeyDelayMs);
 
             // Check if this is a sequential key sequence (comma-separated)
             if (keys.Contains(','))
@@ -856,7 +897,9 @@ public class UiaEngine
         if (!IsAttached) return (false, "Not attached");
         try
         {
-            FocusWindow(); Thread.Sleep(Constants.PreTypeDelayMs);
+            // Don't call FocusWindow() — it steals focus from dialogs.
+            // Callers should use the explicit 'focus' action when needed.
+            Thread.Sleep(Constants.PreTypeDelayMs);
             foreach (char c in text)
             {
                 short vk = VkKeyScan(c);
@@ -871,6 +914,36 @@ public class UiaEngine
             return (true, $"Typed: {text}");
         }
         catch (Exception ex) { return (false, $"Type failed: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Fill a standard Windows file dialog with a file path and confirm.
+    /// Finds the filename Edit field, clears it, types the full path, and presses Enter.
+    /// The file dialog must already be open.
+    /// </summary>
+    public (bool success, string message) FileDialogSetPath(string filePath)
+    {
+        if (!IsAttached) return (false, "Not attached");
+
+        // Find the filename Edit field (standard Windows file dialog AutomationId=1148)
+        var editResult = FindElement(automationId: "1148", className: "Edit");
+        if (!editResult.success || editResult.element == null)
+            return (false, "Could not find the filename field (AutomationId=1148). Is a file dialog open?");
+
+        // Click the field to ensure focus
+        var clickResult = ClickElement(editResult.element);
+        if (!clickResult.success) return (false, $"Failed to click filename field: {clickResult.message}");
+        Thread.Sleep(100);
+
+        // Clear existing text, type the path, press Enter
+        SendKeyboardShortcut("Ctrl+A");
+        Thread.Sleep(50);
+        var typeResult = TypeText(filePath);
+        if (!typeResult.success) return (false, $"Failed to type path: {typeResult.message}");
+        Thread.Sleep(100);
+        SendKeyboardShortcut("Enter");
+
+        return (true, $"File dialog: entered '{filePath}'");
     }
 
     public (bool success, string base64, string message) TakeScreenshot()

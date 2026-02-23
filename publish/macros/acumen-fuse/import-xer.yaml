@@ -1,0 +1,42 @@
+name: Import XER File
+description: Opens an XER file in Acumen Fuse using ribbon keytips, then runs the import
+timeout: 120
+parameters:
+  - name: filePath
+    description: Full path to the XER file to import
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Samples\Initial  Plan.xer'
+  - name: exePath
+    description: Path to Fuse.exe
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
+
+steps:
+  # 1. Ensure Fuse is running and ready
+  - action: macro
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
+
+  # 2. Focus the main Fuse window, then open file dialog via keytips
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,O,A
+
+  # 3. Navigate the file dialog to the target file
+  - action: file_dialog
+    text: '{{filePath}}'
+    timeout: 15
+
+  # 4. Wait for file to load into the workbook
+  - action: wait
+    seconds: 2
+
+  # 5. Focus the main window, then run import via keytips
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,R,I
+
+  # 6. Wait for import to complete
+  - action: wait
+    seconds: 5

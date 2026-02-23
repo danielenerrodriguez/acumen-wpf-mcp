@@ -366,9 +366,32 @@ public static class UiaProxyServer
                         var result = engine.SendKeyboardShortcut(keys);
                         return Json(result.success, result.message);
                     }
+                    case "setValue":
+                    {
+                        var key = args.GetProperty("refKey").GetString()!;
+                        if (!_cache.TryGet(key, out var el)) return Json(false, $"Unknown ref '{key}'");
+                        var value = args.GetProperty("value").GetString()!;
+                        var result = engine.SetElementValue(el!, value);
+                        return Json(result.success, result.message);
+                    }
+                    case "getValue":
+                    {
+                        var key = args.GetProperty("refKey").GetString()!;
+                        if (!_cache.TryGet(key, out var el)) return Json(false, $"Unknown ref '{key}'");
+                        var result = engine.GetElementValue(el!);
+                        if (result.success)
+                            return JsonSerializer.Serialize(new { ok = true, result = result.value });
+                        return Json(false, result.message);
+                    }
                     case "focus":
                     {
                         var result = engine.FocusWindow();
+                        return Json(result.success, result.message);
+                    }
+                    case "fileDialog":
+                    {
+                        var filePath = args.GetProperty("filePath").GetString()!;
+                        var result = engine.FileDialogSetPath(filePath);
                         return Json(result.success, result.message);
                     }
                     case "screenshot":

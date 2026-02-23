@@ -251,7 +251,7 @@ public static class WpfTools
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
     }
 
-    [McpServerTool, Description("Type text into the currently focused element.")]
+    [McpServerTool, Description("Type text into the currently focused element using simulated keystrokes. For reliable edit-field interaction (especially in dialogs), prefer wpf_set_value instead.")]
     public static async Task<string> wpf_type(
         [Description("Text to type")] string text)
     {
@@ -259,6 +259,49 @@ public static class WpfTools
             return FormatResponse(await Proxy.CallAsync("type", new() { ["text"] = text }));
 
         var result = UiaEngine.Instance.TypeText(text);
+        return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
+    }
+
+    [McpServerTool, Description("Set the value of an element directly using UIA ValuePattern. Works reliably with edit fields and combo boxes in dialogs without focus issues.")]
+    public static async Task<string> wpf_set_value(
+        [Description("Element reference from a previous find (e.g., 'e1')")] string ref_key,
+        [Description("Value to set")] string value)
+    {
+        if (Proxy != null)
+            return FormatResponse(await Proxy.CallAsync("setValue", new() { ["refKey"] = ref_key, ["value"] = value }));
+
+        if (!_cache.TryGet(ref_key, out var element))
+            return $"Error: Unknown element reference '{ref_key}'";
+        var result = UiaEngine.Instance.SetElementValue(element!, value);
+        return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
+    }
+
+    [McpServerTool, Description("Get the current value of an element using UIA ValuePattern.")]
+    public static async Task<string> wpf_get_value(
+        [Description("Element reference from a previous find (e.g., 'e1')")] string ref_key)
+    {
+        if (Proxy != null)
+        {
+            var resp = await Proxy.CallAsync("getValue", new() { ["refKey"] = ref_key });
+            if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
+                return $"OK: {resp.GetProperty("result").GetString()}";
+            return $"Error: {resp.GetProperty("error").GetString()}";
+        }
+
+        if (!_cache.TryGet(ref_key, out var element))
+            return $"Error: Unknown element reference '{ref_key}'";
+        var result = UiaEngine.Instance.GetElementValue(element!);
+        return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
+    }
+
+    [McpServerTool, Description("Navigate a standard Windows file dialog to select a file. Splits the path into folder + filename, navigates to the folder first, then selects the file. The file dialog must already be open.")]
+    public static async Task<string> wpf_file_dialog(
+        [Description("Full path to the file to select (e.g., 'C:\\Data\\project.xer')")] string file_path)
+    {
+        if (Proxy != null)
+            return FormatResponse(await Proxy.CallAsync("fileDialog", new() { ["filePath"] = file_path }));
+
+        var result = UiaEngine.Instance.FileDialogSetPath(file_path);
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
     }
 

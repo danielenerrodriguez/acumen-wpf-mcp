@@ -48,6 +48,15 @@ if (args.Contains("--mcp"))
     return;
 }
 
+// "run <path.yaml> [k=v ...]": one-shot macro execution mode
+if (args.Length >= 2
+    && args[0].Equals("run", StringComparison.OrdinalIgnoreCase)
+    && args[1].EndsWith(".yaml", StringComparison.OrdinalIgnoreCase))
+{
+    await RunDragDropMacroAsync(args[1], args.Skip(2).ToArray());
+    return;
+}
+
 // Default (no args / double-click): interactive CLI mode
 await CliMode.RunAsync(args, macrosPath);
 
@@ -198,7 +207,7 @@ bool LaunchElevatedServer()
 // =====================================================================
 // Drag-and-drop YAML macro execution
 // =====================================================================
-async Task RunDragDropMacroAsync(string yamlPath)
+async Task RunDragDropMacroAsync(string yamlPath, string[]? cliParams = null)
 {
     Console.WriteLine($"WPF MCP - Running macro: {Path.GetFileName(yamlPath)}");
     Console.WriteLine(new string('=', 50));
@@ -236,11 +245,22 @@ async Task RunDragDropMacroAsync(string yamlPath)
     Console.WriteLine($"Steps: {macro.Steps.Count}");
     Console.WriteLine();
 
-    // Prompt for required parameters
+    // Parse CLI-provided parameters (key=value format)
     var macroParams = new Dictionary<string, string>();
+    if (cliParams != null)
+    {
+        foreach (var arg in cliParams)
+        {
+            var eqIdx = arg.IndexOf('=');
+            if (eqIdx > 0)
+                macroParams[arg[..eqIdx]] = arg[(eqIdx + 1)..];
+        }
+    }
+
+    // Prompt for any remaining required parameters not provided via CLI
     foreach (var p in macro.Parameters)
     {
-        if (p.Required && p.Default == null)
+        if (p.Required && p.Default == null && !macroParams.ContainsKey(p.Name))
         {
             Console.Write($"  {p.Name}{(string.IsNullOrEmpty(p.Description) ? "" : $" ({p.Description})")}: ");
             var value = Console.ReadLine()?.Trim();

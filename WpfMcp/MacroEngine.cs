@@ -413,6 +413,40 @@ public class MacroEngine : IDisposable
                 return new StepResult(r.success, r.message);
             }
 
+            case "set_value":
+            {
+                var refKey = ResolveRef(step.Ref, aliases);
+                if (refKey == null)
+                    return new StepResult(false, "set_value requires a ref");
+                if (!cache.TryGet(refKey, out var el))
+                    return new StepResult(false, $"Unknown ref '{refKey}'");
+                var text = SubstituteParams(step.Text, parameters);
+                if (text == null)
+                    return new StepResult(false, "set_value requires text");
+                var r = engine.SetElementValue(el!, text);
+                return new StepResult(r.success, r.message);
+            }
+
+            case "get_value":
+            {
+                var refKey = ResolveRef(step.Ref, aliases);
+                if (refKey == null)
+                    return new StepResult(false, "get_value requires a ref");
+                if (!cache.TryGet(refKey, out var el))
+                    return new StepResult(false, $"Unknown ref '{refKey}'");
+                var r = engine.GetElementValue(el!);
+                return new StepResult(r.success, r.message);
+            }
+
+            case "file_dialog":
+            {
+                var filePath = SubstituteParams(step.Text, parameters);
+                if (string.IsNullOrEmpty(filePath))
+                    return new StepResult(false, "file_dialog requires text (the file path)");
+                var r = engine.FileDialogSetPath(filePath);
+                return new StepResult(r.success, r.message);
+            }
+
             case "screenshot":
             {
                 var r = engine.TakeScreenshot();

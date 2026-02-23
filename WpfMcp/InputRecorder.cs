@@ -41,6 +41,11 @@ public class InputRecorder : IDisposable
     private LowLevelMouseProc? _mouseDelegate;
     private LowLevelKeyboardProc? _keyboardDelegate;
 
+    // Message pump thread for hooks (low-level hooks require a message loop)
+    private Thread? _hookThread;
+    private volatile bool _hookThreadRunning;
+    private volatile uint _hookThreadNativeId;
+
     public RecorderState State => _state;
     public int ActionCount { get { lock (_lock) return _actions.Count; } }
     public string MacroName => _macroName;
@@ -64,6 +69,32 @@ public class InputRecorder : IDisposable
     private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("user32.dll")]
+    private static extern bool GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+    [DllImport("user32.dll")]
+    private static extern bool TranslateMessage(ref MSG lpMsg);
+    [DllImport("user32.dll")]
+    private static extern IntPtr DispatchMessage(ref MSG lpMsg);
+    [DllImport("user32.dll")]
+    private static extern bool PostThreadMessage(uint idThread, uint Msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    private const uint WM_QUIT = 0x0012;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSG
+    {
+        public IntPtr hwnd;
+        public uint message;
+        public IntPtr wParam;
+        public IntPtr lParam;
+        public uint time;
+        public POINT pt;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int X, Y; }
 
     private const int WH_MOUSE_LL = 14;
     private const int WH_KEYBOARD_LL = 13;
@@ -126,17 +157,54 @@ public class InputRecorder : IDisposable
             _recordingStartTime = DateTime.UtcNow;
             _lastActionTime = DateTime.UtcNow;
 
-            // Install hooks
             // Keep delegates alive as fields to prevent GC collection during hook lifetime
             _mouseDelegate = MouseHookCallback;
             _keyboardDelegate = KeyboardHookCallback;
 
-            var hMod = GetModuleHandle(null);
-            _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseDelegate, hMod, 0);
-            _keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardDelegate, hMod, 0);
+            // Install hooks on a dedicated thread with a message pump.
+            // Low-level hooks (WH_MOUSE_LL, WH_KEYBOARD_LL) require the installing
+            // thread to run a message loop — hook callbacks are dispatched via messages.
+            var hookReady = new ManualResetEventSlim(false);
+            bool hooksInstalled = false;
 
-            if (_mouseHook == IntPtr.Zero && _keyboardHook == IntPtr.Zero)
+            _hookThreadRunning = true;
+            _hookThread = new Thread(() =>
             {
+                _hookThreadNativeId = GetCurrentThreadId();
+                var hMod = GetModuleHandle(null);
+                _mouseHook = SetWindowsHookEx(WH_MOUSE_LL, _mouseDelegate, hMod, 0);
+                _keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardDelegate, hMod, 0);
+                hooksInstalled = _mouseHook != IntPtr.Zero || _keyboardHook != IntPtr.Zero;
+                hookReady.Set();
+
+                if (hooksInstalled)
+                {
+                    // Run message loop to pump hook callbacks
+                    while (_hookThreadRunning && GetMessage(out var msg, IntPtr.Zero, 0, 0))
+                    {
+                        TranslateMessage(ref msg);
+                        DispatchMessage(ref msg);
+                    }
+                }
+
+                // Clean up hooks on this thread
+                if (_mouseHook != IntPtr.Zero) { UnhookWindowsHookEx(_mouseHook); _mouseHook = IntPtr.Zero; }
+                if (_keyboardHook != IntPtr.Zero) { UnhookWindowsHookEx(_keyboardHook); _keyboardHook = IntPtr.Zero; }
+            })
+            {
+                Name = "InputRecorder-Hooks",
+                IsBackground = true
+            };
+            _hookThread.Start();
+
+            // Wait for hooks to be installed
+            hookReady.Wait(TimeSpan.FromSeconds(5));
+
+            if (!hooksInstalled)
+            {
+                _hookThreadRunning = false;
+                _mouseDelegate = null;
+                _keyboardDelegate = null;
                 return (false, "Failed to install input hooks. Are you running elevated?");
             }
 
@@ -153,9 +221,17 @@ public class InputRecorder : IDisposable
             if (_state != RecorderState.Recording)
                 return (false, "Not currently recording.", null, null);
 
-            // Unhook
-            if (_mouseHook != IntPtr.Zero) { UnhookWindowsHookEx(_mouseHook); _mouseHook = IntPtr.Zero; }
-            if (_keyboardHook != IntPtr.Zero) { UnhookWindowsHookEx(_keyboardHook); _keyboardHook = IntPtr.Zero; }
+            // Signal the hook thread to exit its message loop and unhook
+            _hookThreadRunning = false;
+            if (_hookThread != null)
+            {
+                // Post WM_QUIT to break GetMessage loop
+                if (_hookThreadNativeId != 0)
+                    PostThreadMessage(_hookThreadNativeId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+                _hookThread.Join(TimeSpan.FromSeconds(3));
+                _hookThread = null;
+                _hookThreadNativeId = 0;
+            }
             _typingFlushTimer?.Dispose();
             _altSequentialTimer?.Dispose();
             _mouseDelegate = null;
@@ -535,8 +611,14 @@ public class InputRecorder : IDisposable
 
     public void Dispose()
     {
-        if (_mouseHook != IntPtr.Zero) { UnhookWindowsHookEx(_mouseHook); _mouseHook = IntPtr.Zero; }
-        if (_keyboardHook != IntPtr.Zero) { UnhookWindowsHookEx(_keyboardHook); _keyboardHook = IntPtr.Zero; }
+        _hookThreadRunning = false;
+        if (_hookThread != null)
+        {
+            if (_hookThreadNativeId != 0)
+                PostThreadMessage(_hookThreadNativeId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+            _hookThread.Join(TimeSpan.FromSeconds(3));
+            _hookThread = null;
+        }
         _typingFlushTimer?.Dispose();
         _altSequentialTimer?.Dispose();
     }

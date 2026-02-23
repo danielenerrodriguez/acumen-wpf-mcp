@@ -28,6 +28,9 @@ public static class CliMode
         Console.WriteLine("  focus                      - Focus the attached window");
         Console.WriteLine("  keys <keys>                - Send keys (+ for combo, comma for sequence)");
         Console.WriteLine("  type <text>                - Type text");
+        Console.WriteLine("  set-value <ref> <value>    - Set element value via ValuePattern");
+        Console.WriteLine("  get-value <ref>            - Get element value via ValuePattern");
+        Console.WriteLine("  file-dialog <path>         - Navigate file dialog to select a file");
         Console.WriteLine("  screenshot                 - Take screenshot (saves to wpfmcp_screenshot.png)");
         Console.WriteLine("  status                     - Show attachment status");
         Console.WriteLine("  macros                     - List available macros");
@@ -178,6 +181,30 @@ public static class CliMode
                     case "type":
                         if (string.IsNullOrEmpty(arg)) { Console.WriteLine("Usage: type <text>"); break; }
                         PrintResult(engine.TypeText(arg));
+                        break;
+
+                    case "set-value":
+                    {
+                        var svParts = arg?.Split(' ', 2);
+                        if (svParts == null || svParts.Length < 2) { Console.WriteLine("Usage: set-value <ref> <value>"); break; }
+                        if (!cache.TryGet(svParts[0], out var svEl)) { Console.WriteLine($"Error: Unknown ref '{svParts[0]}'"); break; }
+                        PrintResult(engine.SetElementValue(svEl!, svParts[1]));
+                        break;
+                    }
+
+                    case "get-value":
+                    {
+                        if (string.IsNullOrEmpty(arg)) { Console.WriteLine("Usage: get-value <ref>"); break; }
+                        if (!cache.TryGet(arg, out var gvEl)) { Console.WriteLine($"Error: Unknown ref '{arg}'"); break; }
+                        var gvResult = engine.GetElementValue(gvEl!);
+                        Console.WriteLine(gvResult.success ? $"OK: {gvResult.message}" : $"Error: {gvResult.message}");
+                        break;
+                    }
+
+                    case "file-dialog":
+                        if (string.IsNullOrEmpty(arg)) { Console.WriteLine("Usage: file-dialog <full-file-path>"); break; }
+                        var fdResult = engine.FileDialogSetPath(arg);
+                        Console.WriteLine(fdResult.success ? $"OK: {fdResult.message}" : $"Error: {fdResult.message}");
                         break;
 
                     case "screenshot":

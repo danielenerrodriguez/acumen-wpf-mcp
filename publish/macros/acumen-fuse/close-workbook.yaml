@@ -1,0 +1,20 @@
+name: Close Workbook
+description: Closes the current workbook in Acumen Fuse without saving
+timeout: 30
+parameters:
+  - name: exePath
+    description: Path to Fuse.exe
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
+
+steps:
+  - action: macro
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
+
+  - action: focus
+  - action: send_keys
+    keys: Alt,F,C
+  - action: send_keys
+    keys: Right,Enter
