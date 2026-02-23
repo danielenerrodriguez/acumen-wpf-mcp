@@ -52,7 +52,7 @@ The `--mcp-connect` process auto-launches the elevated server if it isn't alread
 │  WpfMcp.exe --mcp-connect              (non-elevated process)   │
 │                                                                 │
 │  Program.cs         Mode routing, auto-launches elevated server │
-│  Tools.cs           13 MCP tool definitions                     │
+│  Tools.cs           15 MCP tool definitions (incl. macros)      │
 │  UiaProxyClient     Sends JSON requests over named pipe         │
 │  ElementCache       Thread-safe ref cache (e1, e2, ...)         │
 │  Constants          Shared config (pipe name, timeouts, etc.)   │
@@ -176,6 +176,8 @@ Runs a standard MCP stdio server without elevation. Only works if the target app
 | `wpf_focus` | Bring the application window to the foreground |
 | `wpf_screenshot` | Capture the application window as a PNG |
 | `wpf_properties` | Get detailed properties of a cached element |
+| `wpf_macro` | Execute a named macro with optional parameters |
+| `wpf_macro_list` | List all available macros and their parameters |
 
 ### Element References
 
@@ -198,6 +200,144 @@ SearchProp:ControlType~Custom;SearchProp:AutomationId~uxProjectsView
 
 This is useful for navigating deep into the control tree where a simple `wpf_find` might match multiple elements.
 
+## Macros
+
+Macros are reusable, YAML-defined step sequences that automate common UI workflows. They support parameters, timeouts, retry logic for find operations, and nested macro calls.
+
+### Folder Structure
+
+```
+macros/
+  acumen-fuse/
+    open-file-menu.yaml
+    find-projects-view.yaml
+    import-file.yaml
+  another-app/
+    some-workflow.yaml
+```
+
+Macros are discovered from the `macros/` folder next to the exe (copied at build time), or from a custom path via the `WPFMCP_MACROS_PATH` environment variable. Macro names are derived from the relative path without extension, using forward slashes (e.g., `acumen-fuse/import-file`).
+
+### YAML Schema
+
+```yaml
+name: Human-readable display name
+description: What this macro does
+timeout: 30                         # Max seconds for entire macro (default: 60)
+
+parameters:                         # Optional
+  - name: filePath
+    description: Full path to the file
+    required: true
+  - name: format
+    description: Output format
+    required: false
+    default: "pdf"
+
+steps:
+  - action: focus                   # Bring app window to foreground
+  - action: send_keys
+    keys: "Alt,F"                   # Keyboard input
+  - action: wait
+    seconds: 0.5                    # Pause between steps
+  - action: find
+    name: Import                    # Find element by properties
+    control_type: MenuItem
+    save_as: importMenuItem         # Save ref for later steps
+    timeout: 5                      # Per-step timeout (retries until found)
+    retry_interval: 2               # Seconds between retries
+  - action: click
+    ref: importMenuItem             # Click a saved element
+  - action: type
+    text: "{{filePath}}"            # Parameter substitution
+  - action: macro
+    macro_name: acumen-fuse/open-file-menu  # Nested macro call
+    params:
+      someParam: "{{filePath}}"     # Pass params to nested macro
+```
+
+### Supported Actions
+
+| Action | Description | Key Properties |
+|--------|-------------|----------------|
+| `focus` | Bring application window to foreground | — |
+| `attach` | Attach to a process | `process_name`, `pid` |
+| `find` | Find element with retry loop | `automation_id`, `name`, `class_name`, `control_type`, `save_as`, `timeout`, `retry_interval` |
+| `find_by_path` | Find element by hierarchical path | `path` (list), `save_as`, `timeout`, `retry_interval` |
+| `click` | Click an element | `ref` (element ref or alias from `save_as`) |
+| `right_click` | Right-click an element | `ref` |
+| `type` | Type text into focused element | `text` |
+| `send_keys` | Send keyboard shortcuts | `keys` |
+| `wait` | Pause execution | `seconds` |
+| `snapshot` | Capture the UI tree | `max_depth` |
+| `screenshot` | Capture window image | — |
+| `children` | List children of element | `ref`, `save_as` |
+| `properties` | Get element properties | `ref` |
+| `macro` | Execute a nested macro | `macro_name`, `params` |
+
+### Parameter Substitution
+
+Use `{{paramName}}` placeholders in any string property. Parameters are passed at invocation time via the `wpf_macro` MCP tool or the `macro` CLI command:
+
+```
+# MCP tool call
+wpf_macro  name="acumen-fuse/import-file"  params={"filePath": "C:\\data\\schedule.xer"}
+
+# CLI mode
+macro acumen-fuse/import-file filePath=C:\data\schedule.xer
+```
+
+### Timeouts and Retry
+
+- **Macro-level timeout** (`timeout` at root): Maximum seconds for the entire macro. Default: 60.
+- **Step-level timeout** (`timeout` on a step): Maximum seconds for that step. Default: 5. For `find` and `find_by_path` actions, the step retries at `retry_interval` (default: 1s) until the timeout expires.
+- **Crash detection**: If the target process exits mid-macro, execution stops immediately with a clear error.
+
+### Examples
+
+**Simple: Open File Menu**
+```yaml
+name: Open File Menu
+description: Opens the Acumen Fuse File menu via ribbon keytips
+timeout: 10
+steps:
+  - action: focus
+  - action: send_keys
+    keys: "Alt,F"
+  - action: wait
+    seconds: 0.5
+```
+
+**With Parameters: Import File**
+```yaml
+name: Import File
+description: Opens the Import dialog and types a file path
+timeout: 30
+parameters:
+  - name: filePath
+    description: Full path to the file to import
+    required: true
+steps:
+  - action: focus
+  - action: send_keys
+    keys: "Alt,F"
+  - action: wait
+    seconds: 0.5
+  - action: find
+    name: Import
+    control_type: MenuItem
+    save_as: importMenuItem
+    timeout: 5
+  - action: click
+    ref: importMenuItem
+  - action: wait
+    seconds: 1
+  - action: type
+    text: "{{filePath}}"
+  - action: send_keys
+    keys: Enter
+```
+
 ## Project Structure
 
 ```
@@ -213,9 +353,17 @@ C:\WpfMcp\
     Tools.cs                            MCP tool definitions (proxied and direct modes)
     UiaEngine.cs                        Core UI Automation engine (STA thread, SendInput)
     UiaProxy.cs                         Proxy client/server for named pipe communication
+    MacroDefinition.cs                  YAML-deserialized POCOs for macros
+    MacroEngine.cs                      Load, validate, and execute macro YAML files
     CliMode.cs                          Interactive CLI for manual testing
+  macros/
+    acumen-fuse/
+      open-file-menu.yaml              Focus + Alt,F (example)
+      find-projects-view.yaml          Find element with retry (example)
+      import-file.yaml                 Full workflow with parameters (example)
   WpfMcp.Tests/
-    WpfMcp.Tests.csproj                 xUnit test project (28 tests)
+    WpfMcp.Tests.csproj                 xUnit test project (46 tests)
+    MacroEngineTests.cs                 18 tests for macro loading, validation, execution
 ```
 
 ## Troubleshooting
