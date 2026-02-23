@@ -123,6 +123,7 @@ Runs a standard MCP stdio server without elevation. Only works if the target app
 - **Simultaneous keys**: Use `+` separator — `Ctrl+S`, `Alt+F4`, `Ctrl+Shift+N`
 - **Sequential keys**: Use `,` separator — `Alt,F` (press Alt, release, then press F)
 - **Single keys**: `Enter`, `Escape`, `Tab`, `F5`, `Delete`
+- **All keys**: Supports all `System.Windows.Input.Key` enum names plus common aliases (`Esc`, `Del`, `Backspace`, `PgUp`, `PgDn`, `Ins`)
 
 ### ObjectStore Paths
 
@@ -139,16 +140,19 @@ This is useful for navigating deep into the control tree where a simple `wpf_fin
 ```
 C:\WpfMcp\
   WpfMcp.slnx                          Solution file
+  .editorconfig                         Formatting standards (CRLF, 4-space indent, naming)
   nuget.config                          NuGet source configuration
   WpfMcp/
     WpfMcp.csproj                       Main project (.NET 9, WPF)
     Program.cs                          Entry point, mode routing, auto-launch logic
+    Constants.cs                        Shared constants (pipe name, timeouts, JSON options)
+    ElementCache.cs                     Thread-safe element reference cache (e1, e2, ...)
     Tools.cs                            MCP tool definitions (proxied and direct modes)
     UiaEngine.cs                        Core UI Automation engine (STA thread, SendInput)
     UiaProxy.cs                         Proxy client/server for named pipe communication
     CliMode.cs                          Interactive CLI for manual testing
   WpfMcp.Tests/
-    WpfMcp.Tests.csproj                 xUnit test project
+    WpfMcp.Tests.csproj                 xUnit test project (28 tests)
 ```
 
 ## Troubleshooting
