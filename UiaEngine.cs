@@ -1,0 +1,756 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Windows.Automation;
+
+namespace WpfMcp;
+
+/// <summary>
+/// Core UI Automation engine using managed System.Windows.Automation.
+/// All UIA operations are dispatched to a dedicated STA thread, which is
+/// required for proper COM marshaling to WPF automation peers.
+/// Without STA, the UIA COM client only sees the Win32 window layer
+/// (TitleBar + FrameworkId="Win32") and cannot traverse into WPF content.
+/// </summary>
+public class UiaEngine
+{
+    private static UiaEngine? _instance;
+    public static UiaEngine Instance => _instance ??= new UiaEngine();
+
+    private Process? _attachedProcess;
+    private AutomationElement? _mainWindow;
+
+    // Dedicated STA thread for all UIA operations
+    private readonly Thread _staThread;
+    private readonly BlockingQueue _taskQueue = new();
+    private volatile bool _running = true;
+
+    public bool IsAttached => _attachedProcess != null && _mainWindow != null && !_attachedProcess.HasExited;
+    public string? WindowTitle { get { try { return RunOnSta(() => _mainWindow?.Current.Name); } catch { return null; } } }
+    public int? ProcessId => _attachedProcess?.Id;
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    private static extern void mouse_event(uint dwFlags, int dx, int dy, uint dwData, UIntPtr dwExtraInfo);
+    [DllImport("user32.dll")]
+    private static extern bool SetCursorPos(int X, int Y);
+    [DllImport("user32.dll")]
+    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    [DllImport("user32.dll")]
+    private static extern short VkKeyScan(char ch);
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT
+    {
+        public uint type;
+        public INPUTUNION u;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    private struct INPUTUNION
+    {
+        [FieldOffset(0)] public KEYBDINPUT ki;
+        [FieldOffset(0)] public MOUSEINPUT mi;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT
+    {
+        public int dx, dy;
+        public uint mouseData, dwFlags, time;
+        public IntPtr dwExtraInfo;
+    }
+
+    private const uint INPUT_KEYBOARD = 1;
+    private const uint KEYEVENTF_KEYUP_SI = 0x0002;
+    private const uint KEYEVENTF_SCANCODE = 0x0008;
+
+    private const int SW_RESTORE = 9;
+    private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+    private const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+
+    /// <summary>Simple blocking task queue for the STA thread.</summary>
+    private class BlockingQueue
+    {
+        private readonly Queue<Action> _queue = new();
+        private readonly object _lock = new();
+
+        public void Enqueue(Action action)
+        {
+            lock (_lock) { _queue.Enqueue(action); Monitor.Pulse(_lock); }
+        }
+
+        public Action Dequeue()
+        {
+            lock (_lock)
+            {
+                while (_queue.Count == 0) Monitor.Wait(_lock);
+                return _queue.Dequeue();
+            }
+        }
+
+        public bool TryDequeue(out Action? action, int timeoutMs)
+        {
+            lock (_lock)
+            {
+                if (_queue.Count == 0) Monitor.Wait(_lock, timeoutMs);
+                if (_queue.Count > 0) { action = _queue.Dequeue(); return true; }
+                action = null; return false;
+            }
+        }
+    }
+
+    public UiaEngine()
+    {
+        _staThread = new Thread(StaThreadLoop)
+        {
+            Name = "UIA-STA",
+            IsBackground = true
+        };
+        _staThread.SetApartmentState(ApartmentState.STA);
+        _staThread.Start();
+    }
+
+    private void StaThreadLoop()
+    {
+        // Initialize COM on this STA thread
+        while (_running)
+        {
+            if (_taskQueue.TryDequeue(out var action, 100))
+            {
+                try { action!(); }
+                catch { /* errors are captured via TaskCompletionSource */ }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Dispatch a function to the STA thread and wait for the result.
+    /// This is the key mechanism that makes UIA work with WPF apps.
+    /// </summary>
+    private T RunOnSta<T>(Func<T> func)
+    {
+        if (Thread.CurrentThread == _staThread)
+            return func();
+
+        var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _taskQueue.Enqueue(() =>
+        {
+            try { tcs.SetResult(func()); }
+            catch (Exception ex) { tcs.SetException(ex); }
+        });
+        return tcs.Task.GetAwaiter().GetResult();
+    }
+
+    /// <summary>Dispatch a void action to the STA thread and wait for completion.</summary>
+    private void RunOnSta(Action action)
+    {
+        if (Thread.CurrentThread == _staThread)
+        {
+            action();
+            return;
+        }
+
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _taskQueue.Enqueue(() =>
+        {
+            try { action(); tcs.SetResult(true); }
+            catch (Exception ex) { tcs.SetException(ex); }
+        });
+        tcs.Task.GetAwaiter().GetResult();
+    }
+
+    public (bool success, string message) Attach(string processName)
+    {
+        return RunOnSta(() =>
+        {
+            var processes = Process.GetProcessesByName(processName);
+            if (processes.Length == 0)
+                return (false, $"No process found with name '{processName}'");
+            var proc = processes[0];
+            if (proc.MainWindowHandle == IntPtr.Zero)
+                return (false, $"Process '{processName}' has no main window");
+            try
+            {
+                _attachedProcess = proc;
+                _mainWindow = AutomationElement.FromHandle(proc.MainWindowHandle);
+                var name = _mainWindow.Current.Name;
+                return (true, $"Attached to '{name}' (PID {proc.Id})");
+            }
+            catch (Exception ex)
+            {
+                _attachedProcess = null; _mainWindow = null;
+                return (false, $"Failed to attach: {ex.Message}");
+            }
+        });
+    }
+
+    public (bool success, string message) AttachByPid(int pid)
+    {
+        return RunOnSta(() =>
+        {
+            try
+            {
+                var proc = Process.GetProcessById(pid);
+                if (proc.MainWindowHandle == IntPtr.Zero)
+                    return (false, $"Process PID {pid} has no main window");
+                _attachedProcess = proc;
+                _mainWindow = AutomationElement.FromHandle(proc.MainWindowHandle);
+                var name = _mainWindow.Current.Name;
+                return (true, $"Attached to '{name}' (PID {proc.Id})");
+            }
+            catch (Exception ex) { return (false, $"Failed to attach: {ex.Message}"); }
+        });
+    }
+
+    public (bool success, string message) FocusWindow()
+    {
+        if (!IsAttached) return (false, "Not attached");
+        try
+        {
+            var handle = _attachedProcess!.MainWindowHandle;
+            ShowWindow(handle, SW_RESTORE);
+
+            // Use AttachThreadInput to allow SetForegroundWindow from background process
+            var foregroundWnd = GetForegroundWindow();
+            uint foregroundThread = GetWindowThreadProcessId(foregroundWnd, out _);
+            uint currentThread = GetCurrentThreadId();
+            bool attached = false;
+            if (foregroundThread != currentThread)
+            {
+                attached = AttachThreadInput(currentThread, foregroundThread, true);
+            }
+
+            SetForegroundWindow(handle);
+
+            if (attached)
+            {
+                AttachThreadInput(currentThread, foregroundThread, false);
+            }
+
+            Thread.Sleep(300);
+            return (true, "Window focused");
+        }
+        catch (Exception ex) { return (false, $"Failed to focus: {ex.Message}"); }
+    }
+
+    public (bool success, string tree) GetSnapshot(int maxDepth = 5)
+    {
+        if (!IsAttached) return (false, "Not attached");
+        return RunOnSta(() =>
+        {
+            try
+            {
+                var sb = new StringBuilder();
+                WalkTree(_mainWindow!, sb, 0, maxDepth);
+                return (true, sb.ToString());
+            }
+            catch (Exception ex) { return (false, $"Failed: {ex.Message}"); }
+        });
+    }
+
+    private void WalkTree(AutomationElement element, StringBuilder sb, int depth, int maxDepth)
+    {
+        if (depth > maxDepth) return;
+        var indent = new string(' ', depth * 2);
+        try
+        {
+            var c = element.Current;
+            sb.AppendLine($"{indent}[{c.ControlType.ProgrammaticName.Replace("ControlType.", "")}] " +
+                          $"Name=\"{c.Name}\" AutomationId=\"{c.AutomationId}\" " +
+                          $"ClassName=\"{c.ClassName}\" FrameworkId=\"{c.FrameworkId}\"");
+        }
+        catch { sb.AppendLine($"{indent}[Error reading element]"); return; }
+
+        try
+        {
+            // Try FindAll with TrueCondition first (more reliable for WPF)
+            var children = element.FindAll(TreeScope.Children, Condition.TrueCondition);
+            if (children.Count > 0)
+            {
+                foreach (AutomationElement child in children)
+                    WalkTree(child, sb, depth + 1, maxDepth);
+            }
+            else
+            {
+                // Fallback to RawViewWalker for elements that don't respond to FindAll
+                var walker = TreeWalker.RawViewWalker;
+                var child = walker.GetFirstChild(element);
+                while (child != null)
+                {
+                    WalkTree(child, sb, depth + 1, maxDepth);
+                    try { child = walker.GetNextSibling(child); } catch { break; }
+                }
+            }
+        }
+        catch { }
+    }
+
+    public (bool success, AutomationElement? element, string message) FindElementByPath(List<string> pathSegments)
+    {
+        if (!IsAttached) return (false, null, "Not attached");
+        return RunOnSta(() =>
+        {
+            try
+            {
+                AutomationElement current = _mainWindow!;
+                for (int i = 0; i < pathSegments.Count; i++)
+                {
+                    var condition = ParsePathSegment(pathSegments[i]);
+                    if (condition == null)
+                        return (false, (AutomationElement?)null, $"Failed to parse path segment {i}: {pathSegments[i]}");
+
+                    // Try FindFirst on children
+                    var found = current.FindFirst(TreeScope.Children, condition);
+
+                    if (found == null)
+                    {
+                        // Try FindFirst on descendants (deeper search)
+                        found = current.FindFirst(TreeScope.Descendants, condition);
+                    }
+
+                    if (found == null)
+                    {
+                        // Fallback: manual walk with RawViewWalker
+                        var walker = TreeWalker.RawViewWalker;
+                        var child = walker.GetFirstChild(current);
+                        while (child != null)
+                        {
+                            try
+                            {
+                                if (child.FindFirst(TreeScope.Element, condition) != null)
+                                { found = child; break; }
+                            }
+                            catch { }
+                            try { child = walker.GetNextSibling(child); } catch { break; }
+                        }
+                    }
+
+                    if (found == null)
+                        return (false, (AutomationElement?)null, $"Not found at segment {i}: {pathSegments[i]}. Parent: {FormatElement(current)}");
+                    current = found;
+                }
+                return (true, (AutomationElement?)current, FormatElement(current));
+            }
+            catch (Exception ex) { return (false, (AutomationElement?)null, $"Error: {ex.Message}"); }
+        });
+    }
+
+    public (bool success, AutomationElement? element, string message) FindElement(
+        string? automationId = null, string? name = null,
+        string? className = null, string? controlType = null)
+    {
+        if (!IsAttached) return (false, null, "Not attached");
+        return RunOnSta(() =>
+        {
+            try
+            {
+                var conditions = new List<Condition>();
+                if (!string.IsNullOrEmpty(automationId))
+                    conditions.Add(new PropertyCondition(AutomationElement.AutomationIdProperty, automationId));
+                if (!string.IsNullOrEmpty(name))
+                    conditions.Add(new PropertyCondition(AutomationElement.NameProperty, name));
+                if (!string.IsNullOrEmpty(className))
+                    conditions.Add(new PropertyCondition(AutomationElement.ClassNameProperty, className));
+                if (!string.IsNullOrEmpty(controlType))
+                {
+                    var ct = GetControlType(controlType);
+                    if (ct != null) conditions.Add(new PropertyCondition(AutomationElement.ControlTypeProperty, ct));
+                }
+                if (conditions.Count == 0) return (false, (AutomationElement?)null, "At least one search property required");
+
+                Condition cond = conditions.Count == 1 ? conditions[0] : new AndCondition(conditions.ToArray());
+
+                // Try FindFirst with Descendants scope
+                var found = _mainWindow!.FindFirst(TreeScope.Descendants, cond);
+
+                if (found == null)
+                {
+                    // Fallback: manual walk with RawViewWalker
+                    found = WalkAndFind(_mainWindow!, cond, 10);
+                }
+
+                if (found == null) return (false, (AutomationElement?)null, "Element not found");
+                return (true, (AutomationElement?)found, FormatElement(found));
+            }
+            catch (Exception ex) { return (false, (AutomationElement?)null, $"Error: {ex.Message}"); }
+        });
+    }
+
+    private AutomationElement? WalkAndFind(AutomationElement root, Condition condition, int maxDepth, int depth = 0)
+    {
+        if (depth > maxDepth) return null;
+        var walker = TreeWalker.RawViewWalker;
+        var child = walker.GetFirstChild(root);
+        while (child != null)
+        {
+            try
+            {
+                if (child.FindFirst(TreeScope.Element, condition) != null) return child;
+                var deeper = WalkAndFind(child, condition, maxDepth, depth + 1);
+                if (deeper != null) return deeper;
+            }
+            catch { }
+            try { child = walker.GetNextSibling(child); } catch { break; }
+        }
+        return null;
+    }
+
+    public List<AutomationElement> GetChildElements(AutomationElement? parent = null)
+    {
+        var target = parent ?? _mainWindow!;
+        return RunOnSta(() =>
+        {
+            var result = new List<AutomationElement>();
+            try
+            {
+                // Try FindAll first
+                var children = target.FindAll(TreeScope.Children, Condition.TrueCondition);
+                if (children.Count > 0)
+                {
+                    foreach (AutomationElement child in children)
+                        result.Add(child);
+                    return result;
+                }
+            }
+            catch { }
+
+            // Fallback to RawViewWalker
+            try
+            {
+                var walker = TreeWalker.RawViewWalker;
+                var child = walker.GetFirstChild(target);
+                while (child != null)
+                {
+                    result.Add(child);
+                    try { child = walker.GetNextSibling(child); } catch { break; }
+                }
+            }
+            catch { }
+            return result;
+        });
+    }
+
+    public (bool success, string message) ClickElement(AutomationElement element)
+    {
+        try
+        {
+            FocusWindow();
+            var rect = RunOnSta(() => element.Current.BoundingRectangle);
+            if (rect.IsEmpty) return (false, "No bounding rectangle");
+            int x = (int)(rect.Left + rect.Width / 2), y = (int)(rect.Top + rect.Height / 2);
+            SetCursorPos(x, y); Thread.Sleep(50);
+            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero); Thread.Sleep(50);
+            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero); Thread.Sleep(100);
+            return (true, $"Clicked at ({x}, {y})");
+        }
+        catch (Exception ex) { return (false, $"Click failed: {ex.Message}"); }
+    }
+
+    public (bool success, string message) RightClickElement(AutomationElement element)
+    {
+        try
+        {
+            FocusWindow();
+            var rect = RunOnSta(() => element.Current.BoundingRectangle);
+            if (rect.IsEmpty) return (false, "No bounding rectangle");
+            int x = (int)(rect.Left + rect.Width / 2), y = (int)(rect.Top + rect.Height / 2);
+            SetCursorPos(x, y); Thread.Sleep(50);
+            mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero); Thread.Sleep(50);
+            mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero); Thread.Sleep(100);
+            return (true, $"Right-clicked at ({x}, {y})");
+        }
+        catch (Exception ex) { return (false, $"Right-click failed: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Send keyboard input using SendInput API.
+    /// Supports:
+    ///   - Simultaneous: "Ctrl+S", "Alt+F4" (modifier held while key pressed)
+    ///   - Sequential: "Alt,F" or "Escape" (each key pressed and released independently)
+    /// Use comma to separate sequential keypresses, + for simultaneous combos.
+    /// </summary>
+    public (bool success, string message) SendKeyboardShortcut(string keys)
+    {
+        if (!IsAttached) return (false, "Not attached");
+        try
+        {
+            FocusWindow(); Thread.Sleep(200);
+
+            // Check if this is a sequential key sequence (comma-separated)
+            if (keys.Contains(','))
+            {
+                var sequence = keys.Split(',');
+                foreach (var step in sequence)
+                {
+                    var trimmed = step.Trim();
+                    if (string.IsNullOrEmpty(trimmed)) continue;
+                    SendKeyCombo(trimmed);
+                    Thread.Sleep(150); // delay between sequential keys
+                }
+                return (true, $"Sent key sequence: {keys}");
+            }
+            else
+            {
+                SendKeyCombo(keys);
+                return (true, $"Sent keys: {keys}");
+            }
+        }
+        catch (Exception ex) { return (false, $"SendKeys failed: {ex.Message}"); }
+    }
+
+    private void SendKeyCombo(string combo)
+    {
+        var parts = combo.Split('+');
+        var modifiers = new List<ushort>();
+        ushort? mainKey = null;
+
+        foreach (var part in parts)
+        {
+            switch (part.Trim().ToLower())
+            {
+                case "ctrl": case "control": modifiers.Add(0x11); break;
+                case "alt": modifiers.Add(0x12); break;
+                case "shift": modifiers.Add(0x10); break;
+                default: mainKey = ParseVirtualKey(part.Trim()); break;
+            }
+        }
+
+        var inputs = new List<INPUT>();
+
+        // Press modifiers
+        foreach (var mod in modifiers)
+            inputs.Add(MakeKeyInput(mod, false));
+
+        // Press and release main key (if any)
+        if (mainKey.HasValue)
+        {
+            inputs.Add(MakeKeyInput(mainKey.Value, false));
+            inputs.Add(MakeKeyInput(mainKey.Value, true));
+        }
+
+        // Release modifiers (reverse order)
+        for (int i = modifiers.Count - 1; i >= 0; i--)
+            inputs.Add(MakeKeyInput(modifiers[i], true));
+
+        // If only modifiers and no main key, we need to press and release them
+        // (e.g., just "Alt" to activate keytips)
+        if (!mainKey.HasValue && modifiers.Count > 0)
+        {
+            // Already added press above, add release
+            // Actually the press+release for modifiers-only is already handled above.
+            // But we need to ensure the modifier tap is clean.
+        }
+
+        if (inputs.Count > 0)
+        {
+            var arr = inputs.ToArray();
+            SendInput((uint)arr.Length, arr, Marshal.SizeOf<INPUT>());
+        }
+    }
+
+    private INPUT MakeKeyInput(ushort vk, bool keyUp)
+    {
+        return new INPUT
+        {
+            type = INPUT_KEYBOARD,
+            u = new INPUTUNION
+            {
+                ki = new KEYBDINPUT
+                {
+                    wVk = vk,
+                    wScan = 0,
+                    dwFlags = keyUp ? KEYEVENTF_KEYUP_SI : 0,
+                    time = 0,
+                    dwExtraInfo = IntPtr.Zero
+                }
+            }
+        };
+    }
+
+    public (bool success, string message) TypeText(string text)
+    {
+        if (!IsAttached) return (false, "Not attached");
+        try
+        {
+            FocusWindow(); Thread.Sleep(100);
+            foreach (char c in text)
+            {
+                short vk = VkKeyScan(c);
+                byte key = (byte)(vk & 0xFF);
+                bool shift = (vk & 0x100) != 0;
+                if (shift) keybd_event(0x10, 0, 0, UIntPtr.Zero);
+                keybd_event(key, 0, 0, UIntPtr.Zero);
+                keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                if (shift) keybd_event(0x10, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+                Thread.Sleep(20);
+            }
+            return (true, $"Typed: {text}");
+        }
+        catch (Exception ex) { return (false, $"Type failed: {ex.Message}"); }
+    }
+
+    public (bool success, string base64, string message) TakeScreenshot()
+    {
+        if (!IsAttached) return (false, "", "Not attached");
+        try
+        {
+            var handle = _attachedProcess!.MainWindowHandle;
+            if (!GetWindowRect(handle, out RECT rect)) return (false, "", "Failed to get window rect");
+            int w = rect.Right - rect.Left, h = rect.Bottom - rect.Top;
+            if (w <= 0 || h <= 0) return (false, "", "Invalid dimensions");
+            using var bmp = new System.Drawing.Bitmap(w, h);
+            using (var g = System.Drawing.Graphics.FromImage(bmp))
+                g.CopyFromScreen(rect.Left, rect.Top, 0, 0, new System.Drawing.Size(w, h));
+            using var ms = new System.IO.MemoryStream();
+            bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            return (true, Convert.ToBase64String(ms.ToArray()), $"Screenshot ({w}x{h})");
+        }
+        catch (Exception ex) { return (false, "", $"Screenshot failed: {ex.Message}"); }
+    }
+
+    public Dictionary<string, string> GetElementProperties(AutomationElement element)
+    {
+        return RunOnSta(() =>
+        {
+            var props = new Dictionary<string, string>();
+            try
+            {
+                var c = element.Current;
+                props["ControlType"] = c.ControlType.ProgrammaticName.Replace("ControlType.", "");
+                props["Name"] = c.Name ?? ""; props["AutomationId"] = c.AutomationId ?? "";
+                props["ClassName"] = c.ClassName ?? ""; props["IsEnabled"] = c.IsEnabled.ToString();
+                props["IsOffscreen"] = c.IsOffscreen.ToString();
+                props["BoundingRectangle"] = c.BoundingRectangle.ToString();
+                props["FrameworkId"] = c.FrameworkId ?? "";
+                props["ProcessId"] = c.ProcessId.ToString();
+            }
+            catch { }
+            try
+            {
+                var patterns = element.GetSupportedPatterns();
+                props["SupportedPatterns"] = string.Join(", ", patterns.Select(p => p.ProgrammaticName.Replace("PatternIdentifiers.Pattern", "")));
+            }
+            catch { props["SupportedPatterns"] = ""; }
+            return props;
+        });
+    }
+
+    public string FormatElement(AutomationElement e)
+    {
+        try
+        {
+            var c = e.Current;
+            return $"[{c.ControlType.ProgrammaticName.Replace("ControlType.", "")}] " +
+                   $"Name=\"{c.Name}\" AutomationId=\"{c.AutomationId}\" " +
+                   $"ClassName=\"{c.ClassName}\" FrameworkId=\"{c.FrameworkId}\"";
+        }
+        catch { return "[Error reading element]"; }
+    }
+
+    private Condition? ParsePathSegment(string segment)
+    {
+        var conditions = new List<Condition>();
+        foreach (var pair in segment.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = pair.Split('~', 2);
+            if (parts.Length != 2) continue;
+            var value = parts[1];
+            if (value.StartsWith("Contains+")) value = value.Substring("Contains+".Length);
+            var colonIdx = parts[0].IndexOf(':');
+            if (colonIdx < 0) continue;
+            var propName = parts[0].Substring(colonIdx + 1);
+            switch (propName)
+            {
+                case "ControlType":
+                    var ct = GetControlType(value);
+                    if (ct != null) conditions.Add(new PropertyCondition(AutomationElement.ControlTypeProperty, ct));
+                    break;
+                case "AutomationId":
+                    conditions.Add(new PropertyCondition(AutomationElement.AutomationIdProperty, value)); break;
+                case "Name":
+                    conditions.Add(new PropertyCondition(AutomationElement.NameProperty, value)); break;
+                case "ClassName":
+                    conditions.Add(new PropertyCondition(AutomationElement.ClassNameProperty, value)); break;
+            }
+        }
+        if (conditions.Count == 0) return null;
+        if (conditions.Count == 1) return conditions[0];
+        return new AndCondition(conditions.ToArray());
+    }
+
+    private ControlType? GetControlType(string name) => name switch
+    {
+        "Button" => ControlType.Button, "Calendar" => ControlType.Calendar,
+        "CheckBox" => ControlType.CheckBox, "ComboBox" => ControlType.ComboBox,
+        "Custom" => ControlType.Custom, "DataGrid" => ControlType.DataGrid,
+        "DataItem" => ControlType.DataItem, "Document" => ControlType.Document,
+        "Edit" => ControlType.Edit, "Group" => ControlType.Group,
+        "Header" => ControlType.Header, "HeaderItem" => ControlType.HeaderItem,
+        "Hyperlink" => ControlType.Hyperlink, "Image" => ControlType.Image,
+        "List" => ControlType.List, "ListItem" => ControlType.ListItem,
+        "Menu" => ControlType.Menu, "MenuBar" => ControlType.MenuBar,
+        "MenuItem" => ControlType.MenuItem, "Pane" => ControlType.Pane,
+        "ProgressBar" => ControlType.ProgressBar, "RadioButton" => ControlType.RadioButton,
+        "ScrollBar" => ControlType.ScrollBar, "Separator" => ControlType.Separator,
+        "Slider" => ControlType.Slider, "Spinner" => ControlType.Spinner,
+        "SplitButton" => ControlType.SplitButton, "StatusBar" => ControlType.StatusBar,
+        "Tab" => ControlType.Tab, "TabItem" => ControlType.TabItem,
+        "Table" => ControlType.Table, "Text" => ControlType.Text,
+        "Thumb" => ControlType.Thumb, "TitleBar" => ControlType.TitleBar,
+        "ToolBar" => ControlType.ToolBar, "ToolTip" => ControlType.ToolTip,
+        "Tree" => ControlType.Tree, "TreeItem" => ControlType.TreeItem,
+        "Window" => ControlType.Window, "TabList" => ControlType.Tab,
+        "TabPage" => ControlType.TabItem, _ => null
+    };
+
+    private byte ParseVirtualKey(string key) => key.ToUpper() switch
+    {
+        "A" => 0x41, "B" => 0x42, "C" => 0x43, "D" => 0x44, "E" => 0x45,
+        "F" => 0x46, "G" => 0x47, "H" => 0x48, "I" => 0x49, "J" => 0x4A,
+        "K" => 0x4B, "L" => 0x4C, "M" => 0x4D, "N" => 0x4E, "O" => 0x4F,
+        "P" => 0x50, "Q" => 0x51, "R" => 0x52, "S" => 0x53, "T" => 0x54,
+        "U" => 0x55, "V" => 0x56, "W" => 0x57, "X" => 0x58, "Y" => 0x59, "Z" => 0x5A,
+        "0" => 0x30, "1" => 0x31, "2" => 0x32, "3" => 0x33, "4" => 0x34,
+        "5" => 0x35, "6" => 0x36, "7" => 0x37, "8" => 0x38, "9" => 0x39,
+        "ENTER" or "RETURN" => 0x0D, "TAB" => 0x09, "ESCAPE" or "ESC" => 0x1B,
+        "SPACE" => 0x20, "BACKSPACE" => 0x08, "DELETE" or "DEL" => 0x2E,
+        "HOME" => 0x24, "END" => 0x23, "PAGEUP" => 0x21, "PAGEDOWN" => 0x22,
+        "UP" => 0x26, "DOWN" => 0x28, "LEFT" => 0x25, "RIGHT" => 0x27,
+        "F1" => 0x70, "F2" => 0x71, "F3" => 0x72, "F4" => 0x73,
+        "F5" => 0x74, "F6" => 0x75, "F7" => 0x76, "F8" => 0x77,
+        "F9" => 0x78, "F10" => 0x79, "F11" => 0x7A, "F12" => 0x7B,
+        _ => 0x41
+    };
+}
