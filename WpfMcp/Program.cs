@@ -312,6 +312,7 @@ async Task RunDragDropMacroAsync(string yamlPath)
             var steps = result.GetProperty("StepsExecuted").GetInt32();
             var total = result.GetProperty("TotalSteps").GetInt32();
             Console.WriteLine($"SUCCESS: {displayName} completed ({steps}/{total} steps)");
+            return; // Auto-close on success
         }
         else
         {
@@ -330,7 +331,7 @@ async Task RunDragDropMacroAsync(string yamlPath)
         Console.WriteLine($"ERROR: {ex.Message}");
     }
 
-    WaitForKeypress();
+    WaitForKeypress(); // Only pause on failure so user can read the error
 }
 
 static void WaitForKeypress()

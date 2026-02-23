@@ -299,12 +299,22 @@ steps:
     macro_name: other-macro
     params:
       key: value
+  - action: launch
+    exe_path: ""C:\\MyApp\\App.exe""
+    arguments: --verbose
+    working_directory: ""C:\\MyApp""
+    if_not_running: true
+    timeout: 30
+  - action: wait_for_window
+    title_contains: My App
+    timeout: 20
+    retry_interval: 2
 ");
 
         using var engine = new MacroEngine(_tempDir, enableWatcher: false);
         var macro = engine.Get("all-steps");
         Assert.NotNull(macro);
-        Assert.Equal(14, macro!.Steps.Count);
+        Assert.Equal(16, macro!.Steps.Count);
         Assert.Equal("focus", macro.Steps[0].Action);
         Assert.Equal("Notepad", macro.Steps[1].ProcessName);
         Assert.Equal(5, macro.Steps[2].MaxDepth);
@@ -319,6 +329,18 @@ steps:
         Assert.Equal(2.5, macro.Steps[9].Seconds);
         Assert.Equal("other-macro", macro.Steps[13].MacroName);
         Assert.Equal("value", macro.Steps[13].Params?["key"]);
+        // Launch step
+        Assert.Equal("launch", macro.Steps[14].Action);
+        Assert.Equal("C:\\MyApp\\App.exe", macro.Steps[14].ExePath);
+        Assert.Equal("--verbose", macro.Steps[14].Arguments);
+        Assert.Equal("C:\\MyApp", macro.Steps[14].WorkingDirectory);
+        Assert.True(macro.Steps[14].IfNotRunning);
+        Assert.Equal(30, macro.Steps[14].StepTimeout);
+        // WaitForWindow step
+        Assert.Equal("wait_for_window", macro.Steps[15].Action);
+        Assert.Equal("My App", macro.Steps[15].TitleContains);
+        Assert.Equal(20, macro.Steps[15].StepTimeout);
+        Assert.Equal(2, macro.Steps[15].RetryInterval);
     }
 
     [Fact]
@@ -414,6 +436,200 @@ steps:
         engine.Reload();
         Assert.Empty(engine.LoadErrors);
         Assert.Single(engine.List());
+    }
+
+    // --- Launch & WaitForWindow step parsing ---
+
+    [Fact]
+    public void Load_LaunchStep_ParsesAllFields()
+    {
+        WriteMacro("launch-test.yaml", @"
+name: Launch Test
+description: Tests launch step parsing
+steps:
+  - action: launch
+    exe_path: ""C:\\Program Files\\MyApp\\App.exe""
+    arguments: --config default
+    working_directory: ""C:\\Program Files\\MyApp""
+    if_not_running: true
+    timeout: 45
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("launch-test");
+        Assert.NotNull(macro);
+        var step = macro!.Steps[0];
+        Assert.Equal("launch", step.Action);
+        Assert.Equal("C:\\Program Files\\MyApp\\App.exe", step.ExePath);
+        Assert.Equal("--config default", step.Arguments);
+        Assert.Equal("C:\\Program Files\\MyApp", step.WorkingDirectory);
+        Assert.True(step.IfNotRunning);
+        Assert.Equal(45, step.StepTimeout);
+    }
+
+    [Fact]
+    public void Load_LaunchStep_IfNotRunningDefaultsNull()
+    {
+        WriteMacro("launch-default.yaml", @"
+name: Launch Default
+description: Tests if_not_running default
+steps:
+  - action: launch
+    exe_path: app.exe
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("launch-default");
+        Assert.NotNull(macro);
+        var step = macro!.Steps[0];
+        Assert.Equal("launch", step.Action);
+        Assert.Null(step.IfNotRunning); // null → engine defaults to true
+    }
+
+    [Fact]
+    public void Load_WaitForWindowStep_ParsesAllFields()
+    {
+        WriteMacro("wait-win.yaml", @"
+name: Wait Window
+description: Tests wait_for_window parsing
+steps:
+  - action: wait_for_window
+    title_contains: My Application
+    automation_id: mainPanel
+    name: Main Panel
+    control_type: Custom
+    timeout: 30
+    retry_interval: 2
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("wait-win");
+        Assert.NotNull(macro);
+        var step = macro!.Steps[0];
+        Assert.Equal("wait_for_window", step.Action);
+        Assert.Equal("My Application", step.TitleContains);
+        Assert.Equal("mainPanel", step.AutomationId);
+        Assert.Equal("Main Panel", step.Name);
+        Assert.Equal("Custom", step.ControlType);
+        Assert.Equal(30, step.StepTimeout);
+        Assert.Equal(2, step.RetryInterval);
+    }
+
+    [Fact]
+    public void Load_LaunchMacroWithParameters_SubstitutesExePath()
+    {
+        WriteMacro("launch-param.yaml", @"
+name: Launch Param
+description: Tests parameter substitution in exe_path
+parameters:
+  - name: exePath
+    required: true
+steps:
+  - action: launch
+    exe_path: ""{{exePath}}""
+    if_not_running: true
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("launch-param");
+        Assert.NotNull(macro);
+        Assert.Equal("{{exePath}}", macro!.Steps[0].ExePath);
+        // Verify SubstituteParams works with exe_path value
+        var substituted = MacroEngine.SubstituteParams(
+            macro.Steps[0].ExePath,
+            new Dictionary<string, string> { ["exePath"] = "C:\\MyApp.exe" });
+        Assert.Equal("C:\\MyApp.exe", substituted);
+    }
+
+    [Fact]
+    public async Task Execute_LaunchStepWithoutExePath_ReturnsError()
+    {
+        WriteMacro("launch-nope.yaml", @"
+name: Launch No Path
+description: Missing exe_path
+steps:
+  - action: launch
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var result = await engine.ExecuteAsync("launch-nope");
+        Assert.False(result.Success);
+        Assert.Contains("exe_path", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Load_FullLaunchMacro_ParsesLaunchAndWaitSteps()
+    {
+        WriteMacro(Path.Combine("product", "launch.yaml"), @"
+name: Launch Product
+description: Full launch macro with both steps
+timeout: 60
+parameters:
+  - name: exePath
+    description: Path to exe
+    required: false
+    default: ""C:\\App\\App.exe""
+steps:
+  - action: launch
+    exe_path: ""{{exePath}}""
+    if_not_running: true
+    timeout: 45
+  - action: wait_for_window
+    title_contains: My Product
+    timeout: 45
+    retry_interval: 3
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macros = engine.List();
+        Assert.Single(macros);
+        Assert.Equal("product/launch", macros[0].Name);
+        var macro = engine.Get("product/launch");
+        Assert.NotNull(macro);
+        Assert.Equal(2, macro!.Steps.Count);
+        Assert.Equal("launch", macro.Steps[0].Action);
+        Assert.Equal("wait_for_window", macro.Steps[1].Action);
+        Assert.Equal("My Product", macro.Steps[1].TitleContains);
+    }
+
+    [Fact]
+    public void Load_WorkflowMacroCallingLaunch_ParsesNestedMacroStep()
+    {
+        WriteMacro(Path.Combine("product", "launch.yaml"), @"
+name: Launch
+description: Launch the product
+steps:
+  - action: launch
+    exe_path: app.exe
+    if_not_running: true
+  - action: wait_for_window
+    title_contains: Product
+    timeout: 30
+");
+
+        WriteMacro(Path.Combine("product", "do-work.yaml"), @"
+name: Do Work
+description: A workflow that calls launch first
+timeout: 90
+parameters:
+  - name: filePath
+    required: true
+steps:
+  - action: macro
+    macro_name: product/launch
+  - action: focus
+  - action: type
+    text: ""{{filePath}}""
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macros = engine.List();
+        Assert.Equal(2, macros.Count);
+        var workflow = engine.Get("product/do-work");
+        Assert.NotNull(workflow);
+        Assert.Equal(3, workflow!.Steps.Count);
+        Assert.Equal("macro", workflow.Steps[0].Action);
+        Assert.Equal("product/launch", workflow.Steps[0].MacroName);
     }
 
     // --- File Watcher ---

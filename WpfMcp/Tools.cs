@@ -17,24 +17,104 @@ public static class WpfTools
     // Local element cache (only used in non-proxied / direct mode)
     private static readonly ElementCache _cache = new();
 
-    [McpServerTool, Description("Attach to a running WPF application by process name or PID. Must be called before any other tool.")]
+    [McpServerTool, Description("Attach to a running WPF application by process name or PID. Optionally launch the application if it's not running and wait for window readiness.")]
     public static async Task<string> wpf_attach(
         [Description("Process name (without .exe)")] string? process_name = null,
-        [Description("Process ID")] int? pid = null)
+        [Description("Process ID")] int? pid = null,
+        [Description("Path to .exe — if provided and the process isn't running, launch it first")] string? exe_path = null,
+        [Description("Command-line arguments when launching")] string? arguments = null,
+        [Description("Wait until the window title contains this string (readiness check)")] string? wait_for_title = null,
+        [Description("Seconds to wait for launch and readiness (default 30)")] int? timeout = null)
     {
-        if (process_name == null && pid == null)
-            return "Error: Either process_name or pid must be provided";
+        if (process_name == null && pid == null && exe_path == null)
+            return "Error: Either process_name, pid, or exe_path must be provided";
 
         if (Proxy != null)
         {
+            // If exe_path is provided, use the launch proxy command
+            if (exe_path != null)
+            {
+                var launchArgs = new Dictionary<string, object?>
+                {
+                    ["exePath"] = exe_path,
+                    ["arguments"] = arguments,
+                    ["ifNotRunning"] = true,
+                    ["timeout"] = timeout ?? 30
+                };
+                var launchResp = await Proxy.CallAsync("launch", launchArgs);
+                if (launchResp.TryGetProperty("ok", out var lok) && !lok.GetBoolean())
+                    return FormatResponse(launchResp);
+
+                // If wait_for_title specified, wait for window readiness
+                if (!string.IsNullOrEmpty(wait_for_title))
+                {
+                    var waitArgs = new Dictionary<string, object?>
+                    {
+                        ["titleContains"] = wait_for_title,
+                        ["timeout"] = timeout ?? 30
+                    };
+                    var waitResp = await Proxy.CallAsync("waitForWindow", waitArgs);
+                    if (waitResp.TryGetProperty("ok", out var wok) && !wok.GetBoolean())
+                        return FormatResponse(waitResp);
+                }
+
+                return FormatResponse(launchResp);
+            }
+
             var args = new Dictionary<string, object?> { ["processName"] = process_name, ["pid"] = pid };
             var resp = await Proxy.CallAsync("attach", args);
+
+            // If wait_for_title specified, wait for window readiness after attach
+            if (resp.TryGetProperty("ok", out var aok) && aok.GetBoolean() && !string.IsNullOrEmpty(wait_for_title))
+            {
+                var waitArgs = new Dictionary<string, object?>
+                {
+                    ["titleContains"] = wait_for_title,
+                    ["timeout"] = timeout ?? 30
+                };
+                var waitResp = await Proxy.CallAsync("waitForWindow", waitArgs);
+                if (waitResp.TryGetProperty("ok", out var wok2) && !wok2.GetBoolean())
+                    return FormatResponse(waitResp);
+            }
+
             return FormatResponse(resp);
         }
 
         var engine = UiaEngine.Instance;
+
+        // If exe_path provided, use launch-and-attach
+        if (exe_path != null)
+        {
+            var launchResult = await engine.LaunchAndAttachAsync(
+                exe_path, arguments, ifNotRunning: true,
+                timeoutSec: timeout ?? 30);
+            if (!launchResult.success)
+                return $"Error: {launchResult.message}";
+
+            if (!string.IsNullOrEmpty(wait_for_title))
+            {
+                var waitResult = await engine.WaitForWindowReadyAsync(
+                    titleContains: wait_for_title, timeoutSec: timeout ?? 30);
+                if (!waitResult.success)
+                    return $"Error: {waitResult.message}";
+            }
+
+            return $"OK: {launchResult.message}";
+        }
+
         var result = pid.HasValue ? engine.AttachByPid(pid.Value) : engine.Attach(process_name!);
-        return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
+        if (!result.success)
+            return $"Error: {result.message}";
+
+        if (!string.IsNullOrEmpty(wait_for_title))
+        {
+            var waitResult = await engine.WaitForWindowReadyAsync(
+                titleContains: wait_for_title, timeoutSec: timeout ?? 30);
+            if (!waitResult.success)
+                return $"Error: {waitResult.message}";
+        }
+
+        return $"OK: {result.message}";
     }
 
     [McpServerTool, Description("Get a snapshot of the UI automation tree. Shows element types, names, automation IDs, and class names in a hierarchical view.")]

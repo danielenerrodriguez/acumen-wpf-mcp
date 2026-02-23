@@ -79,7 +79,9 @@ public static class UiaProxyServer
     private static readonly ElementCache _cache = new();
     private static readonly Lazy<MacroEngine> _macroEngine = new(() => new MacroEngine());
     private static readonly Lazy<InputRecorder> _recorder = new(() => new InputRecorder(UiaEngine.Instance));
+    private static readonly SemaphoreSlim _commandLock = new(1, 1);
     private static string? _macrosPath;
+    private static int _clientCount;
 
     /// <summary>Save last attached process name so we can auto-reattach.</summary>
     private static void SaveLastClient(string processName)
@@ -138,24 +140,31 @@ public static class UiaProxyServer
         // Acquire mutex to signal we're running
         using var mutex = new Mutex(true, Constants.MutexName);
 
+        // Shared security descriptor — all pipe instances must use identical ACL.
+        var pipeSecurity = new PipeSecurity();
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
+            PipeAccessRights.ReadWrite,
+            AccessControlType.Allow));
+        pipeSecurity.AddAccessRule(new PipeAccessRule(
+            new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
+            PipeAccessRights.FullControl,
+            AccessControlType.Allow));
+
+        // Track active client handlers so we only idle-shutdown when none are connected
+        var activeClients = new List<Task>();
+
         while (true)
         {
             try
             {
-                // Create pipe with ACL that allows non-elevated processes to connect.
-                // Without this, an elevated server's pipe is only accessible to admins.
-                var pipeSecurity = new PipeSecurity();
-                pipeSecurity.AddAccessRule(new PipeAccessRule(
-                    new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null),
-                    PipeAccessRights.ReadWrite,
-                    AccessControlType.Allow));
-
-                using var pipe = NamedPipeServerStreamAcl.Create(
-                    Constants.PipeName, PipeDirection.InOut, 1,
+                // Multiple instances (up to 5) allow concurrent clients (e.g., MCP + drag-and-drop).
+                var pipe = NamedPipeServerStreamAcl.Create(
+                    Constants.PipeName, PipeDirection.InOut, 5,
                     PipeTransmissionMode.Byte, PipeOptions.Asynchronous,
                     inBufferSize: 0, outBufferSize: 0, pipeSecurity);
 
-                // Wait for client with idle timeout
+                // Wait for client with idle timeout (only when no clients are connected)
                 using var idleCts = new CancellationTokenSource(TimeSpan.FromMinutes(Constants.ServerIdleTimeoutMinutes));
                 try
                 {
@@ -163,19 +172,47 @@ public static class UiaProxyServer
                 }
                 catch (OperationCanceledException)
                 {
+                    pipe.Dispose();
+                    // Clean up completed client tasks
+                    activeClients.RemoveAll(t => t.IsCompleted);
+                    if (activeClients.Count > 0)
+                    {
+                        // Still have active clients — keep waiting
+                        continue;
+                    }
                     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Idle timeout. Shutting down.");
                     return;
                 }
 
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Client connected.");
+                var clientId = Interlocked.Increment(ref _clientCount);
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Client #{clientId} connected.");
 
-                // Auto-reattach to last known process on new connection
-                TryAutoReattach();
+                // Auto-reattach to last known process on first connection
+                if (clientId == 1) TryAutoReattach();
 
-                using var reader = new StreamReader(pipe);
-                using var writer = new StreamWriter(pipe) { AutoFlush = true };
+                // Handle this client in a background task, loop back to accept more
+                var clientTask = Task.Run(() => HandleClientAsync(pipe, clientId));
+                activeClients.Add(clientTask);
 
-                // Process commands
+                // Clean up completed tasks
+                activeClients.RemoveAll(t => t.IsCompleted);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Error: {ex.Message}");
+                await Task.Delay(Constants.ServerErrorRetryMs);
+            }
+        }
+    }
+
+    private static async Task HandleClientAsync(NamedPipeServerStream pipe, int clientId)
+    {
+        try
+        {
+            using (pipe)
+            using (var reader = new StreamReader(pipe))
+            using (var writer = new StreamWriter(pipe) { AutoFlush = true })
+            {
                 while (pipe.IsConnected)
                 {
                     string? line;
@@ -193,7 +230,17 @@ public static class UiaProxyServer
                         var request = JsonSerializer.Deserialize<JsonElement>(line);
                         var method = request.GetProperty("method").GetString()!;
                         var args = request.GetProperty("args");
-                        response = await ExecuteCommand(method, args);
+
+                        // Serialize command execution to avoid concurrent UIA calls
+                        await _commandLock.WaitAsync();
+                        try
+                        {
+                            response = await ExecuteCommand(method, args);
+                        }
+                        finally
+                        {
+                            _commandLock.Release();
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -206,15 +253,14 @@ public static class UiaProxyServer
                     }
                     catch { break; }
                 }
-
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Client disconnected. Waiting...");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Error: {ex.Message}");
-                await Task.Delay(Constants.ServerErrorRetryMs);
             }
         }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Client #{clientId} error: {ex.Message}");
+        }
+
+        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Client #{clientId} disconnected.");
     }
 
     static Task<string> ExecuteCommand(string method, JsonElement args)
@@ -423,6 +469,40 @@ public static class UiaProxyServer
                         var execResult = _macroEngine.Value.ExecuteDefinitionAsync(
                             macroDef, displayName, execParams, engine, _cache).GetAwaiter().GetResult();
                         return JsonSerializer.Serialize(new { ok = execResult.Success, result = execResult });
+                    }
+                    case "launch":
+                    {
+                        var exePath = GetStringArg(args, "exePath");
+                        if (string.IsNullOrEmpty(exePath))
+                            return Json(false, "exe_path is required");
+                        var arguments = GetStringArg(args, "arguments");
+                        var workingDir = GetStringArg(args, "workingDirectory");
+                        var ifNotRunning = !(args.TryGetProperty("ifNotRunning", out var inr)
+                            && inr.ValueKind == JsonValueKind.False);
+                        var timeout = GetIntArg(args, "timeout") ?? Constants.DefaultLaunchTimeoutSec;
+
+                        var result = engine.LaunchAndAttachAsync(
+                            exePath, arguments, workingDir, ifNotRunning, timeout).GetAwaiter().GetResult();
+                        if (result.success)
+                        {
+                            var exeName = Path.GetFileNameWithoutExtension(exePath);
+                            SaveLastClient(exeName);
+                        }
+                        return Json(result.success, result.message);
+                    }
+                    case "waitForWindow":
+                    {
+                        var titleContains = GetStringArg(args, "titleContains");
+                        var automationId = GetStringArg(args, "automationId");
+                        var name = GetStringArg(args, "name");
+                        var controlType = GetStringArg(args, "controlType");
+                        var timeout = GetIntArg(args, "timeout") ?? Constants.DefaultLaunchTimeoutSec;
+                        var pollMs = GetIntArg(args, "pollMs") ?? Constants.DefaultWindowReadyPollMs;
+
+                        var result = engine.WaitForWindowReadyAsync(
+                            titleContains, automationId, name, controlType,
+                            timeout, pollMs).GetAwaiter().GetResult();
+                        return Json(result.success, result.message);
                     }
                     case "startRecording":
                     {

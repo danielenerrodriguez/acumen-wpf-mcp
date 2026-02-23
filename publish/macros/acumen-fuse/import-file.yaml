@@ -1,12 +1,21 @@
 name: Import File
-description: Opens the Import dialog in Acumen Fuse and types a file path
-timeout: 30
+description: Launches Acumen Fuse (if needed) then opens the Import dialog and types a file path
+timeout: 90
 parameters:
   - name: filePath
     description: Full path to the file to import
     required: true
+  - name: exePath
+    description: Path to Fuse.exe (passed to launch macro)
+    required: false
+    default: "C:\\Program Files\\Deltek\\Acumen 8.12\\Fuse.exe"
 
 steps:
+  - action: macro
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: "{{exePath}}"
+
   - action: focus
 
   - action: send_keys

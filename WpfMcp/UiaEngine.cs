@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -228,6 +229,229 @@ public class UiaEngine
             }
             catch (Exception ex) { return (false, $"Failed to attach: {ex.Message}"); }
         });
+    }
+
+    /// <summary>
+    /// Launch a process and attach to it. If <paramref name="ifNotRunning"/> is true
+    /// and a process with a matching name is already running, attach to it instead.
+    /// Polls until the process has a main window, then calls Attach.
+    /// </summary>
+    public async Task<(bool success, string message)> LaunchAndAttachAsync(
+        string exePath,
+        string? arguments = null,
+        string? workingDirectory = null,
+        bool ifNotRunning = true,
+        int timeoutSec = 0,
+        CancellationToken cancellation = default)
+    {
+        if (string.IsNullOrEmpty(exePath))
+            return (false, "exe_path is required for launch");
+
+        var exeName = Path.GetFileNameWithoutExtension(exePath);
+        timeoutSec = timeoutSec > 0 ? timeoutSec : Constants.DefaultLaunchTimeoutSec;
+
+        // Check if already running
+        if (ifNotRunning)
+        {
+            var existing = Process.GetProcessesByName(exeName);
+            if (existing.Length > 0)
+            {
+                var proc = existing[0];
+                if (proc.MainWindowHandle != IntPtr.Zero)
+                {
+                    var attachResult = AttachByPid(proc.Id);
+                    if (attachResult.success)
+                        return (true, $"Already running — {attachResult.message}");
+                }
+                // Process exists but no window yet — fall through to wait for window
+                return await WaitForProcessWindowAsync(proc, exeName, timeoutSec, cancellation);
+            }
+        }
+
+        // Launch the process
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = exePath,
+                UseShellExecute = true
+            };
+            if (!string.IsNullOrEmpty(arguments))
+                startInfo.Arguments = arguments;
+            if (!string.IsNullOrEmpty(workingDirectory))
+                startInfo.WorkingDirectory = workingDirectory;
+
+            var proc = Process.Start(startInfo);
+            if (proc == null)
+                return (false, $"Failed to start process: {exePath}");
+
+            return await WaitForProcessWindowAsync(proc, exeName, timeoutSec, cancellation);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Failed to launch '{exePath}': {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Poll until a process has a main window, then attach to it.
+    /// Handles "relay launch" apps (e.g., Windows 11 Notepad) where the initial
+    /// process exits immediately and a new one spawns under a different PID.
+    /// When the tracked process exits, falls back to searching by process name.
+    /// </summary>
+    private async Task<(bool success, string message)> WaitForProcessWindowAsync(
+        Process proc, string exeName, int timeoutSec, CancellationToken cancellation)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        cts.CancelAfter(TimeSpan.FromSeconds(timeoutSec));
+
+        try
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                proc.Refresh();
+                if (proc.HasExited)
+                {
+                    // Process exited — it may have relaunched under a different PID
+                    // (common with store apps, e.g., Windows 11 Notepad).
+                    // Fall back to searching by process name.
+                    return await WaitForProcessByNameAsync(exeName, timeoutSec, cts.Token);
+                }
+
+                if (proc.MainWindowHandle != IntPtr.Zero)
+                {
+                    var attachResult = AttachByPid(proc.Id);
+                    if (attachResult.success)
+                        return (true, $"Launched and {attachResult.message}");
+                    // Window appeared but attach failed — retry briefly
+                }
+
+                await Task.Delay(Constants.ProcessMainWindowPollMs, cts.Token);
+            }
+        }
+        catch (OperationCanceledException) { }
+
+        return (false, $"Timed out waiting for '{exeName}' to show a main window ({timeoutSec}s)");
+    }
+
+    /// <summary>
+    /// Fallback: poll by process name until a matching process with a main window appears.
+    /// Used when the initially launched process exits (relay/store apps).
+    /// </summary>
+    private async Task<(bool success, string message)> WaitForProcessByNameAsync(
+        string exeName, int timeoutSec, CancellationToken cancellation)
+    {
+        try
+        {
+            while (!cancellation.IsCancellationRequested)
+            {
+                var candidates = Process.GetProcessesByName(exeName);
+                foreach (var p in candidates)
+                {
+                    try
+                    {
+                        if (p.MainWindowHandle != IntPtr.Zero)
+                        {
+                            var attachResult = AttachByPid(p.Id);
+                            if (attachResult.success)
+                                return (true, $"Launched (relaunched) and {attachResult.message}");
+                        }
+                    }
+                    catch { /* process may have exited between enumeration and access */ }
+                }
+
+                await Task.Delay(Constants.ProcessMainWindowPollMs, cancellation);
+            }
+        }
+        catch (OperationCanceledException) { }
+
+        return (false, $"Timed out waiting for '{exeName}' to appear ({timeoutSec}s)");
+    }
+
+    /// <summary>
+    /// Wait until the attached window is ready. Optionally checks that the window title
+    /// contains a substring and/or that a specific element exists in the UIA tree.
+    /// </summary>
+    public async Task<(bool success, string message)> WaitForWindowReadyAsync(
+        string? titleContains = null,
+        string? automationId = null,
+        string? name = null,
+        string? controlType = null,
+        int timeoutSec = 0,
+        int pollMs = 0,
+        CancellationToken cancellation = default)
+    {
+        timeoutSec = timeoutSec > 0 ? timeoutSec : Constants.DefaultLaunchTimeoutSec;
+        pollMs = pollMs > 0 ? pollMs : Constants.DefaultWindowReadyPollMs;
+
+        bool hasElementCriteria = !string.IsNullOrEmpty(automationId)
+            || !string.IsNullOrEmpty(name)
+            || !string.IsNullOrEmpty(controlType);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        cts.CancelAfter(TimeSpan.FromSeconds(timeoutSec));
+
+        try
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                if (!IsAttached)
+                {
+                    await Task.Delay(pollMs, cts.Token);
+                    continue;
+                }
+
+                // Check title (try UIA first, fall back to Process.MainWindowTitle)
+                if (!string.IsNullOrEmpty(titleContains))
+                {
+                    var title = WindowTitle;
+                    if (string.IsNullOrEmpty(title))
+                    {
+                        // Fallback: read from process directly (works without elevation)
+                        try
+                        {
+                            _attachedProcess?.Refresh();
+                            title = _attachedProcess?.MainWindowTitle;
+                        }
+                        catch { }
+                    }
+                    if (title == null || !title.Contains(titleContains, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await Task.Delay(pollMs, cts.Token);
+                        continue;
+                    }
+                }
+
+                // Check element exists
+                if (hasElementCriteria)
+                {
+                    var findResult = FindElement(automationId, name, null, controlType);
+                    if (!findResult.success)
+                    {
+                        await Task.Delay(pollMs, cts.Token);
+                        continue;
+                    }
+                }
+
+                // All criteria met
+                var readyMsg = "Window is ready";
+                if (!string.IsNullOrEmpty(titleContains))
+                    readyMsg += $" (title contains '{titleContains}')";
+                if (hasElementCriteria)
+                    readyMsg += " (element found)";
+                return (true, readyMsg);
+            }
+        }
+        catch (OperationCanceledException) { }
+
+        var failMsg = $"Timed out waiting for window readiness ({timeoutSec}s)";
+        if (!IsAttached)
+            failMsg += " — not attached to any process";
+        else if (!string.IsNullOrEmpty(titleContains))
+            failMsg += $" — title '{WindowTitle}' does not contain '{titleContains}'";
+        else if (hasElementCriteria)
+            failMsg += " — target element not found";
+        return (false, failMsg);
     }
 
     /// <summary>

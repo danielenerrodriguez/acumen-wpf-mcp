@@ -51,6 +51,11 @@ public static class Constants
     public const double DefaultRetryIntervalSec = 1.0;
     public const int MacroReloadDebounceMs = 500;
 
+    // Launch / window readiness
+    public const int DefaultLaunchTimeoutSec = 60;
+    public const int DefaultWindowReadyPollMs = 2000;
+    public const int ProcessMainWindowPollMs = 500;
+
     // Recording
     public const int TypingCoalesceMs = 300;
     public const double WaitDetectionThresholdSec = 1.5;

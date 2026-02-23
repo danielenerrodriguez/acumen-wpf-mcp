@@ -229,8 +229,8 @@ public class MacroEngine : IDisposable
                     $"Macro '{macroName}' timed out after {macroTimeoutSec}s at step {i + 1} ({step.Action})",
                     i, step.Action, "Macro timeout exceeded");
 
-            // Check process is still alive (except for attach/wait/macro actions)
-            if (step.Action is not ("attach" or "wait" or "macro"))
+            // Check process is still alive (except for actions that don't require attachment)
+            if (step.Action is not ("attach" or "wait" or "macro" or "launch" or "wait_for_window"))
             {
                 if (!engine.IsAttached)
                     return new MacroResult(false, i, macro.Steps.Count,
@@ -435,6 +435,37 @@ public class MacroEngine : IDisposable
                 var seconds = step.Seconds ?? 1;
                 await Task.Delay(TimeSpan.FromSeconds(seconds), stepCts.Token);
                 return new StepResult(true, $"Waited {seconds}s");
+            }
+
+            case "launch":
+            {
+                var exePath = SubstituteParams(step.ExePath, parameters);
+                if (string.IsNullOrEmpty(exePath))
+                    return new StepResult(false, "launch requires exe_path");
+
+                var arguments = SubstituteParams(step.Arguments, parameters);
+                var workingDir = SubstituteParams(step.WorkingDirectory, parameters);
+                var ifNotRunning = step.IfNotRunning ?? true;
+                var launchTimeout = step.StepTimeout ?? Constants.DefaultLaunchTimeoutSec;
+
+                var r = await engine.LaunchAndAttachAsync(
+                    exePath, arguments, workingDir, ifNotRunning, launchTimeout, stepCts.Token);
+                return new StepResult(r.success, r.message);
+            }
+
+            case "wait_for_window":
+            {
+                var titleContains = SubstituteParams(step.TitleContains, parameters);
+                var automationId = SubstituteParams(step.AutomationId, parameters);
+                var name = SubstituteParams(step.Name, parameters);
+                var controlType = SubstituteParams(step.ControlType, parameters);
+                var waitTimeout = step.StepTimeout ?? Constants.DefaultLaunchTimeoutSec;
+                var pollMs = (int)((step.RetryInterval ?? Constants.DefaultRetryIntervalSec) * 1000);
+
+                var r = await engine.WaitForWindowReadyAsync(
+                    titleContains, automationId, name, controlType,
+                    waitTimeout, pollMs, stepCts.Token);
+                return new StepResult(r.success, r.message);
             }
 
             case "macro":

@@ -104,6 +104,31 @@ public class MacroStep
     [YamlMember(Alias = "params")]
     public Dictionary<string, string>? Params { get; set; }
 
+    // --- launch ---
+    /// <summary>Path to the executable to launch (for action: launch).</summary>
+    [YamlMember(Alias = "exe_path")]
+    public string? ExePath { get; set; }
+
+    /// <summary>Command-line arguments for the launched process.</summary>
+    [YamlMember(Alias = "arguments")]
+    public string? Arguments { get; set; }
+
+    /// <summary>Working directory for the launched process.</summary>
+    [YamlMember(Alias = "working_directory")]
+    public string? WorkingDirectory { get; set; }
+
+    /// <summary>
+    /// If true (default), skip launch when a matching process is already running
+    /// and attach to it instead. Makes launch steps idempotent.
+    /// </summary>
+    [YamlMember(Alias = "if_not_running")]
+    public bool? IfNotRunning { get; set; }
+
+    // --- wait_for_window ---
+    /// <summary>Wait until the window title contains this substring.</summary>
+    [YamlMember(Alias = "title_contains")]
+    public string? TitleContains { get; set; }
+
     // --- timeouts ---
     /// <summary>Per-step timeout in seconds. 0 = use default.</summary>
     [YamlMember(Alias = "timeout")]

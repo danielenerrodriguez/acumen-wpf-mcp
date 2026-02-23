@@ -25,7 +25,7 @@ public class WpfToolsTests : IDisposable
     {
         var result = await WpfTools.wpf_attach();
         Assert.StartsWith("Error:", result);
-        Assert.Contains("Either process_name or pid must be provided", result);
+        Assert.Contains("Either process_name, pid, or exe_path must be provided", result);
     }
 
     [Fact]
