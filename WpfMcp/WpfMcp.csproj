@@ -25,4 +25,22 @@
           SkipUnchangedFiles="true" />
   </Target>
 
+  <!-- Mirror exe + deps + macros to repo-root publish/ folder for local dev -->
+  <Target Name="LocalPublish" AfterTargets="CopyMacros" Condition="'$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <LocalPublishDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\publish\'))</LocalPublishDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(LocalPublishDir)" />
+    <ItemGroup>
+      <PublishBinFiles Include="$(TargetDir)*.*" Exclude="$(TargetDir)*.pdb" />
+      <PublishMacroFiles Include="..\macros\**\*.yaml" />
+    </ItemGroup>
+    <Copy SourceFiles="@(PublishBinFiles)"
+          DestinationFolder="$(LocalPublishDir)"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(PublishMacroFiles)"
+          DestinationFiles="@(PublishMacroFiles->'$(LocalPublishDir)macros\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
+
 </Project>
