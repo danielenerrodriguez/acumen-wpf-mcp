@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Automation;
+using System.Windows.Input;
 
 namespace WpfMcp;
 
@@ -511,6 +513,9 @@ public class UiaEngine
         catch (Exception ex) { return (false, $"SendKeys failed: {ex.Message}"); }
     }
 
+    private static readonly HashSet<string> s_modifierNames =
+        new(StringComparer.OrdinalIgnoreCase) { "ctrl", "control", "alt", "shift" };
+
     private void SendKeyCombo(string combo)
     {
         var parts = combo.Split('+');
@@ -519,13 +524,11 @@ public class UiaEngine
 
         foreach (var part in parts)
         {
-            switch (part.Trim().ToLower())
-            {
-                case "ctrl": case "control": modifiers.Add(0x11); break;
-                case "alt": modifiers.Add(0x12); break;
-                case "shift": modifiers.Add(0x10); break;
-                default: mainKey = ParseVirtualKey(part.Trim()); break;
-            }
+            var trimmed = part.Trim();
+            if (s_modifierNames.Contains(trimmed))
+                modifiers.Add(ParseVirtualKey(trimmed));
+            else
+                mainKey = ParseVirtualKey(trimmed);
         }
 
         var inputs = new List<INPUT>();
@@ -683,47 +686,60 @@ public class UiaEngine
         return new AndCondition(conditions.ToArray());
     }
 
-    private ControlType? GetControlType(string name) => name switch
-    {
-        "Button" => ControlType.Button, "Calendar" => ControlType.Calendar,
-        "CheckBox" => ControlType.CheckBox, "ComboBox" => ControlType.ComboBox,
-        "Custom" => ControlType.Custom, "DataGrid" => ControlType.DataGrid,
-        "DataItem" => ControlType.DataItem, "Document" => ControlType.Document,
-        "Edit" => ControlType.Edit, "Group" => ControlType.Group,
-        "Header" => ControlType.Header, "HeaderItem" => ControlType.HeaderItem,
-        "Hyperlink" => ControlType.Hyperlink, "Image" => ControlType.Image,
-        "List" => ControlType.List, "ListItem" => ControlType.ListItem,
-        "Menu" => ControlType.Menu, "MenuBar" => ControlType.MenuBar,
-        "MenuItem" => ControlType.MenuItem, "Pane" => ControlType.Pane,
-        "ProgressBar" => ControlType.ProgressBar, "RadioButton" => ControlType.RadioButton,
-        "ScrollBar" => ControlType.ScrollBar, "Separator" => ControlType.Separator,
-        "Slider" => ControlType.Slider, "Spinner" => ControlType.Spinner,
-        "SplitButton" => ControlType.SplitButton, "StatusBar" => ControlType.StatusBar,
-        "Tab" => ControlType.Tab, "TabItem" => ControlType.TabItem,
-        "Table" => ControlType.Table, "Text" => ControlType.Text,
-        "Thumb" => ControlType.Thumb, "TitleBar" => ControlType.TitleBar,
-        "ToolBar" => ControlType.ToolBar, "ToolTip" => ControlType.ToolTip,
-        "Tree" => ControlType.Tree, "TreeItem" => ControlType.TreeItem,
-        "Window" => ControlType.Window, "TabList" => ControlType.Tab,
-        "TabPage" => ControlType.TabItem, _ => null
-    };
+    /// <summary>
+    /// All ControlType static fields, indexed by name (case-insensitive).
+    /// Built once via reflection — automatically covers all types without manual maintenance.
+    /// </summary>
+    private static readonly Dictionary<string, ControlType> s_controlTypes =
+        typeof(ControlType)
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(f => f.FieldType == typeof(ControlType))
+            .ToDictionary(f => f.Name, f => (ControlType)f.GetValue(null)!,
+                          StringComparer.OrdinalIgnoreCase);
 
-    private byte ParseVirtualKey(string key) => key.ToUpper() switch
+    // ObjectStore aliases not matching ControlType field names
+    private static readonly Dictionary<string, string> s_controlTypeAliases =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["TabList"] = "Tab",
+            ["TabPage"] = "TabItem",
+        };
+
+    private static ControlType? GetControlType(string name)
     {
-        "A" => 0x41, "B" => 0x42, "C" => 0x43, "D" => 0x44, "E" => 0x45,
-        "F" => 0x46, "G" => 0x47, "H" => 0x48, "I" => 0x49, "J" => 0x4A,
-        "K" => 0x4B, "L" => 0x4C, "M" => 0x4D, "N" => 0x4E, "O" => 0x4F,
-        "P" => 0x50, "Q" => 0x51, "R" => 0x52, "S" => 0x53, "T" => 0x54,
-        "U" => 0x55, "V" => 0x56, "W" => 0x57, "X" => 0x58, "Y" => 0x59, "Z" => 0x5A,
-        "0" => 0x30, "1" => 0x31, "2" => 0x32, "3" => 0x33, "4" => 0x34,
-        "5" => 0x35, "6" => 0x36, "7" => 0x37, "8" => 0x38, "9" => 0x39,
-        "ENTER" or "RETURN" => 0x0D, "TAB" => 0x09, "ESCAPE" or "ESC" => 0x1B,
-        "SPACE" => 0x20, "BACKSPACE" => 0x08, "DELETE" or "DEL" => 0x2E,
-        "HOME" => 0x24, "END" => 0x23, "PAGEUP" => 0x21, "PAGEDOWN" => 0x22,
-        "UP" => 0x26, "DOWN" => 0x28, "LEFT" => 0x25, "RIGHT" => 0x27,
-        "F1" => 0x70, "F2" => 0x71, "F3" => 0x72, "F4" => 0x73,
-        "F5" => 0x74, "F6" => 0x75, "F7" => 0x76, "F8" => 0x77,
-        "F9" => 0x78, "F10" => 0x79, "F11" => 0x7A, "F12" => 0x7B,
-        _ => throw new ArgumentException($"Unknown virtual key: {key}")
-    };
+        if (s_controlTypeAliases.TryGetValue(name, out var mapped))
+            name = mapped;
+        return s_controlTypes.TryGetValue(name, out var ct) ? ct : null;
+    }
+
+    /// <summary>
+    /// Aliases for key names that don't match System.Windows.Input.Key member names.
+    /// Bare digits must be mapped because Enum.TryParse interprets "0"-"9" as
+    /// raw integer values (yielding wrong keys like Key.Cancel instead of Key.D0).
+    /// </summary>
+    private static readonly Dictionary<string, string> s_keyAliases =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["0"] = "D0", ["1"] = "D1", ["2"] = "D2", ["3"] = "D3", ["4"] = "D4",
+            ["5"] = "D5", ["6"] = "D6", ["7"] = "D7", ["8"] = "D8", ["9"] = "D9",
+            ["Esc"] = "Escape",
+            ["Backspace"] = "Back",
+            ["Del"] = "Delete",
+            ["Ins"] = "Insert",
+            ["PgUp"] = "PageUp",
+            ["PgDn"] = "PageDown",
+            ["Ctrl"] = "LeftCtrl",
+            ["Control"] = "LeftCtrl",
+            ["Alt"] = "LeftAlt",
+            ["Shift"] = "LeftShift",
+        };
+
+    private static ushort ParseVirtualKey(string keyName)
+    {
+        if (s_keyAliases.TryGetValue(keyName, out var mapped))
+            keyName = mapped;
+        if (Enum.TryParse<Key>(keyName, ignoreCase: true, out var key) && key != Key.None)
+            return (ushort)KeyInterop.VirtualKeyFromKey(key);
+        throw new ArgumentException($"Unknown key: '{keyName}'");
+    }
 }
