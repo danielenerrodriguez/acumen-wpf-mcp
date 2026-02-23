@@ -120,7 +120,7 @@ A GitHub Actions workflow (`.github/workflows/build-release.yml`) runs on every 
 
 1. Builds and runs all tests on `windows-latest`
 2. Publishes a self-contained single-file exe (no .NET runtime required)
-3. Copies the `macros/` folder alongside the exe
+3. Bundles `publish/macros/` alongside the exe
 4. Creates a GitHub Release with `WpfMcp.zip` (exe + macros) attached
 
 Pull requests to `master` trigger build and test only (no release).
@@ -213,16 +213,21 @@ Macros are reusable, YAML-defined step sequences that automate common UI workflo
 ### Folder Structure
 
 ```
-macros/
-  acumen-fuse/
-    open-file-menu.yaml
-    find-projects-view.yaml
-    import-file.yaml
-  another-app/
-    some-workflow.yaml
+publish/
+  macros/
+    acumen-fuse/
+      open-file-menu.yaml
+      find-projects-view.yaml
+      import-file.yaml
+    another-app/
+      some-workflow.yaml
+  WpfMcp.exe          ← build output (gitignored)
+  *.dll                ← build output (gitignored)
 ```
 
-Macros are discovered from the `macros/` folder next to the exe. This folder is copied automatically on build (`dotnet build`) and included in the release zip. You can override the location with:
+The `publish/macros/` folder is version-controlled and serves as the source of truth. On build, macros are copied to the build output directory so the exe finds them via the default `macros/` path next to itself. The `publish/` folder also receives the exe and dependency DLLs on Release builds, making it a ready-to-run local deployment.
+
+You can override the macros location with:
 
 - The `--macros-path <path>` CLI argument
 - The `WPFMCP_MACROS_PATH` environment variable
@@ -387,7 +392,7 @@ record-status         Show recording state, action count, and duration
 
 ### Output
 
-The recorded macro is saved to the `macros/` folder using the name as a relative path:
+The recorded macro is saved to the macros folder (next to the exe) using the name as a relative path:
 
 - `record-start acumen-fuse/my-workflow` → `macros/acumen-fuse/my-workflow.yaml`
 - `record-start quick-test` → `macros/quick-test.yaml`
@@ -423,11 +428,14 @@ C:\WpfMcp\
     MacroSerializer.cs                  YAML serialization and BuildFromRecordedActions
     InputRecorder.cs                    Low-level hooks, keyboard state machine, recording
     CliMode.cs                          Interactive CLI for manual testing
-  macros/
-    acumen-fuse/
-      open-file-menu.yaml              Focus + Alt,F (example)
-      find-projects-view.yaml          Find element with retry (example)
-      import-file.yaml                 Full workflow with parameters (example)
+  publish/
+    macros/                             Version-controlled macro YAML files
+      acumen-fuse/
+        open-file-menu.yaml            Focus + Alt,F (example)
+        find-projects-view.yaml        Find element with retry (example)
+        import-file.yaml               Full workflow with parameters (example)
+    WpfMcp.exe                          Build output (gitignored)
+    *.dll                               Build output (gitignored)
   WpfMcp.Tests/
     WpfMcp.Tests.csproj                 xUnit test project (87 tests)
     MacroEngineTests.cs                 27 tests for macro loading, validation, execution

@@ -1,7 +1,13 @@
 bin/
 obj/
-publish/
+dist/
 *.user
 *.suo
 .vs/
 last_client.txt
+
+# publish/ contains tracked macros + untracked build output
+publish/*.dll
+publish/*.exe
+publish/*.json
+publish/*.pdb

@@ -15,31 +15,26 @@
     <PackageReference Include="YamlDotNet" Version="16.3.0" />
   </ItemGroup>
 
-  <!-- Copy macros/ folder to build output so the default path works -->
+  <!-- Copy macros from publish/ to build output so the default path works during tests -->
   <Target Name="CopyMacros" AfterTargets="Build">
     <ItemGroup>
-      <MacroFiles Include="..\macros\**\*.yaml" />
+      <MacroFiles Include="..\publish\macros\**\*.yaml" />
     </ItemGroup>
     <Copy SourceFiles="@(MacroFiles)"
           DestinationFiles="@(MacroFiles->'$(TargetDir)macros\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 
-  <!-- Mirror exe + deps + macros to repo-root publish/ folder for local dev -->
+  <!-- Copy exe + deps to repo-root publish/ folder (macros already live there) -->
   <Target Name="LocalPublish" AfterTargets="CopyMacros" Condition="'$(Configuration)' == 'Release'">
     <PropertyGroup>
       <LocalPublishDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\publish\'))</LocalPublishDir>
     </PropertyGroup>
-    <MakeDir Directories="$(LocalPublishDir)" />
     <ItemGroup>
       <PublishBinFiles Include="$(TargetDir)*.*" Exclude="$(TargetDir)*.pdb" />
-      <PublishMacroFiles Include="..\macros\**\*.yaml" />
     </ItemGroup>
     <Copy SourceFiles="@(PublishBinFiles)"
           DestinationFolder="$(LocalPublishDir)"
-          SkipUnchangedFiles="true" />
-    <Copy SourceFiles="@(PublishMacroFiles)"
-          DestinationFiles="@(PublishMacroFiles->'$(LocalPublishDir)macros\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 
