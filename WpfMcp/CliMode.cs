@@ -30,11 +30,14 @@ public static class CliMode
         Console.WriteLine("  type <text>                - Type text");
         Console.WriteLine("  screenshot                 - Take screenshot (saves to wpfmcp_screenshot.png)");
         Console.WriteLine("  status                     - Show attachment status");
+        Console.WriteLine("  macros                     - List available macros");
+        Console.WriteLine("  macro <name> [k=v ...]     - Run a macro with optional parameters");
         Console.WriteLine("  quit                       - Exit");
         Console.WriteLine();
 
         var engine = UiaEngine.Instance;
         var cache = new ElementCache();
+        var macroEngine = new MacroEngine();
 
         while (true)
         {
@@ -183,6 +186,52 @@ public static class CliMode
                             Console.WriteLine($"  PID: {engine.ProcessId}");
                         }
                         Console.WriteLine($"  Cached elements: {cache.Count}");
+                        break;
+
+                    case "macros":
+                        var macroList = macroEngine.List();
+                        if (macroList.Count == 0)
+                        {
+                            Console.WriteLine("No macros found. Place .yaml files in the macros/ folder.");
+                            break;
+                        }
+                        Console.WriteLine($"Available macros ({macroList.Count}):");
+                        foreach (var m in macroList)
+                        {
+                            Console.WriteLine($"  {m.Name} - {m.Description}");
+                            foreach (var p in m.Parameters)
+                                Console.WriteLine($"    {p.Name}{(p.Required ? " (required)" : "")} - {p.Description}{(p.Default != null ? $" [default: {p.Default}]" : "")}");
+                        }
+                        break;
+
+                    case "macro":
+                        if (string.IsNullOrEmpty(arg))
+                        {
+                            Console.WriteLine("Usage: macro <name> [param1=value1 param2=value2 ...]");
+                            break;
+                        }
+                        var macroParts = arg.Split(' ', 2, StringSplitOptions.TrimEntries);
+                        var macroName = macroParts[0];
+                        var macroParams = new Dictionary<string, string>();
+                        if (macroParts.Length > 1)
+                        {
+                            foreach (var pair in macroParts[1].Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                            {
+                                var kv = pair.Split('=', 2);
+                                if (kv.Length == 2) macroParams[kv[0]] = kv[1];
+                            }
+                        }
+                        Console.WriteLine($"Running macro '{macroName}'...");
+                        var macroResult = await macroEngine.ExecuteAsync(macroName, macroParams, engine, cache);
+                        if (macroResult.Success)
+                            Console.WriteLine($"OK: {macroResult.Message}");
+                        else
+                        {
+                            Console.WriteLine($"FAILED: {macroResult.Message}");
+                            if (macroResult.Error != null)
+                                Console.WriteLine($"  Error: {macroResult.Error}");
+                            Console.WriteLine($"  Steps completed: {macroResult.StepsExecuted}/{macroResult.TotalSteps}");
+                        }
                         break;
 
                     default:

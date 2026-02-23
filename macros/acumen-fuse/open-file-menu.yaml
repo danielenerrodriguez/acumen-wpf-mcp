@@ -1,0 +1,10 @@
+name: Open File Menu
+description: Opens the Acumen Fuse File menu via ribbon keytips
+timeout: 10
+
+steps:
+  - action: focus
+  - action: send_keys
+    keys: "Alt,F"
+  - action: wait
+    seconds: 0.5

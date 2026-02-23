@@ -263,6 +263,59 @@ public static class WpfTools
         return $"Attached to PID {engine.ProcessId}: {engine.WindowTitle}";
     }
 
+    /// <summary>Shared macro engine instance. Loaded once from the macros/ folder.</summary>
+    private static readonly Lazy<MacroEngine> _macroEngine = new(() => new MacroEngine());
+
+    [McpServerTool, Description("List all available macros with their descriptions and parameters.")]
+    public static async Task<string> wpf_macro_list()
+    {
+        if (Proxy != null)
+        {
+            var resp = await Proxy.CallAsync("macroList");
+            if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
+                return JsonSerializer.Serialize(resp.GetProperty("result"), Constants.IndentedJson);
+            return $"Error: {resp.GetProperty("error").GetString()}";
+        }
+
+        var macros = _macroEngine.Value.List();
+        if (macros.Count == 0)
+            return "No macros found. Place .yaml files in the macros/ folder.";
+        return JsonSerializer.Serialize(macros, Constants.IndentedJson);
+    }
+
+    [McpServerTool, Description("Run a named macro with optional parameters. Use wpf_macro_list to see available macros.")]
+    public static async Task<string> wpf_macro(
+        [Description("Macro name (e.g., 'acumen-fuse/import-xer')")] string name,
+        [Description("Parameters as JSON object (e.g., '{\"filePath\":\"C:\\\\data\\\\test.xer\"}')")] string? parameters = null)
+    {
+        if (Proxy != null)
+        {
+            var args = new Dictionary<string, object?> { ["name"] = name, ["parameters"] = parameters };
+            var resp = await Proxy.CallAsync("macro", args);
+            if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
+                return JsonSerializer.Serialize(resp.GetProperty("result"), Constants.IndentedJson);
+            return $"Error: {resp.GetProperty("error").GetString()}";
+        }
+
+        var parsedParams = new Dictionary<string, string>();
+        if (!string.IsNullOrEmpty(parameters))
+        {
+            try
+            {
+                var jsonParams = JsonSerializer.Deserialize<Dictionary<string, string>>(parameters);
+                if (jsonParams != null) parsedParams = jsonParams;
+            }
+            catch (Exception ex)
+            {
+                return $"Error: Invalid parameters JSON: {ex.Message}";
+            }
+        }
+
+        var engine = _macroEngine.Value;
+        var result = await engine.ExecuteAsync(name, parsedParams);
+        return JsonSerializer.Serialize(result, Constants.IndentedJson);
+    }
+
     // Helper: format simple ok/error response from proxy
     private static string FormatResponse(JsonElement resp)
     {

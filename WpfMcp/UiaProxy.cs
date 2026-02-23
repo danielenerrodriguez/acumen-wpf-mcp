@@ -77,6 +77,7 @@ public static class UiaProxyServer
         Path.Combine(AppContext.BaseDirectory, "last_client.txt");
 
     private static readonly ElementCache _cache = new();
+    private static readonly Lazy<MacroEngine> _macroEngine = new(() => new MacroEngine());
 
     /// <summary>Save last attached process name so we can auto-reattach.</summary>
     private static void SaveLastClient(string processName)
@@ -344,6 +345,36 @@ public static class UiaProxyServer
                             windowTitle = engine.WindowTitle,
                             pid = engine.ProcessId
                         });
+                    }
+                    case "macroList":
+                    {
+                        var macros = _macroEngine.Value.List();
+                        return JsonSerializer.Serialize(new { ok = true, result = macros });
+                    }
+                    case "macro":
+                    {
+                        var macroName = GetStringArg(args, "name");
+                        if (string.IsNullOrEmpty(macroName))
+                            return Json(false, "Macro name is required");
+
+                        var parsedParams = new Dictionary<string, string>();
+                        var paramsJson = GetStringArg(args, "parameters");
+                        if (!string.IsNullOrEmpty(paramsJson))
+                        {
+                            try
+                            {
+                                var p = JsonSerializer.Deserialize<Dictionary<string, string>>(paramsJson);
+                                if (p != null) parsedParams = p;
+                            }
+                            catch (Exception ex)
+                            {
+                                return Json(false, $"Invalid parameters JSON: {ex.Message}");
+                            }
+                        }
+
+                        var macroResult = _macroEngine.Value.ExecuteAsync(
+                            macroName, parsedParams, engine, _cache).GetAwaiter().GetResult();
+                        return JsonSerializer.Serialize(new { ok = macroResult.Success, result = macroResult });
                     }
                     default:
                         return Json(false, $"Unknown method: {method}");

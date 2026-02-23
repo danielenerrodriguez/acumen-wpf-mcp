@@ -32,6 +32,11 @@ public static class Constants
     public const int DefaultSnapshotDepth = 3;
     public const int MaxWalkDepth = 10;
 
+    // Macro defaults
+    public const int DefaultMacroTimeoutSec = 60;
+    public const int DefaultStepTimeoutSec = 5;
+    public const double DefaultRetryIntervalSec = 1.0;
+
     // Shared JSON options
     public static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
 }

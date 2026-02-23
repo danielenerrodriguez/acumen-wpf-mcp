@@ -1,0 +1,34 @@
+name: Import File
+description: Opens the Import dialog in Acumen Fuse and types a file path
+timeout: 30
+parameters:
+  - name: filePath
+    description: Full path to the file to import
+    required: true
+
+steps:
+  - action: focus
+
+  - action: send_keys
+    keys: "Alt,F"
+
+  - action: wait
+    seconds: 0.5
+
+  - action: find
+    name: Import
+    control_type: MenuItem
+    save_as: importMenuItem
+    timeout: 5
+
+  - action: click
+    ref: importMenuItem
+
+  - action: wait
+    seconds: 1
+
+  - action: type
+    text: "{{filePath}}"
+
+  - action: send_keys
+    keys: Enter
