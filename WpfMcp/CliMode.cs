@@ -8,6 +8,9 @@ namespace WpfMcp;
 /// </summary>
 public static class CliMode
 {
+    static void PrintResult((bool success, string message) result) =>
+        Console.WriteLine(result.success ? $"OK: {result.message}" : $"Error: {result.message}");
+
     public static async Task RunAsync(string[] args)
     {
         Console.WriteLine("WPF UIA MCP - CLI Test Mode");
@@ -31,15 +34,7 @@ public static class CliMode
         Console.WriteLine();
 
         var engine = UiaEngine.Instance;
-        var elementCache = new Dictionary<string, System.Windows.Automation.AutomationElement>();
-        int refCounter = 0;
-
-        string CacheElement(System.Windows.Automation.AutomationElement el)
-        {
-            var key = $"e{++refCounter}";
-            elementCache[key] = el;
-            return key;
-        }
+        var cache = new ElementCache();
 
         while (true)
         {
@@ -63,14 +58,12 @@ public static class CliMode
 
                     case "attach":
                         if (string.IsNullOrEmpty(arg)) { Console.WriteLine("Usage: attach <process_name>"); break; }
-                        var attachResult = engine.Attach(arg);
-                        Console.WriteLine(attachResult.success ? $"OK: {attachResult.message}" : $"Error: {attachResult.message}");
+                        PrintResult(engine.Attach(arg));
                         break;
 
                     case "attach-pid":
                         if (!int.TryParse(arg, out int pid)) { Console.WriteLine("Usage: attach-pid <pid>"); break; }
-                        var pidResult = engine.AttachByPid(pid);
-                        Console.WriteLine(pidResult.success ? $"OK: {pidResult.message}" : $"Error: {pidResult.message}");
+                        PrintResult(engine.AttachByPid(pid));
                         break;
 
                     case "snapshot":
@@ -84,7 +77,7 @@ public static class CliMode
                         System.Windows.Automation.AutomationElement? parent = null;
                         if (!string.IsNullOrEmpty(arg))
                         {
-                            if (!elementCache.TryGetValue(arg, out parent))
+                            if (!cache.TryGet(arg, out parent))
                             { Console.WriteLine($"Unknown ref '{arg}'"); break; }
                         }
                         var children = engine.GetChildElements(parent);
@@ -92,7 +85,7 @@ public static class CliMode
                         Console.WriteLine($"Found {children.Count} children:");
                         foreach (var child in children)
                         {
-                            var refKey = CacheElement(child);
+                            var refKey = cache.Add(child);
                             Console.WriteLine($"  [{refKey}] {engine.FormatElement(child)}");
                         }
                         break;
@@ -115,7 +108,7 @@ public static class CliMode
                         var findResult = engine.FindElement(fAutomationId, fName, fClassName, fControlType);
                         if (findResult.success && findResult.element != null)
                         {
-                            var refKey = CacheElement(findResult.element);
+                            var refKey = cache.Add(findResult.element);
                             Console.WriteLine($"OK [{refKey}]: {findResult.message}");
                             var props = engine.GetElementProperties(findResult.element);
                             foreach (var kv in props) Console.WriteLine($"  {kv.Key}: {kv.Value}");
@@ -129,7 +122,7 @@ public static class CliMode
                         var pathResult = engine.FindElementByPath(segments);
                         if (pathResult.success && pathResult.element != null)
                         {
-                            var refKey = CacheElement(pathResult.element);
+                            var refKey = cache.Add(pathResult.element);
                             Console.WriteLine($"OK [{refKey}]: {pathResult.message}");
                             var props = engine.GetElementProperties(pathResult.element);
                             foreach (var kv in props) Console.WriteLine($"  {kv.Key}: {kv.Value}");
@@ -138,41 +131,36 @@ public static class CliMode
                         break;
 
                     case "props":
-                        if (string.IsNullOrEmpty(arg) || !elementCache.TryGetValue(arg, out var propsEl))
+                        if (string.IsNullOrEmpty(arg) || !cache.TryGet(arg, out var propsEl))
                         { Console.WriteLine($"Unknown ref '{arg}'"); break; }
-                        var elProps = engine.GetElementProperties(propsEl);
+                        var elProps = engine.GetElementProperties(propsEl!);
                         foreach (var kv in elProps) Console.WriteLine($"  {kv.Key}: {kv.Value}");
                         break;
 
                     case "click":
-                        if (string.IsNullOrEmpty(arg) || !elementCache.TryGetValue(arg, out var clickEl))
+                        if (string.IsNullOrEmpty(arg) || !cache.TryGet(arg, out var clickEl))
                         { Console.WriteLine($"Unknown ref '{arg}'"); break; }
-                        var clickResult = engine.ClickElement(clickEl);
-                        Console.WriteLine(clickResult.success ? $"OK: {clickResult.message}" : $"Error: {clickResult.message}");
+                        PrintResult(engine.ClickElement(clickEl!));
                         break;
 
                     case "rclick":
-                        if (string.IsNullOrEmpty(arg) || !elementCache.TryGetValue(arg, out var rclickEl))
+                        if (string.IsNullOrEmpty(arg) || !cache.TryGet(arg, out var rclickEl))
                         { Console.WriteLine($"Unknown ref '{arg}'"); break; }
-                        var rclickResult = engine.RightClickElement(rclickEl);
-                        Console.WriteLine(rclickResult.success ? $"OK: {rclickResult.message}" : $"Error: {rclickResult.message}");
+                        PrintResult(engine.RightClickElement(rclickEl!));
                         break;
 
                     case "focus":
-                        var focusResult = engine.FocusWindow();
-                        Console.WriteLine(focusResult.success ? $"OK: {focusResult.message}" : $"Error: {focusResult.message}");
+                        PrintResult(engine.FocusWindow());
                         break;
 
                     case "keys":
                         if (string.IsNullOrEmpty(arg)) { Console.WriteLine("Usage: keys Alt,F  or  keys Ctrl+S"); break; }
-                        var keysResult = engine.SendKeyboardShortcut(arg);
-                        Console.WriteLine(keysResult.success ? $"OK: {keysResult.message}" : $"Error: {keysResult.message}");
+                        PrintResult(engine.SendKeyboardShortcut(arg));
                         break;
 
                     case "type":
                         if (string.IsNullOrEmpty(arg)) { Console.WriteLine("Usage: type <text>"); break; }
-                        var typeResult = engine.TypeText(arg);
-                        Console.WriteLine(typeResult.success ? $"OK: {typeResult.message}" : $"Error: {typeResult.message}");
+                        PrintResult(engine.TypeText(arg));
                         break;
 
                     case "screenshot":
@@ -194,7 +182,7 @@ public static class CliMode
                             Console.WriteLine($"  Window: {engine.WindowTitle}");
                             Console.WriteLine($"  PID: {engine.ProcessId}");
                         }
-                        Console.WriteLine($"  Cached elements: {elementCache.Count}");
+                        Console.WriteLine($"  Cached elements: {cache.Count}");
                         break;
 
                     default:

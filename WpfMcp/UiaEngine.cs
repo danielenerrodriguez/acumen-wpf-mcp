@@ -14,8 +14,8 @@ namespace WpfMcp;
 /// </summary>
 public class UiaEngine
 {
-    private static UiaEngine? _instance;
-    public static UiaEngine Instance => _instance ??= new UiaEngine();
+    private static readonly Lazy<UiaEngine> _instance = new(() => new UiaEngine());
+    public static UiaEngine Instance => _instance.Value;
 
     private Process? _attachedProcess;
     private AutomationElement? _mainWindow;
@@ -23,7 +23,6 @@ public class UiaEngine
     // Dedicated STA thread for all UIA operations
     private readonly Thread _staThread;
     private readonly BlockingQueue _taskQueue = new();
-    private volatile bool _running = true;
 
     public bool IsAttached => _attachedProcess != null && _mainWindow != null && !_attachedProcess.HasExited;
     public string? WindowTitle { get { try { return RunOnSta(() => _mainWindow?.Current.Name); } catch { return null; } } }
@@ -90,15 +89,13 @@ public class UiaEngine
     }
 
     private const uint INPUT_KEYBOARD = 1;
-    private const uint KEYEVENTF_KEYUP_SI = 0x0002;
-    private const uint KEYEVENTF_SCANCODE = 0x0008;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
 
     private const int SW_RESTORE = 9;
     private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     private const uint MOUSEEVENTF_LEFTUP = 0x0004;
     private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
     private const uint MOUSEEVENTF_RIGHTUP = 0x0010;
-    private const uint KEYEVENTF_KEYUP = 0x0002;
 
     /// <summary>Simple blocking task queue for the STA thread.</summary>
     private class BlockingQueue
@@ -109,15 +106,6 @@ public class UiaEngine
         public void Enqueue(Action action)
         {
             lock (_lock) { _queue.Enqueue(action); Monitor.Pulse(_lock); }
-        }
-
-        public Action Dequeue()
-        {
-            lock (_lock)
-            {
-                while (_queue.Count == 0) Monitor.Wait(_lock);
-                return _queue.Dequeue();
-            }
         }
 
         public bool TryDequeue(out Action? action, int timeoutMs)
@@ -131,7 +119,7 @@ public class UiaEngine
         }
     }
 
-    public UiaEngine()
+    private UiaEngine()
     {
         _staThread = new Thread(StaThreadLoop)
         {
@@ -145,7 +133,7 @@ public class UiaEngine
     private void StaThreadLoop()
     {
         // Initialize COM on this STA thread
-        while (_running)
+        while (true)
         {
             if (_taskQueue.TryDequeue(out var action, 100))
             {
@@ -259,13 +247,13 @@ public class UiaEngine
                 AttachThreadInput(currentThread, foregroundThread, false);
             }
 
-            Thread.Sleep(300);
+            Thread.Sleep(Constants.FocusDelayMs);
             return (true, "Window focused");
         }
         catch (Exception ex) { return (false, $"Failed to focus: {ex.Message}"); }
     }
 
-    public (bool success, string tree) GetSnapshot(int maxDepth = 5)
+    public (bool success, string tree) GetSnapshot(int maxDepth = Constants.DefaultSnapshotDepth)
     {
         if (!IsAttached) return (false, "Not attached");
         return RunOnSta(() =>
@@ -286,10 +274,7 @@ public class UiaEngine
         var indent = new string(' ', depth * 2);
         try
         {
-            var c = element.Current;
-            sb.AppendLine($"{indent}[{c.ControlType.ProgrammaticName.Replace("ControlType.", "")}] " +
-                          $"Name=\"{c.Name}\" AutomationId=\"{c.AutomationId}\" " +
-                          $"ClassName=\"{c.ClassName}\" FrameworkId=\"{c.FrameworkId}\"");
+            sb.AppendLine($"{indent}{FormatElement(element)}");
         }
         catch { sb.AppendLine($"{indent}[Error reading element]"); return; }
 
@@ -398,7 +383,7 @@ public class UiaEngine
                 if (found == null)
                 {
                     // Fallback: manual walk with RawViewWalker
-                    found = WalkAndFind(_mainWindow!, cond, 10);
+                    found = WalkAndFind(_mainWindow!, cond, Constants.MaxWalkDepth);
                 }
 
                 if (found == null) return (false, (AutomationElement?)null, "Element not found");
@@ -429,6 +414,7 @@ public class UiaEngine
 
     public List<AutomationElement> GetChildElements(AutomationElement? parent = null)
     {
+        if (!IsAttached) return new List<AutomationElement>();
         var target = parent ?? _mainWindow!;
         return RunOnSta(() =>
         {
@@ -462,36 +448,31 @@ public class UiaEngine
         });
     }
 
-    public (bool success, string message) ClickElement(AutomationElement element)
+    private (bool success, string message) MouseClickElement(AutomationElement element, uint downFlag, uint upFlag, string verb)
     {
+        if (!IsAttached) return (false, "Not attached");
         try
         {
             FocusWindow();
             var rect = RunOnSta(() => element.Current.BoundingRectangle);
             if (rect.IsEmpty) return (false, "No bounding rectangle");
             int x = (int)(rect.Left + rect.Width / 2), y = (int)(rect.Top + rect.Height / 2);
-            SetCursorPos(x, y); Thread.Sleep(50);
-            mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero); Thread.Sleep(50);
-            mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, UIntPtr.Zero); Thread.Sleep(100);
-            return (true, $"Clicked at ({x}, {y})");
+            SetCursorPos(x, y); Thread.Sleep(Constants.PreClickDelayMs);
+            mouse_event(downFlag, 0, 0, 0, UIntPtr.Zero); Thread.Sleep(Constants.PreClickDelayMs);
+            mouse_event(upFlag, 0, 0, 0, UIntPtr.Zero); Thread.Sleep(Constants.PostClickDelayMs);
+            return (true, $"{verb} at ({x}, {y})");
         }
-        catch (Exception ex) { return (false, $"Click failed: {ex.Message}"); }
+        catch (Exception ex) { return (false, $"{verb} failed: {ex.Message}"); }
+    }
+
+    public (bool success, string message) ClickElement(AutomationElement element)
+    {
+        return MouseClickElement(element, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, "Clicked");
     }
 
     public (bool success, string message) RightClickElement(AutomationElement element)
     {
-        try
-        {
-            FocusWindow();
-            var rect = RunOnSta(() => element.Current.BoundingRectangle);
-            if (rect.IsEmpty) return (false, "No bounding rectangle");
-            int x = (int)(rect.Left + rect.Width / 2), y = (int)(rect.Top + rect.Height / 2);
-            SetCursorPos(x, y); Thread.Sleep(50);
-            mouse_event(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, UIntPtr.Zero); Thread.Sleep(50);
-            mouse_event(MOUSEEVENTF_RIGHTUP, 0, 0, 0, UIntPtr.Zero); Thread.Sleep(100);
-            return (true, $"Right-clicked at ({x}, {y})");
-        }
-        catch (Exception ex) { return (false, $"Right-click failed: {ex.Message}"); }
+        return MouseClickElement(element, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, "Right-clicked");
     }
 
     /// <summary>
@@ -506,7 +487,7 @@ public class UiaEngine
         if (!IsAttached) return (false, "Not attached");
         try
         {
-            FocusWindow(); Thread.Sleep(200);
+            FocusWindow(); Thread.Sleep(Constants.PreKeyDelayMs);
 
             // Check if this is a sequential key sequence (comma-separated)
             if (keys.Contains(','))
@@ -517,7 +498,7 @@ public class UiaEngine
                     var trimmed = step.Trim();
                     if (string.IsNullOrEmpty(trimmed)) continue;
                     SendKeyCombo(trimmed);
-                    Thread.Sleep(150); // delay between sequential keys
+                    Thread.Sleep(Constants.SequentialKeyDelayMs);
                 }
                 return (true, $"Sent key sequence: {keys}");
             }
@@ -564,15 +545,6 @@ public class UiaEngine
         for (int i = modifiers.Count - 1; i >= 0; i--)
             inputs.Add(MakeKeyInput(modifiers[i], true));
 
-        // If only modifiers and no main key, we need to press and release them
-        // (e.g., just "Alt" to activate keytips)
-        if (!mainKey.HasValue && modifiers.Count > 0)
-        {
-            // Already added press above, add release
-            // Actually the press+release for modifiers-only is already handled above.
-            // But we need to ensure the modifier tap is clean.
-        }
-
         if (inputs.Count > 0)
         {
             var arr = inputs.ToArray();
@@ -591,7 +563,7 @@ public class UiaEngine
                 {
                     wVk = vk,
                     wScan = 0,
-                    dwFlags = keyUp ? KEYEVENTF_KEYUP_SI : 0,
+                    dwFlags = keyUp ? KEYEVENTF_KEYUP : 0,
                     time = 0,
                     dwExtraInfo = IntPtr.Zero
                 }
@@ -604,7 +576,7 @@ public class UiaEngine
         if (!IsAttached) return (false, "Not attached");
         try
         {
-            FocusWindow(); Thread.Sleep(100);
+            FocusWindow(); Thread.Sleep(Constants.PreTypeDelayMs);
             foreach (char c in text)
             {
                 short vk = VkKeyScan(c);
@@ -614,7 +586,7 @@ public class UiaEngine
                 keybd_event(key, 0, 0, UIntPtr.Zero);
                 keybd_event(key, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
                 if (shift) keybd_event(0x10, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-                Thread.Sleep(20);
+                Thread.Sleep(Constants.PerCharDelayMs);
             }
             return (true, $"Typed: {text}");
         }
@@ -642,6 +614,7 @@ public class UiaEngine
 
     public Dictionary<string, string> GetElementProperties(AutomationElement element)
     {
+        if (!IsAttached) return new Dictionary<string, string>();
         return RunOnSta(() =>
         {
             var props = new Dictionary<string, string>();
@@ -751,6 +724,6 @@ public class UiaEngine
         "F1" => 0x70, "F2" => 0x71, "F3" => 0x72, "F4" => 0x73,
         "F5" => 0x74, "F6" => 0x75, "F7" => 0x76, "F8" => 0x77,
         "F9" => 0x78, "F10" => 0x79, "F11" => 0x7A, "F12" => 0x7B,
-        _ => 0x41
+        _ => throw new ArgumentException($"Unknown virtual key: {key}")
     };
 }

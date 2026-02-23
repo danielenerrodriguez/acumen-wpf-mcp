@@ -24,7 +24,7 @@ public class UiaProxyClient : IDisposable
 
     public async Task ConnectAsync(int timeoutMs = 5000)
     {
-        _pipe = new NamedPipeClientStream(".", "WpfMcp_UIA", PipeDirection.InOut, PipeOptions.Asynchronous);
+        _pipe = new NamedPipeClientStream(".", Constants.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
         await _pipe.ConnectAsync(timeoutMs);
         _reader = new StreamReader(_pipe);
         _writer = new StreamWriter(_pipe) { AutoFlush = true };
@@ -74,7 +74,9 @@ public class UiaProxyClient : IDisposable
 public static class UiaProxyServer
 {
     private static readonly string _lastClientFile =
-        System.IO.Path.Combine(AppContext.BaseDirectory, "last_client.txt");
+        Path.Combine(AppContext.BaseDirectory, "last_client.txt");
+
+    private static readonly ElementCache _cache = new();
 
     /// <summary>Save last attached process name so we can auto-reattach.</summary>
     private static void SaveLastClient(string processName)
@@ -108,6 +110,12 @@ public static class UiaProxyServer
         }
     }
 
+    private static string? GetStringArg(JsonElement args, string name) =>
+        args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    private static int? GetIntArg(JsonElement args, string name) =>
+        args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : (int?)null;
+
     public static async Task RunAsync()
     {
         Console.WriteLine("========================================");
@@ -118,13 +126,13 @@ public static class UiaProxyServer
         Console.WriteLine("Elevation is required to read the visual");
         Console.WriteLine("tree of protected applications.");
         Console.WriteLine();
-        Console.WriteLine("Pipe: WpfMcp_UIA");
-        Console.WriteLine("Auto-shutdown: 5 min idle");
+        Console.WriteLine($"Pipe: {Constants.PipeName}");
+        Console.WriteLine($"Auto-shutdown: {Constants.ServerIdleTimeoutMinutes} min idle");
         Console.WriteLine("Status: READY");
         Console.WriteLine();
 
         // Acquire mutex to signal we're running
-        using var mutex = new Mutex(true, "Global\\WpfMcp_Server_Running");
+        using var mutex = new Mutex(true, Constants.MutexName);
 
         while (true)
         {
@@ -139,12 +147,12 @@ public static class UiaProxyServer
                     AccessControlType.Allow));
 
                 using var pipe = NamedPipeServerStreamAcl.Create(
-                    "WpfMcp_UIA", PipeDirection.InOut, 1,
+                    Constants.PipeName, PipeDirection.InOut, 1,
                     PipeTransmissionMode.Byte, PipeOptions.Asynchronous,
                     inBufferSize: 0, outBufferSize: 0, pipeSecurity);
 
                 // Wait for client with idle timeout
-                using var idleCts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                using var idleCts = new CancellationTokenSource(TimeSpan.FromMinutes(Constants.ServerIdleTimeoutMinutes));
                 try
                 {
                     await pipe.WaitForConnectionAsync(idleCts.Token);
@@ -200,19 +208,9 @@ public static class UiaProxyServer
             catch (Exception ex)
             {
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Error: {ex.Message}");
-                await Task.Delay(1000);
+                await Task.Delay(Constants.ServerErrorRetryMs);
             }
         }
-    }
-
-    private static readonly Dictionary<string, System.Windows.Automation.AutomationElement> _elementCache = new();
-    private static int _refCounter = 0;
-
-    private static string CacheElement(System.Windows.Automation.AutomationElement el)
-    {
-        var key = $"e{++_refCounter}";
-        _elementCache[key] = el;
-        return key;
     }
 
     static Task<string> ExecuteCommand(string method, JsonElement args)
@@ -227,8 +225,8 @@ public static class UiaProxyServer
                 {
                     case "attach":
                     {
-                        var name = args.TryGetProperty("processName", out var pn) && pn.ValueKind != JsonValueKind.Null ? pn.GetString() : null;
-                        var pid = args.TryGetProperty("pid", out var pp) && pp.ValueKind != JsonValueKind.Null ? pp.GetInt32() : (int?)null;
+                        var name = GetStringArg(args, "processName");
+                        var pid = GetIntArg(args, "pid");
                         var result = pid.HasValue ? engine.AttachByPid(pid.Value) : engine.Attach(name!);
                         if (result.success && name != null)
                             SaveLastClient(name);
@@ -236,23 +234,24 @@ public static class UiaProxyServer
                     }
                     case "snapshot":
                     {
-                        var depth = args.TryGetProperty("maxDepth", out var d) && d.ValueKind == JsonValueKind.Number ? d.GetInt32() : 3;
+                        var depth = GetIntArg(args, "maxDepth") ?? 3;
                         var result = engine.GetSnapshot(depth);
                         return Json(result.success, result.tree);
                     }
                     case "children":
                     {
                         System.Windows.Automation.AutomationElement? parent = null;
-                        if (args.TryGetProperty("refKey", out var rk) && rk.ValueKind == JsonValueKind.String && rk.GetString() is string key)
+                        var key = GetStringArg(args, "refKey");
+                        if (key != null)
                         {
-                            if (!_elementCache.TryGetValue(key, out parent))
+                            if (!_cache.TryGet(key, out parent))
                                 return Json(false, $"Unknown ref '{key}'");
                         }
                         var children = engine.GetChildElements(parent);
                         var items = new List<Dictionary<string, string>>();
                         foreach (var child in children)
                         {
-                            var refKey = CacheElement(child);
+                            var refKey = _cache.Add(child);
                             items.Add(new Dictionary<string, string>
                             {
                                 ["ref"] = refKey,
@@ -263,14 +262,14 @@ public static class UiaProxyServer
                     }
                     case "find":
                     {
-                        var automationId = args.TryGetProperty("automationId", out var ai) && ai.ValueKind == JsonValueKind.String ? ai.GetString() : null;
-                        var name = args.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
-                        var className = args.TryGetProperty("className", out var cn) && cn.ValueKind == JsonValueKind.String ? cn.GetString() : null;
-                        var controlType = args.TryGetProperty("controlType", out var ct) && ct.ValueKind == JsonValueKind.String ? ct.GetString() : null;
+                        var automationId = GetStringArg(args, "automationId");
+                        var name = GetStringArg(args, "name");
+                        var className = GetStringArg(args, "className");
+                        var controlType = GetStringArg(args, "controlType");
                         var result = engine.FindElement(automationId, name, className, controlType);
                         if (result.success && result.element != null)
                         {
-                            var refKey = CacheElement(result.element);
+                            var refKey = _cache.Add(result.element);
                             var props = engine.GetElementProperties(result.element);
                             return JsonSerializer.Serialize(new { ok = true, refKey, desc = result.message, properties = props });
                         }
@@ -285,7 +284,7 @@ public static class UiaProxyServer
                         var result = engine.FindElementByPath(segments);
                         if (result.success && result.element != null)
                         {
-                            var refKey = CacheElement(result.element);
+                            var refKey = _cache.Add(result.element);
                             var props = engine.GetElementProperties(result.element);
                             return JsonSerializer.Serialize(new { ok = true, refKey, desc = result.message, properties = props });
                         }
@@ -294,15 +293,15 @@ public static class UiaProxyServer
                     case "click":
                     {
                         var key = args.GetProperty("refKey").GetString()!;
-                        if (!_elementCache.TryGetValue(key, out var el)) return Json(false, $"Unknown ref '{key}'");
-                        var result = engine.ClickElement(el);
+                        if (!_cache.TryGet(key, out var el)) return Json(false, $"Unknown ref '{key}'");
+                        var result = engine.ClickElement(el!);
                         return Json(result.success, result.message);
                     }
                     case "rightClick":
                     {
                         var key = args.GetProperty("refKey").GetString()!;
-                        if (!_elementCache.TryGetValue(key, out var el)) return Json(false, $"Unknown ref '{key}'");
-                        var result = engine.RightClickElement(el);
+                        if (!_cache.TryGet(key, out var el)) return Json(false, $"Unknown ref '{key}'");
+                        var result = engine.RightClickElement(el!);
                         return Json(result.success, result.message);
                     }
                     case "type":
@@ -332,8 +331,8 @@ public static class UiaProxyServer
                     case "properties":
                     {
                         var key = args.GetProperty("refKey").GetString()!;
-                        if (!_elementCache.TryGetValue(key, out var el)) return Json(false, $"Unknown ref '{key}'");
-                        var props = engine.GetElementProperties(el);
+                        if (!_cache.TryGet(key, out var el)) return Json(false, $"Unknown ref '{key}'");
+                        var props = engine.GetElementProperties(el!);
                         return JsonSerializer.Serialize(new { ok = true, result = props });
                     }
                     case "status":

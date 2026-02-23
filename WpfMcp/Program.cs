@@ -23,27 +23,7 @@ if (args.Contains("--mcp-connect"))
 // --mcp: standard stdio MCP server (non-elevated, direct mode — for testing only)
 if (args.Contains("--mcp"))
 {
-    var builder = Host.CreateApplicationBuilder(args);
-
-    builder.Logging.ClearProviders();
-    builder.Logging.AddConsole(options =>
-    {
-        options.LogToStandardErrorThreshold = LogLevel.Trace;
-    });
-
-    builder.Services
-        .AddMcpServer(options =>
-        {
-            options.ServerInfo = new()
-            {
-                Name = "wpf-uia",
-                Version = "1.0.0"
-            };
-        })
-        .WithStdioServerTransport()
-        .WithToolsFromAssembly();
-
-    await builder.Build().RunAsync();
+    await BuildMcpHost(args).RunAsync();
     return;
 }
 
@@ -55,10 +35,8 @@ await CliMode.RunAsync(args);
 // =====================================================================
 async Task RunMcpConnectAsync(string[] cliArgs)
 {
-    const string MUTEX_NAME = "Global\\WpfMcp_Server_Running";
-
     // --- Ensure elevated server is running ---
-    if (!IsServerRunning(MUTEX_NAME))
+    if (!IsServerRunning(Constants.MutexName))
     {
         Console.Error.WriteLine("[WPF MCP] Elevated server not running. Launching...");
         Console.Error.WriteLine("[WPF MCP] You may see an elevation prompt. Please approve it.");
@@ -71,20 +49,20 @@ async Task RunMcpConnectAsync(string[] cliArgs)
 
         Console.Error.WriteLine("[WPF MCP] Waiting for elevated server to start...");
         bool ready = false;
-        for (int i = 0; i < 30; i++)
+        for (int i = 0; i < Constants.ServerStartupTimeoutSeconds; i++)
         {
-            await Task.Delay(1000);
-            if (IsServerRunning(MUTEX_NAME)) { ready = true; break; }
+            await Task.Delay(Constants.ServerStartupPollMs);
+            if (IsServerRunning(Constants.MutexName)) { ready = true; break; }
         }
 
         if (!ready)
         {
-            Console.Error.WriteLine("[WPF MCP] ERROR: Server did not start within 30 seconds.");
+            Console.Error.WriteLine($"[WPF MCP] ERROR: Server did not start within {Constants.ServerStartupTimeoutSeconds} seconds.");
             return;
         }
 
         Console.Error.WriteLine("[WPF MCP] Elevated server is running.");
-        await Task.Delay(500); // let pipe listener start
+        await Task.Delay(Constants.ServerPostStartDelayMs); // let pipe listener start
     }
     else
     {
@@ -96,7 +74,7 @@ async Task RunMcpConnectAsync(string[] cliArgs)
     try
     {
         Console.Error.WriteLine("[WPF MCP] Connecting to elevated server pipe...");
-        await proxy.ConnectAsync(timeoutMs: 10000);
+        await proxy.ConnectAsync(timeoutMs: Constants.PipeConnectTimeoutMs);
         Console.Error.WriteLine("[WPF MCP] Connected!");
     }
     catch (Exception ex)
@@ -109,33 +87,37 @@ async Task RunMcpConnectAsync(string[] cliArgs)
     // --- Wire proxy into tools and start MCP stdio server ---
     WpfTools.Proxy = proxy;
 
-    var filteredArgs = cliArgs.Where(a => a != "--mcp-connect").ToArray();
-    var builder = Host.CreateApplicationBuilder(filteredArgs);
+    Console.Error.WriteLine("[WPF MCP] MCP server ready (proxied mode).");
 
+    using var app = BuildMcpHost(cliArgs);
+    await app.RunAsync();
+
+    proxy.Dispose();
+}
+
+// =====================================================================
+// Shared MCP host builder
+// =====================================================================
+static IHost BuildMcpHost(string[] hostArgs)
+{
+    var builder = Host.CreateApplicationBuilder(hostArgs);
     builder.Logging.ClearProviders();
     builder.Logging.AddConsole(options =>
     {
         options.LogToStandardErrorThreshold = LogLevel.Trace;
     });
-
     builder.Services
         .AddMcpServer(options =>
         {
             options.ServerInfo = new()
             {
-                Name = "wpf-uia",
-                Version = "1.0.0"
+                Name = Constants.ServerName,
+                Version = Constants.ServerVersion
             };
         })
         .WithStdioServerTransport()
         .WithToolsFromAssembly();
-
-    Console.Error.WriteLine("[WPF MCP] MCP server ready (proxied mode).");
-
-    using var app = builder.Build();
-    await app.RunAsync();
-
-    proxy.Dispose();
+    return builder.Build();
 }
 
 // =====================================================================

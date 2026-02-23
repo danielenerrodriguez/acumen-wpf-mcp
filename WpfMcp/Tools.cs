@@ -15,15 +15,7 @@ public static class WpfTools
     public static UiaProxyClient? Proxy { get; set; }
 
     // Local element cache (only used in non-proxied / direct mode)
-    private static readonly Dictionary<string, AutomationElement> _elementCache = new();
-    private static int _refCounter = 0;
-
-    private static string CacheElement(AutomationElement element)
-    {
-        var refKey = $"e{++_refCounter}";
-        _elementCache[refKey] = element;
-        return refKey;
-    }
+    private static readonly ElementCache _cache = new();
 
     [McpServerTool, Description("Attach to a running WPF application by process name or PID. Must be called before any other tool.")]
     public static async Task<string> wpf_attach(
@@ -83,9 +75,9 @@ public static class WpfTools
         var result = engine.FindElement(automation_id, name, class_name, control_type);
         if (result.success && result.element != null)
         {
-            var refKey = CacheElement(result.element);
+            var refKey = _cache.Add(result.element);
             var props = engine.GetElementProperties(result.element);
-            return $"OK [{refKey}]: {result.message}\nProperties: {JsonSerializer.Serialize(props, new JsonSerializerOptions { WriteIndented = true })}";
+            return $"OK [{refKey}]: {result.message}\nProperties: {JsonSerializer.Serialize(props, Constants.IndentedJson)}";
         }
         return $"Error: {result.message}";
     }
@@ -105,9 +97,9 @@ public static class WpfTools
         var result = engine.FindElementByPath(path.ToList());
         if (result.success && result.element != null)
         {
-            var refKey = CacheElement(result.element);
+            var refKey = _cache.Add(result.element);
             var props = engine.GetElementProperties(result.element);
-            return $"OK [{refKey}]: {result.message}\nProperties: {JsonSerializer.Serialize(props, new JsonSerializerOptions { WriteIndented = true })}";
+            return $"OK [{refKey}]: {result.message}\nProperties: {JsonSerializer.Serialize(props, Constants.IndentedJson)}";
         }
         return $"Error: {result.message}";
     }
@@ -135,7 +127,7 @@ public static class WpfTools
         AutomationElement? parent = null;
         if (ref_key != null)
         {
-            if (!_elementCache.TryGetValue(ref_key, out parent))
+            if (!_cache.TryGet(ref_key, out parent))
                 return $"Error: Unknown element reference '{ref_key}'";
         }
         try
@@ -145,7 +137,7 @@ public static class WpfTools
             var lines = new List<string> { $"Found {children.Count} children:" };
             foreach (var child in children)
             {
-                var childRef = CacheElement(child);
+                var childRef = _cache.Add(child);
                 lines.Add($"  [{childRef}] {engine.FormatElement(child)}");
             }
             return string.Join("\n", lines);
@@ -160,9 +152,9 @@ public static class WpfTools
         if (Proxy != null)
             return FormatResponse(await Proxy.CallAsync("click", new() { ["refKey"] = ref_key }));
 
-        if (!_elementCache.TryGetValue(ref_key, out var element))
+        if (!_cache.TryGet(ref_key, out var element))
             return $"Error: Unknown element reference '{ref_key}'";
-        var result = UiaEngine.Instance.ClickElement(element);
+        var result = UiaEngine.Instance.ClickElement(element!);
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
     }
 
@@ -173,9 +165,9 @@ public static class WpfTools
         if (Proxy != null)
             return FormatResponse(await Proxy.CallAsync("rightClick", new() { ["refKey"] = ref_key }));
 
-        if (!_elementCache.TryGetValue(ref_key, out var element))
+        if (!_cache.TryGet(ref_key, out var element))
             return $"Error: Unknown element reference '{ref_key}'";
-        var result = UiaEngine.Instance.RightClickElement(element);
+        var result = UiaEngine.Instance.RightClickElement(element!);
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
     }
 
@@ -239,14 +231,14 @@ public static class WpfTools
         {
             var resp = await Proxy.CallAsync("properties", new() { ["refKey"] = ref_key });
             if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
-                return JsonSerializer.Serialize(resp.GetProperty("result"), new JsonSerializerOptions { WriteIndented = true });
+                return JsonSerializer.Serialize(resp.GetProperty("result"), Constants.IndentedJson);
             return $"Error: {resp.GetProperty("error").GetString()}";
         }
 
-        if (!_elementCache.TryGetValue(ref_key, out var element))
+        if (!_cache.TryGet(ref_key, out var element))
             return $"Error: Unknown element reference '{ref_key}'";
-        var props = UiaEngine.Instance.GetElementProperties(element);
-        return JsonSerializer.Serialize(props, new JsonSerializerOptions { WriteIndented = true });
+        var props = UiaEngine.Instance.GetElementProperties(element!);
+        return JsonSerializer.Serialize(props, Constants.IndentedJson);
     }
 
     [McpServerTool, Description("Check if the server is attached to a process. Returns attachment status, window title, and PID.")]
@@ -287,7 +279,7 @@ public static class WpfTools
             var refKey = resp.GetProperty("refKey").GetString();
             var desc = resp.GetProperty("desc").GetString();
             var props = resp.GetProperty("properties");
-            return $"OK [{refKey}]: {desc}\nProperties: {JsonSerializer.Serialize(props, new JsonSerializerOptions { WriteIndented = true })}";
+            return $"OK [{refKey}]: {desc}\nProperties: {JsonSerializer.Serialize(props, Constants.IndentedJson)}";
         }
         return $"Error: {resp.GetProperty("error").GetString()}";
     }
