@@ -11,3 +11,4 @@ publish/*.dll
 publish/*.exe
 publish/*.json
 publish/*.pdb
+publish/runtimes/

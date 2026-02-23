@@ -25,16 +25,20 @@
           SkipUnchangedFiles="true" />
   </Target>
 
-  <!-- Copy exe + deps to repo-root publish/ folder (macros already live there) -->
+  <!-- Copy exe + deps + runtimes to repo-root publish/ folder (macros already live there) -->
   <Target Name="LocalPublish" AfterTargets="CopyMacros" Condition="'$(Configuration)' == 'Release'">
     <PropertyGroup>
       <LocalPublishDir>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\publish\'))</LocalPublishDir>
     </PropertyGroup>
     <ItemGroup>
       <PublishBinFiles Include="$(TargetDir)*.*" Exclude="$(TargetDir)*.pdb" />
+      <PublishRuntimeFiles Include="$(TargetDir)runtimes\**\*.*" />
     </ItemGroup>
     <Copy SourceFiles="@(PublishBinFiles)"
           DestinationFolder="$(LocalPublishDir)"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(PublishRuntimeFiles)"
+          DestinationFiles="@(PublishRuntimeFiles->'$(LocalPublishDir)runtimes\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 
