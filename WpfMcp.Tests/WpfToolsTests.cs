@@ -7,6 +7,10 @@ namespace WpfMcp.Tests;
 /// These test the tool layer's input validation, error handling,
 /// and response formatting without requiring a running WPF application.
 /// </summary>
+/// <remarks>
+/// Shares the static WpfTools.Proxy with ProxyResponseFormattingTests — must not run in parallel.
+/// </remarks>
+[Collection("WpfTools")]
 public class WpfToolsTests : IDisposable
 {
     public WpfToolsTests()

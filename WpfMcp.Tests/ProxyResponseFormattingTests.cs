@@ -10,6 +10,10 @@ namespace WpfMcp.Tests;
 /// Uses a mock pipe server to send controlled responses and verifies
 /// the tool methods format them correctly for MCP clients.
 /// </summary>
+/// <remarks>
+/// Shares the static WpfTools.Proxy with WpfToolsTests — must not run in parallel.
+/// </remarks>
+[Collection("WpfTools")]
 public class ProxyResponseFormattingTests
 {
     private static async Task<(NamedPipeServerStream server, StreamReader reader, StreamWriter writer, UiaProxyClient client)>
