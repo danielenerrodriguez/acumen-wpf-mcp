@@ -53,7 +53,7 @@ The `--mcp-connect` process auto-launches the elevated server if it isn't alread
 │  WpfMcp.exe --mcp-connect              (non-elevated process)   │
 │                                                                 │
 │  Program.cs         Mode routing, auto-launches elevated server │
-│  Tools.cs           18 MCP tool definitions (incl. macros+rec)  │
+│  Tools.cs           19 MCP tool definitions (incl. macros+rec)  │
 │  UiaProxyClient     Sends JSON requests over named pipe         │
 │  ElementCache       Thread-safe ref cache (e1, e2, ...)         │
 │  Constants          Shared config (pipe name, timeouts, etc.)   │
@@ -182,6 +182,7 @@ Runs a standard MCP stdio server without elevation. Only works if the target app
 | `wpf_properties` | Get detailed properties of a cached element |
 | `wpf_macro` | Execute a named macro with optional parameters |
 | `wpf_macro_list` | List all available macros, parameters, and knowledge base summaries |
+| `wpf_save_macro` | Save a workflow as a reusable macro YAML file (auto-derives product folder) |
 | `wpf_record_start` | Start recording user interactions as a macro |
 | `wpf_record_stop` | Stop recording and save the macro YAML file |
 | `wpf_record_status` | Check recording state, action count, and duration |
@@ -285,11 +286,16 @@ steps:
 | `right_click` | Right-click an element | `ref` |
 | `type` | Type text into focused element | `text` |
 | `send_keys` | Send keyboard shortcuts | `keys` |
+| `set_value` | Set element value via UIA ValuePattern | `ref`, `value` |
+| `get_value` | Get element value via UIA ValuePattern | `ref` |
+| `file_dialog` | Navigate a file dialog to select a file | `text` (the file path) |
 | `wait` | Pause execution | `seconds` |
 | `snapshot` | Capture the UI tree | `max_depth` |
 | `screenshot` | Capture window image | — |
 | `children` | List children of element | `ref`, `save_as` |
 | `properties` | Get element properties | `ref` |
+| `launch` | Launch an application | `exe_path`, `arguments`, `working_directory`, `if_not_running`, `timeout` |
+| `wait_for_window` | Wait for window to be ready | `title_contains`, `timeout`, `retry_interval` |
 | `macro` | Execute a nested macro | `macro_name`, `params` |
 
 ### Parameter Substitution
@@ -354,6 +360,46 @@ steps:
   - action: send_keys
     keys: Enter
 ```
+
+## Macro Saving (AI-Driven)
+
+The `wpf_save_macro` tool lets AI agents save workflows they've just performed as reusable macro YAML files. This is the primary way agents create new macros — they perform a task step by step, then save it for future reuse.
+
+### How It Works
+
+1. The agent performs a workflow using individual MCP tools (`wpf_find`, `wpf_click`, `wpf_send_keys`, etc.)
+2. The agent calls `wpf_save_macro` with the steps as a JSON array
+3. The tool auto-derives the product folder by matching the attached process name against knowledge base `process_name` fields
+4. Steps are validated against 20 known action types with per-action required field checks
+5. The macro is written as clean YAML to `{macrosPath}/{productFolder}/{name}.yaml`
+6. The FileSystemWatcher auto-reloads it immediately — it's available via `wpf_macro` right away
+
+### Example
+
+```
+wpf_save_macro(
+  name: "switch-to-diagnostics",
+  description: "Switch to the Diagnostics tab via keytips",
+  steps: '[
+    {"action":"focus"},
+    {"action":"send_keys","keys":"Alt,2"},
+    {"action":"wait","seconds":1}
+  ]'
+)
+```
+
+This creates `macros/acumen-fuse/switch-to-diagnostics.yaml` (product folder derived from the attached Fuse process).
+
+### Overwrite Protection
+
+By default, saving fails if a macro with the same name already exists. Pass `force=true` to overwrite.
+
+### Validation
+
+Steps are validated before writing:
+- All action types must be known (20 supported actions)
+- Required fields are checked per action type (e.g., `send_keys` requires `keys`, `find` requires at least one search property)
+- Clear error messages reference the step number and missing field
 
 ## Macro Recording
 
@@ -475,7 +521,7 @@ data_formats:                     # Supported import/export formats
 
 | Product | File | Content |
 |---------|------|---------|
-| `acumen-fuse` | `publish/macros/acumen-fuse/_knowledge.yaml` | 1400+ lines, 80+ automation IDs, 12 workflows, 14 navigation tips, verified keytip sequences |
+| `acumen-fuse` | `publish/macros/acumen-fuse/_knowledge.yaml` | 1800+ lines, 100+ automation IDs, 15 workflows, 19 navigation tips, verified keytip sequences |
 
 ### MCP Resource Access
 
@@ -499,11 +545,11 @@ C:\WpfMcp\
     Program.cs                          Entry point, mode routing, auto-launch logic
     Constants.cs                        Shared constants (pipe name, timeouts, JSON options)
     ElementCache.cs                     Thread-safe element reference cache (e1, e2, ...)
-    Tools.cs                            18 MCP tool definitions (15 core + 3 recording)
+    Tools.cs                            19 MCP tool definitions (16 core + 3 recording)
     UiaEngine.cs                        Core UI Automation engine (STA thread, SendInput)
     UiaProxy.cs                         Proxy client/server for named pipe communication
-    MacroDefinition.cs                  YAML-deserialized POCOs for macros + KnowledgeBase record
-    MacroEngine.cs                      Load, validate, execute macros; knowledge base loading
+    MacroDefinition.cs                  YAML-deserialized POCOs for macros + KnowledgeBase + SaveMacroResult records
+    MacroEngine.cs                      Load, validate, execute, save macros; knowledge base loading
     MacroSerializer.cs                  YAML serialization and BuildFromRecordedActions
     InputRecorder.cs                    Low-level hooks, keyboard state machine, recording
     Resources.cs                        MCP resources (knowledge://{productName} endpoint)
@@ -524,8 +570,8 @@ C:\WpfMcp\
     WpfMcp.exe                          Build output (gitignored)
     *.dll                               Build output (gitignored)
   WpfMcp.Tests/
-    WpfMcp.Tests.csproj                 xUnit test project (94 tests)
-    MacroEngineTests.cs                 27 tests for macro loading, validation, execution
+    WpfMcp.Tests.csproj                 xUnit test project (126 tests)
+    MacroEngineTests.cs                 59 tests for macro loading, validation, execution, saving
     MacroSerializerTests.cs             16 tests for YAML serialization and action building
     InputRecorderTests.cs               13 tests for recorder state and wait computation
 ```

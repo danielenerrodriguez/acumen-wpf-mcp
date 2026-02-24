@@ -533,6 +533,66 @@ public static class UiaProxyServer
                             timeout, pollMs).GetAwaiter().GetResult();
                         return Json(result.success, result.message);
                     }
+                    case "saveMacro":
+                    {
+                        var saveName = GetStringArg(args, "name");
+                        if (string.IsNullOrEmpty(saveName))
+                            return Json(false, "Macro name is required");
+
+                        var saveDesc = GetStringArg(args, "description") ?? "";
+                        var stepsJson = GetStringArg(args, "steps");
+                        if (string.IsNullOrEmpty(stepsJson))
+                            return Json(false, "Steps JSON is required");
+
+                        var paramsJson = GetStringArg(args, "parameters");
+                        var saveTimeout = GetIntArg(args, "timeout") ?? 30;
+                        var saveForce = args.TryGetProperty("force", out var sf) &&
+                            sf.ValueKind == JsonValueKind.True;
+
+                        // Parse steps
+                        List<Dictionary<string, object>> parsedSteps;
+                        try
+                        {
+                            parsedSteps = ParseJsonArray(stepsJson);
+                        }
+                        catch (Exception ex)
+                        {
+                            return Json(false, $"Invalid steps JSON: {ex.Message}");
+                        }
+
+                        // Parse parameters
+                        List<Dictionary<string, object>>? parsedParams = null;
+                        if (!string.IsNullOrEmpty(paramsJson))
+                        {
+                            try
+                            {
+                                parsedParams = ParseJsonArray(paramsJson);
+                            }
+                            catch (Exception ex)
+                            {
+                                return Json(false, $"Invalid parameters JSON: {ex.Message}");
+                            }
+                        }
+
+                        // Get attached process name
+                        if (!engine.IsAttached)
+                            return Json(false, "Not attached to any process. Call wpf_attach first.");
+                        var processName = engine.ProcessName;
+
+                        var saveResult = _macroEngine.Value.SaveMacro(
+                            saveName, saveDesc, parsedSteps, parsedParams,
+                            saveTimeout, saveForce, processName);
+
+                        if (saveResult.Ok)
+                            return JsonSerializer.Serialize(new
+                            {
+                                ok = true,
+                                filePath = saveResult.FilePath,
+                                macroName = saveResult.MacroName,
+                                message = saveResult.Message
+                            });
+                        return Json(false, saveResult.Message);
+                    }
                     case "startRecording":
                     {
                         var recName = GetStringArg(args, "name");
@@ -581,4 +641,37 @@ public static class UiaProxyServer
 
     static string Json(bool ok, string msg) =>
         JsonSerializer.Serialize(ok ? new { ok, result = msg } : (object)new { ok, error = msg });
+
+    /// <summary>Parse a JSON array of objects into a list of string-keyed dictionaries.</summary>
+    private static List<Dictionary<string, object>> ParseJsonArray(string json)
+    {
+        var result = new List<Dictionary<string, object>>();
+        var doc = JsonDocument.Parse(json);
+        foreach (var element in doc.RootElement.EnumerateArray())
+        {
+            var dict = new Dictionary<string, object>();
+            foreach (var prop in element.EnumerateObject())
+            {
+                dict[prop.Name] = ConvertJsonElement(prop.Value);
+            }
+            result.Add(dict);
+        }
+        return result;
+    }
+
+    /// <summary>Convert a JsonElement to a plain .NET object for YAML serialization.</summary>
+    private static object ConvertJsonElement(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString()!,
+            JsonValueKind.Number => element.TryGetInt32(out var i) ? i : element.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Array => element.EnumerateArray().Select(ConvertJsonElement).ToList(),
+            JsonValueKind.Object => element.EnumerateObject()
+                .ToDictionary(p => p.Name, p => ConvertJsonElement(p.Value)),
+            _ => element.ToString()
+        };
+    }
 }

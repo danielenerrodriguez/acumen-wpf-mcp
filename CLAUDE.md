@@ -35,7 +35,7 @@ cmd.exe /c "taskkill /IM WpfMcp.exe /F 2>nul"
 # Build
 cmd.exe /c "cd /d C:\WpfMcp && dotnet build WpfMcp.slnx"
 
-# Test (94 tests)
+# Test (126 tests)
 cmd.exe /c "cd /d C:\WpfMcp && dotnet test WpfMcp.Tests"
 
 # Release build + local publish
@@ -131,7 +131,7 @@ steps:
 ```
 
 ### Step Types
-`launch`, `wait_for_window`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `send_keys`, `keys` (alias), `wait`, `snapshot`, `screenshot`, `properties`, `children`, `macro`
+`launch`, `wait_for_window`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys` (alias), `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `macro`
 
 ### Macros Path Resolution
 `Constants.ResolveMacrosPath()`: explicit `--macros-path` arg > `WPFMCP_MACROS_PATH` env var > `macros/` next to exe
@@ -187,7 +187,7 @@ data_formats: { ... }           # Supported import/export formats
 ```
 
 ### Current Knowledge Bases
-- `acumen-fuse` — Deltek Acumen Fuse (1400+ lines, 80+ automation IDs, 12 workflows, 14 navigation tips)
+- `acumen-fuse` — Deltek Acumen Fuse (1800+ lines, 100+ automation IDs, 15 workflows, 19 navigation tips)
 
 ## File Reference
 
@@ -195,13 +195,54 @@ data_formats: { ... }           # Supported import/export formats
 |------|---------|
 | `WpfMcp/Program.cs` | Entry point: mode routing (`--server`, `--mcp-connect`, `--mcp`, drag-drop, CLI) |
 | `WpfMcp/Constants.cs` | Shared constants, `ResolveMacrosPath()` |
-| `WpfMcp/Tools.cs` | 18 MCP tool definitions (15 core + 3 recording) |
+| `WpfMcp/Tools.cs` | 19 MCP tool definitions (16 core + 3 recording) |
 | `WpfMcp/UiaEngine.cs` | Core UI Automation engine (STA thread, SendInput, launch, wait) |
 | `WpfMcp/UiaProxy.cs` | Proxy client/server over named pipe |
-| `WpfMcp/MacroDefinition.cs` | YAML POCOs for macros + `KnowledgeBase` record |
-| `WpfMcp/MacroEngine.cs` | Load/validate/execute macros, FileSystemWatcher, knowledge base loading |
+| `WpfMcp/MacroDefinition.cs` | YAML POCOs for macros + `KnowledgeBase` + `SaveMacroResult` records |
+| `WpfMcp/MacroEngine.cs` | Load/validate/execute/save macros, FileSystemWatcher, knowledge base loading |
 | `WpfMcp/MacroSerializer.cs` | YAML serialization, `BuildFromRecordedActions` |
 | `WpfMcp/InputRecorder.cs` | Low-level hooks for recording user interactions |
 | `WpfMcp/CliMode.cs` | Interactive CLI for manual testing |
 | `WpfMcp/ElementCache.cs` | Thread-safe element reference cache (e1, e2, ...) |
 | `WpfMcp/Resources.cs` | MCP resources — `knowledge://{productName}` endpoint |
+
+## Macro Saving (`wpf_save_macro`)
+
+AI agents can save workflows they've performed as reusable macro YAML files using the `wpf_save_macro` MCP tool.
+
+### How It Works
+1. Agent passes steps as a JSON array, plus name/description/parameters
+2. `MacroEngine.ValidateSteps()` checks all action types and required fields
+3. `MacroEngine.GetProductFolder()` scans knowledge bases for a matching `process_name` field to auto-derive the product folder (e.g., `Fuse` → `acumen-fuse`)
+4. Steps are serialized to clean YAML (no JSON-in-YAML) via YamlDotNet
+5. File is written to `{macrosPath}/{productFolder}/{name}.yaml`
+6. FileSystemWatcher auto-reloads the new macro immediately
+
+### Key Design Decisions
+- Steps passed as JSON string in, written as clean YAML out
+- Product folder auto-derived from attached process matching knowledge base `application.process_name`
+- Validation against 20 known action types with per-action required field checks
+- `force` parameter (bool, default false) for overwrite protection
+- `SaveMacroResult` record returns `(Ok, FilePath, MacroName, Message)`
+
+### Error Cases
+1. No process attached → error
+2. Can't derive product folder → error with suggestion to include folder in name
+3. Macro already exists and `force` is false → error with overwrite hint
+4. Invalid step action → error listing all valid actions
+5. Missing required step fields → error naming the missing field and step number
+
+### Files Modified
+- `MacroDefinition.cs` — `SaveMacroResult` record
+- `MacroEngine.cs` — `SaveMacro()`, `GetProductFolder()`, `ValidateSteps()`, `MacrosPath` property
+- `Tools.cs` — `wpf_save_macro` MCP tool + `ParseStepsJson()` / `ConvertJsonElement()` helpers
+- `UiaProxy.cs` — `saveMacro` case in `ExecuteCommand()` + `ParseJsonArray()` / `ConvertJsonElement()` helpers
+- `UiaEngine.cs` — `ProcessName` property
+- `_knowledge.yaml` — `saving_workflows` section under `update_instructions`
+
+## Discoveries & Gotchas
+
+- **MCP Tool Timeout (~15-20s)**: Keep macros fast. Reduce `wait` steps to 2-3s max. Total cumulative wait across nested macros must stay under ~12-15s.
+- **File dialogs**: Two types — standard Win32 (`AutomationId="1148"`, `wpf_file_dialog` works) and DirectUI Save (`AutomationId="FileNameControlHost"`, must use `wpf_find` + `wpf_type` + `Enter`).
+- **`wpf_screenshot` only captures main app window** — modal OS dialogs are NOT visible.
+- **Sample file gotcha**: `Initial  Plan.xer` has a double space in the filename.

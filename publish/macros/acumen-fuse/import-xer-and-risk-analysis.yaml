@@ -1,0 +1,97 @@
+name: Import XER and Run Risk Analysis
+description: >
+  Imports a P6 XER file into a new workbook, saves it, switches to S3 Risk tab,
+  and runs Risk Analysis. Handles file-overwrite and Mentor suggestion dialogs
+  by sending Tab+Enter to dismiss them (selects Ignore/Yes).
+  Note: cumulative waits kept minimal to avoid MCP transport timeout.
+timeout: 120
+parameters:
+  - name: filePath
+    description: Full path to the XER file to import
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Samples\Current Schedule.xer'
+  - name: savePath
+    description: Full path to save the workbook (.afw) before running Risk Analysis
+    required: false
+    default: 'C:\Temp\RiskAnalysis.afw'
+  - name: exePath
+    description: Path to Fuse.exe
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
+
+steps:
+  # 1. New workbook — keytip Alt,F,N then dismiss save prompt
+  - action: focus
+  - action: send_keys
+    keys: Alt,F,N
+  - action: wait
+    seconds: 1
+  - action: send_keys
+    keys: Right,Enter
+
+  # 2. Add XER file via keytip Alt,S,O,A
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,O,A
+  - action: file_dialog
+    text: '{{filePath}}'
+    timeout: 10
+
+  # 3. Import all projects via keytip Alt,S,R,I
+  - action: wait
+    seconds: 1
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,R,I
+  - action: wait
+    seconds: 2
+
+  # 4. Save As via keytip Alt,F,A,D
+  - action: focus
+  - action: send_keys
+    keys: Alt,F,A,D
+  - action: wait
+    seconds: 1
+  - action: find
+    automation_id: FileNameControlHost
+    timeout: 5
+  - action: type
+    text: '{{savePath}}'
+  - action: send_keys
+    keys: Enter
+  # Handle "file already exists" — Yes is left of No
+  - action: wait
+    seconds: 1
+  - action: send_keys
+    keys: Left,Enter
+  - action: wait
+    seconds: 1
+
+  # 5. Switch to S3 Risk tab via keytip Alt,3
+  - action: focus
+  - action: send_keys
+    keys: Alt,3
+  - action: wait
+    seconds: 1
+
+  # 6. Click Run Risk Analysis
+  - action: find
+    name: Run Risk Analysis
+    save_as: runBtn
+    timeout: 5
+  - action: click
+    ref: runBtn
+
+  # 7. Dismiss up to 2 Mentor suggestion dialogs (Tab to Ignore, Enter)
+  - action: wait
+    seconds: 1
+  - action: send_keys
+    keys: Tab,Enter
+  - action: wait
+    seconds: 1
+  - action: send_keys
+    keys: Tab,Enter
+
+  # 8. Wait for analysis to finish
+  - action: wait
+    seconds: 2

@@ -479,6 +479,109 @@ public static class WpfTools
         return JsonSerializer.Serialize(result, Constants.IndentedJson);
     }
 
+    [McpServerTool, Description("Save a macro YAML file from a list of steps. Auto-derives the product folder from the attached process. Use this to persist workflows as reusable macros.")]
+    public static async Task<string> wpf_save_macro(
+        [Description("Macro name without product prefix (e.g., 'import-xer'). Product folder is auto-derived from the attached process.")] string name,
+        [Description("Human-readable description of what the macro does")] string description,
+        [Description("JSON array of step objects. Each step must have an 'action' field. Example: [{\"action\":\"find\",\"automation_id\":\"myBtn\",\"save_as\":\"btn\"},{\"action\":\"click\",\"ref\":\"btn\"}]")] string steps,
+        [Description("JSON array of parameter objects with name, description, required, default fields (optional)")] string? parameters = null,
+        [Description("Macro timeout in seconds (default 30)")] int timeout = 30,
+        [Description("Overwrite existing macro file if it exists (default false)")] bool force = false)
+    {
+        if (Proxy != null)
+        {
+            var args = new Dictionary<string, object?>
+            {
+                ["name"] = name,
+                ["description"] = description,
+                ["steps"] = steps,
+                ["parameters"] = parameters,
+                ["timeout"] = timeout,
+                ["force"] = force
+            };
+            var resp = await Proxy.CallAsync("saveMacro", args);
+            if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
+            {
+                var filePath = resp.TryGetProperty("filePath", out var fp) ? fp.GetString() : "";
+                var macroName = resp.TryGetProperty("macroName", out var mn) ? mn.GetString() : "";
+                var message = resp.TryGetProperty("message", out var msg) ? msg.GetString() : "";
+                return $"OK: {message}\nMacro: {macroName}\nFile: {filePath}";
+            }
+            return $"Error: {resp.GetProperty("error").GetString()}";
+        }
+
+        // Direct mode: get attached process name for product folder derivation
+        var engine = UiaEngine.Instance;
+        if (!engine.IsAttached)
+            return "Error: Not attached to any process. Call wpf_attach first.";
+
+        var processName = engine.ProcessName;
+
+        // Parse steps JSON
+        List<Dictionary<string, object>> parsedSteps;
+        try
+        {
+            parsedSteps = ParseStepsJson(steps);
+        }
+        catch (Exception ex)
+        {
+            return $"Error: Invalid steps JSON: {ex.Message}";
+        }
+
+        // Parse parameters JSON
+        List<Dictionary<string, object>>? parsedParams = null;
+        if (!string.IsNullOrEmpty(parameters))
+        {
+            try
+            {
+                parsedParams = ParseStepsJson(parameters); // same format: array of objects
+            }
+            catch (Exception ex)
+            {
+                return $"Error: Invalid parameters JSON: {ex.Message}";
+            }
+        }
+
+        var macroEngine = _macroEngine.Value;
+        var result = macroEngine.SaveMacro(name, description, parsedSteps, parsedParams, timeout, force, processName);
+
+        if (result.Ok)
+            return $"OK: {result.Message}\nMacro: {result.MacroName}\nFile: {result.FilePath}";
+        return $"Error: {result.Message}";
+    }
+
+    /// <summary>Parse a JSON array of objects into a list of string-keyed dictionaries.</summary>
+    private static List<Dictionary<string, object>> ParseStepsJson(string json)
+    {
+        var result = new List<Dictionary<string, object>>();
+        var doc = JsonDocument.Parse(json);
+        foreach (var element in doc.RootElement.EnumerateArray())
+        {
+            var dict = new Dictionary<string, object>();
+            foreach (var prop in element.EnumerateObject())
+            {
+                dict[prop.Name] = ConvertJsonElement(prop.Value);
+            }
+            result.Add(dict);
+        }
+        return result;
+    }
+
+    /// <summary>Convert a JsonElement to a plain .NET object for YAML serialization.</summary>
+    private static object ConvertJsonElement(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString()!,
+            JsonValueKind.Number => element.TryGetInt32(out var i) ? i : element.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Array => element.EnumerateArray().Select(ConvertJsonElement).ToList(),
+            JsonValueKind.Object => element.EnumerateObject().ToDictionary(p => p.Name, p => ConvertJsonElement(p.Value)),
+            _ => element.ToString()
+        };
+    }
+
     [McpServerTool, Description("Start recording a macro. Captures mouse clicks and keyboard input on the attached application. Call wpf_record_stop to finish.")]
     public static async Task<string> wpf_record_start(
         [Description("Macro name including subfolder (e.g., 'acumen-fuse/my-workflow')")] string name,

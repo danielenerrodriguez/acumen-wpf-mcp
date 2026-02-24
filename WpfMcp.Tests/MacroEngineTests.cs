@@ -728,4 +728,493 @@ steps:
         Assert.Single(engine.LoadErrors);
         Assert.Equal("broken", engine.LoadErrors[0].MacroName);
     }
+
+    // --- ValidateSteps ---
+
+    [Fact]
+    public void ValidateSteps_EmptyList_ReturnsError()
+    {
+        var error = MacroEngine.ValidateSteps(new List<Dictionary<string, object>>());
+        Assert.NotNull(error);
+        Assert.Contains("at least one step", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_MissingAction_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["automation_id"] = "myBtn" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("missing 'action'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_UnknownAction_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "dance" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("unknown action 'dance'", error);
+        Assert.Contains("Valid actions:", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_SendKeysWithoutKeys_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "send_keys" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'keys'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_FindWithoutSearchProps_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "find" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("at least one of", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_TypeWithoutText_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "type" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'text'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_WaitWithoutSeconds_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "wait" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'seconds'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_MacroWithoutMacroName_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "macro" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'macro_name'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_WaitForWindowWithoutTitle_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "wait_for_window" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'title_contains'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_SetValueWithoutRef_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "set_value", ["value"] = "hello" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'ref'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_SetValueWithoutValue_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "set_value", ["ref"] = "e1" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'value'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_FindByPathWithoutPath_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "find_by_path" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'path'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_AttachWithoutProcessNameOrPid_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "attach" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("at least one of", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_FileDialogWithoutText_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "file_dialog" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'text'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_ValidMultiStep_ReturnsNull()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "find", ["automation_id"] = "myBtn", ["save_as"] = "btn" },
+            new() { ["action"] = "click", ["ref"] = "btn" },
+            new() { ["action"] = "send_keys", ["keys"] = "Ctrl+S" },
+            new() { ["action"] = "wait", ["seconds"] = 2 },
+            new() { ["action"] = "focus" },
+            new() { ["action"] = "snapshot" },
+            new() { ["action"] = "screenshot" },
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void ValidateSteps_NoRequiredFieldActions_ReturnsNull()
+    {
+        // Actions with no strictly required fields
+        var actions = new[] { "click", "right_click", "focus", "snapshot", "screenshot", "properties", "children", "launch" };
+        foreach (var action in actions)
+        {
+            var steps = new List<Dictionary<string, object>>
+            {
+                new() { ["action"] = action }
+            };
+            var error = MacroEngine.ValidateSteps(steps);
+            Assert.Null(error);
+        }
+    }
+
+    [Fact]
+    public void ValidateSteps_KeysAlias_WorksLikeSendKeys()
+    {
+        // "keys" is an alias for "send_keys"
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "keys", ["keys"] = "Ctrl+S" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.Null(error);
+
+        // But missing the keys field should fail
+        var steps2 = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "keys" }
+        };
+        var error2 = MacroEngine.ValidateSteps(steps2);
+        Assert.NotNull(error2);
+        Assert.Contains("requires 'keys'", error2);
+    }
+
+    [Fact]
+    public void ValidateSteps_ErrorReportsCorrectStepNumber()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "focus" },
+            new() { ["action"] = "find", ["automation_id"] = "ok" },
+            new() { ["action"] = "type" }, // step 3: missing text
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.StartsWith("Step 3", error);
+    }
+
+    // --- GetProductFolder ---
+
+    [Fact]
+    public void GetProductFolder_MatchingProcessName_ReturnsFolder()
+    {
+        WriteKnowledgeBase("my-app", "MyApp");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var folder = engine.GetProductFolder("MyApp");
+        Assert.Equal("my-app", folder);
+    }
+
+    [Fact]
+    public void GetProductFolder_CaseInsensitive_ReturnsFolder()
+    {
+        WriteKnowledgeBase("my-app", "MyApp");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var folder = engine.GetProductFolder("myapp");
+        Assert.Equal("my-app", folder);
+    }
+
+    [Fact]
+    public void GetProductFolder_NoMatch_ReturnsNull()
+    {
+        WriteKnowledgeBase("my-app", "MyApp");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var folder = engine.GetProductFolder("SomeOtherApp");
+        Assert.Null(folder);
+    }
+
+    [Fact]
+    public void GetProductFolder_NoKnowledgeBases_ReturnsNull()
+    {
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var folder = engine.GetProductFolder("Anything");
+        Assert.Null(folder);
+    }
+
+    // --- SaveMacro ---
+
+    [Fact]
+    public void SaveMacro_ValidSteps_CreatesFile()
+    {
+        WriteKnowledgeBase("test-app", "TestApp");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "find", ["automation_id"] = "myBtn", ["save_as"] = "btn" },
+            new() { ["action"] = "click", ["ref"] = "btn" },
+        };
+
+        var result = engine.SaveMacro("my-workflow", "A test workflow", steps, null, 30, false, "TestApp");
+
+        Assert.True(result.Ok);
+        Assert.Equal("test-app/my-workflow", result.MacroName);
+        Assert.True(File.Exists(result.FilePath));
+
+        // Verify the YAML content
+        var yaml = File.ReadAllText(result.FilePath);
+        Assert.Contains("my-workflow", yaml);
+        Assert.Contains("A test workflow", yaml);
+        Assert.Contains("find", yaml);
+        Assert.Contains("myBtn", yaml);
+        Assert.Contains("click", yaml);
+    }
+
+    [Fact]
+    public void SaveMacro_ExistingMacro_WithoutForce_ReturnsError()
+    {
+        WriteKnowledgeBase("test-app", "TestApp");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "focus" },
+        };
+
+        // Save the first time
+        var result1 = engine.SaveMacro("my-workflow", "First", steps, null, 30, false, "TestApp");
+        Assert.True(result1.Ok);
+
+        // Try to save again without force
+        var result2 = engine.SaveMacro("my-workflow", "Second", steps, null, 30, false, "TestApp");
+        Assert.False(result2.Ok);
+        Assert.Contains("already exists", result2.Message);
+    }
+
+    [Fact]
+    public void SaveMacro_ExistingMacro_WithForce_Overwrites()
+    {
+        WriteKnowledgeBase("test-app", "TestApp");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "focus" },
+        };
+
+        engine.SaveMacro("my-workflow", "First", steps, null, 30, false, "TestApp");
+        var result = engine.SaveMacro("my-workflow", "Updated", steps, null, 30, true, "TestApp");
+
+        Assert.True(result.Ok);
+        var yaml = File.ReadAllText(result.FilePath);
+        Assert.Contains("Updated", yaml);
+    }
+
+    [Fact]
+    public void SaveMacro_InvalidSteps_ReturnsError()
+    {
+        WriteKnowledgeBase("test-app", "TestApp");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "type" }, // missing text
+        };
+
+        var result = engine.SaveMacro("bad-macro", "Bad", steps, null, 30, false, "TestApp");
+        Assert.False(result.Ok);
+        Assert.Contains("Validation error", result.Message);
+    }
+
+    [Fact]
+    public void SaveMacro_NoMatchingKnowledgeBase_ReturnsError()
+    {
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "focus" },
+        };
+
+        var result = engine.SaveMacro("my-macro", "Test", steps, null, 30, false, "UnknownApp");
+        Assert.False(result.Ok);
+        Assert.Contains("Cannot determine product folder", result.Message);
+    }
+
+    [Fact]
+    public void SaveMacro_NameWithProductPrefix_UsesAsIs()
+    {
+        WriteKnowledgeBase("test-app", "TestApp");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "focus" },
+        };
+
+        // Name already includes product folder
+        var result = engine.SaveMacro("test-app/custom-workflow", "Custom", steps, null, 30, false, "TestApp");
+        Assert.True(result.Ok);
+        Assert.Equal("test-app/custom-workflow", result.MacroName);
+        Assert.True(File.Exists(result.FilePath));
+    }
+
+    [Fact]
+    public void SaveMacro_WithParameters_IncludesInYaml()
+    {
+        WriteKnowledgeBase("test-app", "TestApp");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "type", ["text"] = "{{filePath}}" },
+        };
+
+        var parameters = new List<Dictionary<string, object>>
+        {
+            new()
+            {
+                ["name"] = "filePath",
+                ["description"] = "Path to the file",
+                ["required"] = true,
+                ["default"] = "C:\\test.xer"
+            }
+        };
+
+        var result = engine.SaveMacro("param-macro", "With params", steps, parameters, 30, false, "TestApp");
+        Assert.True(result.Ok);
+
+        var yaml = File.ReadAllText(result.FilePath);
+        Assert.Contains("filePath", yaml);
+        Assert.Contains("Path to the file", yaml);
+    }
+
+    [Fact]
+    public void SaveMacro_WithTimeout_IncludesInYaml()
+    {
+        WriteKnowledgeBase("test-app", "TestApp");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "focus" },
+        };
+
+        var result = engine.SaveMacro("timeout-macro", "With timeout", steps, null, 60, false, "TestApp");
+        Assert.True(result.Ok);
+
+        var yaml = File.ReadAllText(result.FilePath);
+        Assert.Contains("timeout: 60", yaml);
+    }
+
+    [Fact]
+    public void SaveMacro_ZeroTimeout_OmitsFromYaml()
+    {
+        WriteKnowledgeBase("test-app", "TestApp");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "focus" },
+        };
+
+        var result = engine.SaveMacro("no-timeout", "No timeout", steps, null, 0, false, "TestApp");
+        Assert.True(result.Ok);
+
+        var yaml = File.ReadAllText(result.FilePath);
+        Assert.DoesNotContain("timeout:", yaml);
+    }
+
+    [Fact]
+    public void MacrosPath_ReturnsConfiguredPath()
+    {
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        Assert.Equal(_tempDir, engine.MacrosPath);
+    }
+
+    // --- Helper to write a knowledge base ---
+
+    private void WriteKnowledgeBase(string productFolder, string processName)
+    {
+        WriteMacro(Path.Combine(productFolder, "_knowledge.yaml"), $@"
+kind: knowledge-base
+
+application:
+  name: {productFolder}
+  process_name: {processName}
+
+workflows: {{}}
+");
+    }
 }

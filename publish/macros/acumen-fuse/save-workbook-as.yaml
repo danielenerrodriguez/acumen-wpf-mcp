@@ -34,5 +34,12 @@ steps:
   - action: send_keys
     keys: Enter
 
+  # Handle "file already exists" overwrite dialog (Yes is left of No)
+  # Harmless if file doesn't exist — keystrokes go to main window
   - action: wait
-    seconds: 2
+    seconds: 1
+  - action: send_keys
+    keys: Left,Enter
+
+  - action: wait
+    seconds: 1

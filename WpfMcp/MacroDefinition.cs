@@ -149,6 +149,13 @@ public record MacroResult(
     string? FailedAction = null,
     string? Error = null);
 
+/// <summary>Result returned after saving a macro.</summary>
+public record SaveMacroResult(
+    bool Ok,
+    string FilePath,
+    string MacroName,
+    string Message);
+
 /// <summary>
 /// Represents a knowledge base file (_knowledge.yaml) that provides
 /// navigation context for AI agents automating a specific application.

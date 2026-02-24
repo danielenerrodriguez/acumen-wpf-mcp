@@ -30,6 +30,7 @@ public class UiaEngine
     public bool IsAttached => _attachedProcess != null && _mainWindow != null && !_attachedProcess.HasExited;
     public string? WindowTitle { get { try { return RunOnSta(() => _mainWindow?.Current.Name); } catch { return null; } } }
     public int? ProcessId => _attachedProcess?.Id;
+    public string? ProcessName { get { try { return _attachedProcess?.ProcessName; } catch { return null; } } }
     public IntPtr TargetWindowHandle => _attachedProcess?.MainWindowHandle ?? IntPtr.Zero;
 
     [DllImport("user32.dll")]

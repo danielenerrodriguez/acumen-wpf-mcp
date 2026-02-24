@@ -1,7 +1,7 @@
 # Acumen Fuse Knowledge Base
 # For use by AI agents navigating Deltek Acumen Fuse via WPF MCP tools
 # Version: 8.12.0 x64
-# Last updated: 2026-02-24 (verified all keytips, mapped all ribbon tabs, added Mentor dialog)
+# Last updated: 2026-02-24 (verified Risk Analysis workflow, fixed Mentor dialog variants, added overwrite dialog handling)
 
 kind: knowledge-base
 
@@ -29,6 +29,34 @@ update_instructions:
     - "One knowledge base per product subfolder (e.g., acumen-fuse/_knowledge.yaml)"
     - "The MCP server skips _*.yaml files from macro loading"
     - "Knowledge bases are served as MCP resources and summarized in wpf_macro_list"
+
+  saving_workflows:
+    description: >
+      AI agents should offer to save frequently-used workflows as reusable macros
+      using the wpf_save_macro tool. This makes common operations faster and more
+      reliable on subsequent runs.
+    when_to_offer:
+      - "After completing a workflow with 3+ steps that isn't already a macro"
+      - "When a user repeats a similar sequence of actions across sessions"
+      - "After successfully automating a complex multi-step task"
+    how_to_save:
+      - "Collect the steps performed into a clean step list (action + relevant fields only)"
+      - "Call wpf_save_macro with a descriptive name and the steps as JSON"
+      - "The product folder is auto-derived from the attached process"
+      - "Parameters should be extracted for values that vary between runs (e.g., file paths)"
+    naming_conventions:
+      - "Use lowercase kebab-case for macro names (e.g., 'import-xer', 'run-diagnostics')"
+      - "Names should describe the workflow action, not the application state"
+      - "Keep names concise but descriptive (2-4 words)"
+    best_practices:
+      - "Always use the wpf_save_macro MCP tool to save macros — never write YAML files manually with the Write tool"
+      - "Proactively offer to save workflows as macros after completing a multi-step task — do not wait for the user to ask"
+      - "Minimize wait steps — only add waits where timing is critical (loading, dialog transitions)"
+      - "Use save_as aliases in find steps and reference them in subsequent click/type steps"
+      - "Extract variable values (file paths, search terms) as parameters with defaults"
+      - "Keep total cumulative wait under 12-15 seconds to avoid MCP tool timeout"
+      - "Prefer inlined steps over nested sub-macros to avoid cumulative timeout issues"
+      - "Include blind dialog dismissal steps (e.g., Left,Enter for overwrite, Tab,Enter for Mentor) even when dialogs may not appear — harmless if no dialog is present"
 
   # Inline annotation conventions for AI agents
   annotations:
@@ -1412,35 +1440,78 @@ automation_ids:
   # -- Deltek Mentor Suggestions Dialog --
   mentor_dialog:
     description: >
-      A modal suggestion dialog that appears the FIRST time certain tabs are
-      activated (e.g., S3 Risk tab). It blocks all input to the main window.
+      A modal "Deltek Mentor Suggestions" dialog that appears during certain
+      operations (e.g., running Risk Analysis, first tab activation). It blocks
+      all input to the main window. Multiple dialogs may fire in sequence —
+      always check for additional dialogs after dismissing one.
     status: verified
     last_tested: "2026-02-24"
     window_class: "#32770"
     title: "Deltek Mentor Suggestions"
-    elements:
+    common_elements:
+      content_text:
+        automation_id: ContentText
+        type: Text
+        notes: "Contains the warning/suggestion message"
       dont_show_checkbox:
         automation_id: VerificationCheckBox
         type: CheckBox
         name: "Don't show this again"
-      ignore_button:
-        automation_id: CommandButton_2
-        name: Ignore
-      other_buttons:
-        - automation_id: CommandButton_0
-          name: "Risk Advisor"
-        - automation_id: CommandButton_1
-          name: "Risk Register"
+    variants:
+      risk_analysis_no_uncertainty:
+        description: "Appears when running Risk Analysis with no uncertainty or mapped risks"
+        status: verified
+        last_tested: "2026-02-24"
+        message: "Running risk analysis with no uncertainty or mapped risks will not generate useful results."
+        buttons:
+          - automation_id: CommandButton_0
+            name: "OK"
+            notes: "Stops the analysis"
+          - automation_id: CommandButton_1
+            name: "Ignore"
+            notes: "Proceeds with the analysis anyway"
+      risk_analysis_low_quality:
+        description: "Appears when schedule quality score is below threshold"
+        status: verified
+        last_tested: "2026-02-24"
+        message: "Looks like your project is not of sufficient schedule quality..."
+        buttons:
+          - automation_id: CommandButton_0
+            name: "OK"
+            notes: "Stops the analysis"
+          - automation_id: CommandButton_1
+            name: "Ignore"
+            notes: "Proceeds with the analysis anyway"
+          - automation_id: CommandButton_2
+            name: "View Schedule Quality"
+            notes: "Navigates to S2 Diagnostics schedule quality view"
+      risk_tab_first_activation:
+        description: "Appears the first time the S3 Risk tab is activated in a session"
+        status: predicted
+        notes: "May offer Risk Advisor and Risk Register options. Button IDs may differ from Risk Analysis variants."
+        buttons:
+          - automation_id: CommandButton_0
+            name: "Risk Advisor"
+          - automation_id: CommandButton_1
+            name: "Risk Register"
+          - automation_id: CommandButton_2
+            name: "Ignore"
+    keyboard_dismissal: >
+      In Risk Analysis Mentor dialogs, OK is focused by default. Press Tab,Enter
+      to move focus to Ignore and activate it. This pattern works reliably for
+      both the "no uncertainty" and "low quality" variants.
     handling: >
-      To dismiss: click Ignore (CommandButton_2). To suppress permanently:
+      To dismiss: click Ignore (CommandButton_1 for Risk Analysis variants,
+      CommandButton_2 for tab-activation variant). To suppress permanently:
       check VerificationCheckBox first, then click Ignore.
       This dialog blocks the main window — subsequent tab switches or tool
       clicks will silently fail until the dialog is dismissed.
     notes: >
-      The dialog text and buttons vary by context. On the Risk tab it offers
-      Risk Advisor and Risk Register options. Other tabs may show different
-      suggestions. Always check for this dialog after switching to a new tab
-      for the first time in a session.
+      IMPORTANT: Multiple Mentor dialogs can fire in sequence during Risk Analysis
+      (first "no uncertainty", then "low quality"). Always check for additional
+      dialogs after dismissing one. In macros, use two wait+Tab,Enter sequences
+      back-to-back to handle both. Detection: wpf_find(control_type=Window,
+      class_name=#32770) returns "Element not found" when no dialog is present.
 
 # ============================================================
 # ACTIVITY GRID COLUMNS (default column set)
@@ -1554,15 +1625,34 @@ workflows:
     existing_macro: save-workbook-as.yaml
     steps:
       - "Alt,F,A,D (File > Save As > Deltek Acumen Workbook)"
-      - "Wait 2s for DirectUI Save dialog to open"
+      - "Wait 1-2s for DirectUI Save dialog to open"
       - "wpf_find(automation_id=FileNameControlHost) to locate filename field"
       - "wpf_type(filepath) to enter the new path"
       - "Enter to confirm"
+      - "Handle overwrite dialog if file exists: Left,Enter (Yes is left of No)"
     result: "Workbook saved to new location. Window title changes to new filename."
     issues:
       - "Save As dialog uses DirectUI ComboBox (FileNameControlHost), NOT standard Win32 (1148)"
       - "wpf_file_dialog tool does NOT work with this dialog"
       - "wpf_screenshot cannot capture this dialog (modal OS window)"
+    overwrite_dialog:
+      description: >
+        If the target file already exists, a child #32770 "Save As" confirmation
+        dialog appears asking "already exists. Do you want to replace it?"
+      status: verified
+      last_tested: "2026-02-24"
+      buttons:
+        - automation_id: "6"
+          name: "Yes"
+          notes: "Left button — overwrites the file"
+        - automation_id: "7"
+          name: "No"
+          notes: "Right button — cancels back to Save As dialog"
+      keyboard_handling: "Left,Enter — moves focus to Yes (left of No) and confirms"
+      notes: >
+        In macros, always include Left,Enter after the Enter step to handle this
+        dialog. If the file doesn't exist, the keystrokes are harmless (sent to
+        the main window which is safe).
 
   close_workbook:
     description: "Close the current workbook without saving"
@@ -1665,15 +1755,29 @@ workflows:
       Export Save dialog uses DirectUI (FileNameControlHost), same as workbook Save As.
 
   run_risk_analysis:
-    description: "Run Monte Carlo risk analysis"
-    status: predicted
-    prerequisites: "Project imported, uncertainty assigned"
+    description: "Run Monte Carlo risk analysis on imported project"
+    status: verified
+    last_tested: "2026-02-24"
+    existing_macro: import-xer-and-risk-analysis.yaml
+    prerequisites: >
+      Project must be imported AND workbook must be saved to disk first.
+      If not saved, a dialog appears: "Please save the workbook before running Risk Analysis."
     steps:
-      - "Switch to S3 // Risk tab (click RiskTab)"
-      - "Set iterations (RiskIteraionsSpinEdit)"
-      - "Click RunRiskAnalysisMenuTool"
-      - "Select analysis type (Uncertainty Only, etc.)"
-      - "Wait for simulation to complete"
+      - "Save workbook first (Alt,F,A,D or Alt,F,S if already saved once)"
+      - "Switch to S3 // Risk tab (Alt,3 keytip or click RiskTab)"
+      - "Click RunRiskAnalysisMenuTool (find by name='Run Risk Analysis')"
+      - "Dismiss Mentor dialog 1 if present: Tab,Enter (selects Ignore)"
+      - "Dismiss Mentor dialog 2 if present: Tab,Enter (selects Ignore)"
+      - "Wait for simulation to complete (status bar returns to Ready, 100%)"
+    notes: >
+      RunRiskAnalysisMenuTool is a Menu control type (not Button). Clicking it
+      directly runs the default analysis (Uncertainty Only). The dropdown arrow
+      opens a submenu with 4 analysis types.
+      Up to 2 Mentor suggestion dialogs may appear after clicking Run:
+      (1) "no uncertainty or mapped risks" and (2) "schedule quality too low".
+      Both can be dismissed with Tab,Enter to select Ignore.
+      The macro import-xer-and-risk-analysis.yaml handles the full end-to-end
+      flow including new workbook, import, save, tab switch, and dialog dismissal.
 
   schedule_cleanse:
     description: "Cleanse and fix schedule flaws"
@@ -1718,6 +1822,10 @@ navigation_tips:
   - tip: "For send_keys, use comma-separated keys for sequential presses (e.g., 'Alt,F,C') and + for simultaneous (e.g., 'Ctrl+A')"
   - tip: "After importing data, wait for status bar to return to 'Ready' before proceeding"
   - tip: "Right-click context menus exist in the Projects tree and Activity Grid"
+  - tip: "RISK ANALYSIS PREREQUISITE: The workbook must be saved to disk before running Risk Analysis. If not saved, a dialog appears saying 'Please save the workbook before running Risk Analysis.' Always save (Alt,F,S or Alt,F,A,D) before clicking Run Risk Analysis."
+  - tip: "MENTOR DIALOGS DURING RISK ANALYSIS: After clicking Run Risk Analysis, up to 2 Mentor suggestion dialogs may appear in sequence: (1) 'no uncertainty or mapped risks' and (2) 'schedule quality too low'. Use Tab,Enter to dismiss each (moves focus from OK to Ignore and presses it). Always check for additional dialogs after dismissing one."
+  - tip: "DIALOG DETECTION: To check if a modal dialog is blocking, use wpf_find(control_type=Window, class_name=#32770). Returns 'Element not found' when clear. Always verify no dialogs are present before proceeding with the next action."
+  - tip: "FILE OVERWRITE DIALOG: When saving over an existing file (Save As), a confirmation dialog asks 'Do you want to replace it?' with Yes (AutomationId=6) and No (AutomationId=7) buttons. Use Left,Enter to select Yes. In macros, always include Left,Enter after Save As Enter — it's harmless if no dialog appears."
 
 # ============================================================
 # SUPPORTED DATA FORMATS

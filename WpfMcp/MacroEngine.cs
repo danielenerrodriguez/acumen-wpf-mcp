@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -35,6 +36,9 @@ public class MacroEngine : IDisposable
         .Build();
 
     private static readonly Regex s_paramPattern = new(@"\{\{(\w+)\}\}", RegexOptions.Compiled);
+
+    /// <summary>Root path of the macros directory.</summary>
+    public string MacrosPath => _macrosPath;
 
     /// <summary>YAML files that failed to parse on the last reload.</summary>
     public IReadOnlyList<MacroLoadError> LoadErrors
@@ -287,6 +291,207 @@ public class MacroEngine : IDisposable
                 Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss}] Macro reload error: {ex.Message}");
             }
         }, null, Constants.MacroReloadDebounceMs, Timeout.Infinite);
+    }
+
+    // --- Known action types and their required fields for validation ---
+
+    private static readonly HashSet<string> s_knownActions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "send_keys", "keys", "find", "find_by_path", "click", "right_click",
+        "type", "set_value", "get_value", "wait", "macro", "launch",
+        "wait_for_window", "focus", "snapshot", "screenshot", "properties",
+        "children", "file_dialog", "attach"
+    };
+
+    /// <summary>
+    /// Validate a list of step dictionaries for known action types and required fields.
+    /// Returns null if valid, or an error message string if invalid.
+    /// </summary>
+    public static string? ValidateSteps(List<Dictionary<string, object>> steps)
+    {
+        if (steps.Count == 0)
+            return "Macro must have at least one step";
+
+        for (int i = 0; i < steps.Count; i++)
+        {
+            var step = steps[i];
+            if (!step.TryGetValue("action", out var actionObj) || actionObj is not string action || string.IsNullOrEmpty(action))
+                return $"Step {i + 1}: missing 'action' field";
+
+            var actionLower = action.ToLowerInvariant();
+            if (!s_knownActions.Contains(actionLower))
+                return $"Step {i + 1}: unknown action '{action}'. Valid actions: {string.Join(", ", s_knownActions.Order())}";
+
+            var error = ValidateStepFields(i, actionLower, step);
+            if (error != null) return error;
+        }
+        return null;
+    }
+
+    private static string? ValidateStepFields(int index, string action, Dictionary<string, object> step)
+    {
+        string StepPrefix() => $"Step {index + 1} ({action})";
+
+        bool Has(string key) => step.TryGetValue(key, out var v) && v != null &&
+            (v is not string s || !string.IsNullOrEmpty(s));
+
+        switch (action)
+        {
+            case "send_keys" or "keys":
+                if (!Has("keys")) return $"{StepPrefix()}: requires 'keys' field";
+                break;
+            case "find":
+                if (!Has("automation_id") && !Has("name") && !Has("control_type") && !Has("class_name"))
+                    return $"{StepPrefix()}: requires at least one of: automation_id, name, control_type, class_name";
+                break;
+            case "find_by_path":
+                if (!Has("path")) return $"{StepPrefix()}: requires 'path' field";
+                break;
+            case "type":
+                if (!Has("text")) return $"{StepPrefix()}: requires 'text' field";
+                break;
+            case "set_value":
+                if (!Has("ref")) return $"{StepPrefix()}: requires 'ref' field";
+                if (!Has("value")) return $"{StepPrefix()}: requires 'value' field";
+                break;
+            case "wait":
+                if (!Has("seconds")) return $"{StepPrefix()}: requires 'seconds' field";
+                break;
+            case "macro":
+                if (!Has("macro_name")) return $"{StepPrefix()}: requires 'macro_name' field";
+                break;
+            case "wait_for_window":
+                if (!Has("title_contains")) return $"{StepPrefix()}: requires 'title_contains' field";
+                break;
+            case "file_dialog":
+                if (!Has("text")) return $"{StepPrefix()}: requires 'text' field (the file path)";
+                break;
+            case "attach":
+                if (!Has("process_name") && !Has("pid"))
+                    return $"{StepPrefix()}: requires at least one of: process_name, pid";
+                break;
+            // click, right_click, focus, snapshot, screenshot, properties, children, launch, get_value
+            // have no strictly required fields
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Scan knowledge bases for a matching process_name field.
+    /// Returns the product folder name (e.g., "acumen-fuse") or null if no match.
+    /// </summary>
+    public string? GetProductFolder(string processName)
+    {
+        lock (_reloadLock)
+        {
+            foreach (var (folderName, kb) in _knowledgeBases)
+            {
+                try
+                {
+                    var dict = s_dictYaml.Deserialize<Dictionary<string, object>>(kb.FullContent);
+                    if (dict == null) continue;
+
+                    // Check application.process_name
+                    if (dict.TryGetValue("application", out var appObj) && appObj is Dictionary<object, object> app)
+                    {
+                        if (app.TryGetValue("process_name", out var pn) &&
+                            string.Equals(pn?.ToString(), processName, StringComparison.OrdinalIgnoreCase))
+                            return folderName;
+                    }
+                }
+                catch { /* skip malformed knowledge bases */ }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// YAML serializer for writing macro files from dictionaries.
+    /// Uses underscore naming convention to match the existing YAML format.
+    /// </summary>
+    private static readonly ISerializer s_yamlSerializer = new SerializerBuilder()
+        .WithNamingConvention(UnderscoredNamingConvention.Instance)
+        .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitDefaults)
+        .DisableAliases()
+        .Build();
+
+    /// <summary>
+    /// Save a macro definition to disk as a YAML file.
+    /// Steps are passed as dictionaries to produce clean YAML output (no JSON-in-YAML).
+    /// Auto-derives the product folder from the attached process name via knowledge bases.
+    /// </summary>
+    public SaveMacroResult SaveMacro(
+        string name,
+        string description,
+        List<Dictionary<string, object>> steps,
+        List<Dictionary<string, object>>? parameters,
+        int timeout,
+        bool force,
+        string? attachedProcessName)
+    {
+        // Validate steps
+        var validationError = ValidateSteps(steps);
+        if (validationError != null)
+            return new SaveMacroResult(false, "", "", $"Validation error: {validationError}");
+
+        // Determine product folder
+        string? productFolder = null;
+        if (!string.IsNullOrEmpty(attachedProcessName))
+            productFolder = GetProductFolder(attachedProcessName);
+
+        if (productFolder == null)
+        {
+            return new SaveMacroResult(false, "", "",
+                $"Cannot determine product folder for process '{attachedProcessName}'. " +
+                $"No knowledge base has a matching process_name. " +
+                $"Include the product folder in the macro name (e.g., 'my-product/{name}').");
+        }
+
+        // Build the full macro name with product folder prefix (unless already included)
+        var macroName = name.Contains('/')
+            ? name
+            : $"{productFolder}/{name}";
+
+        // Check if macro already exists
+        var relativePath = macroName.Replace('/', Path.DirectorySeparatorChar) + ".yaml";
+        var fullPath = Path.Combine(_macrosPath, relativePath);
+
+        if (File.Exists(fullPath) && !force)
+        {
+            return new SaveMacroResult(false, fullPath, macroName,
+                $"Macro '{macroName}' already exists at {fullPath}. Use force=true to overwrite.");
+        }
+
+        // Build the YAML content as an ordered dictionary for clean output
+        var yamlDoc = new Dictionary<string, object>
+        {
+            ["name"] = name.Contains('/') ? name.Split('/').Last() : name,
+            ["description"] = description,
+        };
+
+        if (timeout > 0)
+            yamlDoc["timeout"] = timeout;
+
+        if (parameters != null && parameters.Count > 0)
+            yamlDoc["parameters"] = parameters;
+
+        yamlDoc["steps"] = steps;
+
+        // Serialize to YAML
+        var yaml = s_yamlSerializer.Serialize(yamlDoc);
+
+        // Write the file
+        var dir = Path.GetDirectoryName(fullPath);
+        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
+
+        File.WriteAllText(fullPath, yaml, Encoding.UTF8);
+
+        // FileSystemWatcher will auto-reload, but log it
+        Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss}] Saved macro: {macroName} -> {fullPath}");
+
+        return new SaveMacroResult(true, fullPath, macroName,
+            $"Macro '{macroName}' saved successfully to {fullPath}");
     }
 
     public void Dispose()
