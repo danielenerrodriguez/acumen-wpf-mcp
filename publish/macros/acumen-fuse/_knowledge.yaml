@@ -1,7 +1,7 @@
 # Acumen Fuse Knowledge Base
 # For use by AI agents navigating Deltek Acumen Fuse via WPF MCP tools
 # Version: 8.12.0 x64
-# Last updated: 2026-02-24 (verified macros, fixed Save As dialog, added MCP timeout tips)
+# Last updated: 2026-02-24 (verified all keytips, mapped all ribbon tabs, added Mentor dialog)
 
 kind: knowledge-base
 
@@ -286,60 +286,79 @@ keytips:
 
   ribbon_tabs:
     - keytip: "S"
+      send_keys: "Alt,S"
       header: "S1 // Projects"
       automation_id: uxProjects
       status: verified
       last_tested: "2026-02-24"
-      notes: "First S-tab gets bare 'S'. Verified working."
-    - keytip: "S0"
+    - keytip: "2"
+      send_keys: "Alt,2"
       header: "S2 // Diagnostics"
       automation_id: uxRibbons
-      status: predicted
-      notes: "Predicted keytip 'S0' - needs live verification. Tab can be activated via wpf_find + click on automation_id uxRibbons."
-      issues:
-        - "Cannot visually confirm tab switch without imported data (tabs show empty content)"
-    - keytip: "S1"
+      status: verified
+      last_tested: "2026-02-24"
+    - keytip: "/"
+      send_keys: "Alt,OemQuestion"
       header: "S2 // Logic"
       automation_id: uxLogic
-      status: predicted
-      notes: "Predicted - needs live verification"
-    - keytip: "S2"
+      status: verified
+      last_tested: "2026-02-24"
+      notes: "Keytip is forward slash. send_keys uses OemQuestion (the / key on main keyboard)."
+    - keytip: "B"
+      send_keys: "Alt,B"
       header: "S2 // Benchmarking"
       automation_id: "S2 // Benchmarking"
-      status: predicted
-      notes: "Predicted - needs live verification"
-    - keytip: "S3"
+      status: verified
+      last_tested: "2026-02-24"
+    - keytip: "3"
+      send_keys: "Alt,3"
       header: "S3 // Risk"
       automation_id: RiskTab
-      status: predicted
-      notes: "Predicted - needs live verification"
-    - keytip: "S4"
+      status: verified
+      last_tested: "2026-02-24"
+      issues:
+        - "First time switching to Risk tab triggers a 'Deltek Mentor Suggestions' dialog — see mentor_dialog section"
+    - keytip: "4"
+      send_keys: "Alt,4"
       header: "S4 // Acceleration"
       automation_id: "S4 // Acceleration"
-      status: predicted
-      notes: "Predicted - needs live verification"
-    - keytip: "S5"
+      status: verified
+      last_tested: "2026-02-24"
+    - keytip: "5"
+      send_keys: "Alt,5"
       header: "S5 // Dashboard"
       automation_id: uxDashboards
-      status: predicted
-      notes: "Predicted - needs live verification"
-    - keytip: "F0"
+      status: verified
+      last_tested: "2026-02-24"
+    - keytip: "O"
+      send_keys: "Alt,O"
       header: Forensics
       automation_id: UxEnhancedForensicsTabItem
-      status: predicted
-      notes: "Predicted - conflicts with File 'F'"
+      status: verified
+      last_tested: "2026-02-24"
     - keytip: "M"
+      send_keys: "Alt,M"
       header: Metrics
       automation_id: uxMetrics
-      status: predicted
-      notes: "Predicted - no conflict"
-    - keytip: "F1"
+      status: verified
+      last_tested: "2026-02-24"
+    - keytip: "I"
+      send_keys: "Alt,I"
       header: Fields
       automation_id: uxFields
-      status: predicted
-      notes: "Predicted - conflicts with File 'F' and Forensics"
+      status: verified
+      last_tested: "2026-02-24"
+
+  ribbon_tab_keytip_notes: >
+    Keytip convention: Tab prefixed numbers (S1,S2,S3,S4,S5) use their number
+    as the keytip (S for S1, 2 for S2 Diagnostics, 3 for S3, etc.).
+    S2 sub-tabs use unique letters: / for Logic, B for Benchmarking.
+    Non-numbered tabs use a letter: O for fOrensics, M for Metrics, I for fIelds.
+    After pressing a tab keytip, a SECOND level of keytips appears for the
+    ribbon tools within that tab.
 
   verified_sequences:
+    # -- Application menu --
     - keys: "Alt,F,N"
       action: "File > New workbook"
       status: verified
@@ -352,6 +371,11 @@ keytips:
       action: "File > Save workbook"
       status: verified
       last_tested: "2026-02-24"
+    - keys: "Alt,F,A,D"
+      action: "File > Save As > Deltek Acumen Workbook"
+      status: verified
+      last_tested: "2026-02-24"
+      notes: "Opens DirectUI Save dialog (FileNameControlHost, NOT 1148)"
     - keys: "Alt,F,C"
       action: "File > Close workbook"
       status: verified
@@ -360,6 +384,50 @@ keytips:
       action: "File > Exit Fuse"
       status: verified
       last_tested: "2026-02-24"
+    # -- Tab switching --
+    - keys: "Alt,S"
+      action: "Switch to S1 // Projects tab"
+      status: verified
+      last_tested: "2026-02-24"
+    - keys: "Alt,2"
+      action: "Switch to S2 // Diagnostics tab"
+      status: verified
+      last_tested: "2026-02-24"
+    - keys: "Alt,OemQuestion"
+      action: "Switch to S2 // Logic tab"
+      status: verified
+      last_tested: "2026-02-24"
+      notes: "OemQuestion is the / key on main keyboard"
+    - keys: "Alt,B"
+      action: "Switch to S2 // Benchmarking tab"
+      status: verified
+      last_tested: "2026-02-24"
+    - keys: "Alt,3"
+      action: "Switch to S3 // Risk tab"
+      status: verified
+      last_tested: "2026-02-24"
+      notes: "First time may trigger Deltek Mentor Suggestions dialog"
+    - keys: "Alt,4"
+      action: "Switch to S4 // Acceleration tab"
+      status: verified
+      last_tested: "2026-02-24"
+    - keys: "Alt,5"
+      action: "Switch to S5 // Dashboard tab"
+      status: verified
+      last_tested: "2026-02-24"
+    - keys: "Alt,O"
+      action: "Switch to Forensics tab"
+      status: verified
+      last_tested: "2026-02-24"
+    - keys: "Alt,M"
+      action: "Switch to Metrics tab"
+      status: verified
+      last_tested: "2026-02-24"
+    - keys: "Alt,I"
+      action: "Switch to Fields tab"
+      status: verified
+      last_tested: "2026-02-24"
+    # -- S1 Projects ribbon tools --
     - keys: "Alt,S,O,A"
       action: "S1 Projects > Oracle Primavera > Add P6 file (All types)"
       status: verified
@@ -377,6 +445,8 @@ keytips:
 ribbon:
   # ---- S1 // Projects ----
   - tab: "S1 // Projects"
+    keytip: "S"
+    send_keys: "Alt,S"
     automation_id: uxProjects
     enabled_when: always
     groups:
@@ -546,11 +616,19 @@ ribbon:
 
   # ---- S2 // Diagnostics ----
   - tab: "S2 // Diagnostics"
+    keytip: "2"
+    send_keys: "Alt,2"
     automation_id: uxRibbons
     enabled_when: project_imported
     groups:
       - name: "Ribbons"
         notes: "Sub-component RibbonsRibbonGroup - metric selection"
+        tools:
+          - {name: "Projects", type: menu}
+          - {name: "Fields", type: menu}
+          - {name: "Resources", type: toggle}
+          - {name: "Hierarchy", type: menu}
+          - {name: "Charts", type: menu}
       - name: "Phases"
         notes: "Sub-component PhasesRibbonGroup - phase navigation"
       - name: "Intersections"
@@ -634,6 +712,8 @@ ribbon:
 
   # ---- S2 // Logic ----
   - tab: "S2 // Logic"
+    keytip: "/"
+    send_keys: "Alt,OemQuestion"
     automation_id: uxLogic
     enabled_when: project_imported
     groups:
@@ -663,40 +743,55 @@ ribbon:
 
   # ---- S2 // Benchmarking ----
   - tab: "S2 // Benchmarking"
+    keytip: "B"
+    send_keys: "Alt,B"
     automation_id: "S2 // Benchmarking"
     enabled_when: project_imported
     groups:
-      - name: "Cloud Based Metric Libraries"
+      - name: "Cloud-based Metric Libraries"
+        tools:
+          - {name: "Fuse Schedule Index™", type: radio}
+          - {name: "Fuse Logic Index™", type: radio}
         notes: "Dynamic radio buttons from Libraries.View"
       - name: "Characteristics"
+        tools:
+          - {name: "Characteristics", type: label}
+          - {type: combobox, notes: "Project type selector"}
         notes: "Project type combo box"
       - name: "Edit"
         tools: [{name: "Copy"}, {name: "Refresh Cloud Libraries"}, {name: "Include/Exclude"}, {name: "Refresh Analysis"}]
 
   # ---- S3 // Risk ----
   - tab: "S3 // Risk"
+    keytip: "3"
+    send_keys: "Alt,3"
     automation_id: RiskTab
     enabled_when: project_imported
     groups:
       - name: "Views"
         tools:
           - name: "Left Panel"
+            automation_id: RiskLeftPanelMenuTool
             type: menu
             items: ["Activities", "Risk Events", "None", "Most Critical Paths", "Histogram", "Tornado", "Risk Input Charts", "Distribution Analyzer"]
           - name: "Right Panel"
+            automation_id: RiskRightPanelMenuTool
             type: menu
             items: ["Activities", "Risk Events", "None", "Most Critical Paths", "Histogram", "Tornado", "Risk Input Charts", "Distribution Analyzer"]
-          - name: "Gantt"
-            type: toggle
-          - name: "Cash Flow"
-            type: toggle
       - name: "Editing"
         tools:
-          - {name: "Add Activity", automation_id: AddActivityMenuTool}
-          - {name: "Delete"}
-          - {name: "Add Risk Event"}
+          - {name: "Lock / Unlock", type: toggle}
+          - {name: "Lock All Children", type: button}
+          - {name: "Unlock All Children", type: button}
+          - {name: "Add Activity", automation_id: AddActivityMenuTool2, type: menu}
+          - {name: "Delete", type: button}
       - name: "Activities"
-        notes: "SmartGantt grouping/filtering/display settings (mirrors Projects tab)"
+        tools:
+          - {name: "Activity View", automation_id: ActivityViewMenuTool, type: menu}
+          - {name: "Risk Display Level Slider", type: slider, notes: "Range 1-4"}
+          - {name: "SmartGantt™", automation_id: RiskGanttMenuTool, type: menu}
+          - {name: "Risk Adviser™", type: button}
+        notes: "SmartGantt grouping/filtering/display settings"
       - name: "Analysis"
         tools:
           - name: "Run Risk Analysis"
@@ -734,22 +829,28 @@ ribbon:
           - {name: "Risk Event Template"}
       - name: "Risk Models"
         tools:
-          - {name: "Risk Advisor"}
-          - {name: "Selection Sets"}
-      - name: "Import/Publish"
+          - name: "Create Cost Estimate"
+            automation_id: CreateCostEstimateMenuTool
+            type: menu
+      - name: "Import / Publish"
         tools:
-          - {name: "Import Risk Register from Excel", automation_id: ImportRiskRegisterFromExcel}
-          - {name: "Export Risk Register to Excel", automation_id: ExportRiskRegisterToExcel}
-          - {name: "Import from Enterprise Risk", automation_id: ImportRiskRegisterFromEnterpriseRisk}
-          - {name: "Export to Enterprise Risk", automation_id: ExportRiskRegisterFromEnterpriseRisk}
+          - {name: "Print Preview", automation_id: PrintPreviewMenuTool, type: menu}
+          - {name: "Microsoft Excel®", automation_id: ExportToExcelMenuTool2, type: menu}
+          - {name: "Copy to Clipboard", automation_id: CopyToClipboardMenuTool, type: menu}
+          - {name: "Publish", automation_id: RiskPublishMenuTool, type: menu}
 
   # ---- S4 // Acceleration ----
   - tab: "S4 // Acceleration"
+    keytip: "4"
+    send_keys: "Alt,4"
     automation_id: "S4 // Acceleration"
     enabled_when: always
     groups:
       - name: "Library"
-        tools: [{name: "Apply Script Library"}, {name: "Merge"}, {name: "Save As Template"}]
+        tools:
+          - {name: "Apply Existing Script Library"}
+          - {name: "Merge Existing Script Library"}
+          - {name: "Save Script Library as Template"}
       - name: "Script Editor"
         tools: [{name: "Create Script"}, {name: "Remove Script"}]
       - name: "Step Editor"
@@ -761,11 +862,14 @@ ribbon:
 
   # ---- S5 // Dashboard ----
   - tab: "S5 // Dashboard"
+    keytip: "5"
+    send_keys: "Alt,5"
     automation_id: uxDashboards
     enabled_when: project_imported
     groups:
       - name: "Layout"
-        notes: "Sub-component DashboardLayoutRibbonGroup"
+        tools:
+          - {name: "Layout 1 through Layout 14", type: radio, notes: "14 dashboard layout presets"}
       - name: "Settings"
         tools:
           - name: "Widgets"
@@ -785,6 +889,8 @@ ribbon:
 
   # ---- Forensics ----
   - tab: Forensics
+    keytip: "O"
+    send_keys: "Alt,O"
     automation_id: UxEnhancedForensicsTabItem
     enabled_when: always
     groups:
@@ -809,11 +915,19 @@ ribbon:
 
   # ---- Metrics ----
   - tab: Metrics
+    keytip: "M"
+    send_keys: "Alt,M"
     automation_id: uxMetrics
     enabled_when: always
     groups:
       - name: "Metrics"
-        tools: [{name: "New Group"}, {name: "New Metric"}, {name: "Sync Metric Groups"}]
+        automation_id: uxMetricGroupsGroup
+        tools:
+          - {name: "New Group"}
+          - {name: "New Metric"}
+          - {name: "Sync Groups"}
+          - {name: "New Sub Group"}
+          - {name: "Delete"}
       - name: "Variables"
         notes: "Variable definition commands"
       - name: "Project Variables"
@@ -828,10 +942,24 @@ ribbon:
         notes: "CA metric editing"
       - name: "Work Package Metrics"
         notes: "WP metric editing"
+      - name: "Function Libraries"
+        tools:
+          - {name: "Common", automation_id: WorkPackageCommonMenuTool, type: menu}
+          - {name: "Financial", automation_id: WorkPackageFinancialMenuTool, type: menu}
+          - {name: "Logical", automation_id: WorkPackageLogicalMenuTool, type: menu}
+          - {name: "Text", automation_id: WorkPacakgeTextMenuTool, type: menu}
+          - {name: "Date & Time", automation_id: WorkPackageDateAndTimeMenuTool, type: menu}
+          - {name: "Lookup & Reference", automation_id: WorkPackageLookupMenuTool, type: menu}
+          - {name: "Math & Trig", automation_id: WorkPackageMathMenuTool, type: menu}
+          - {name: "Statistical", automation_id: WorkPackageStatisticalMenuTool, type: menu}
+          - {name: "Information", automation_id: WorkPackageInformationMenuTool, type: menu}
+          - {name: "Acumen", automation_id: WorkPackageAcumenMenuTool, type: menu}
+      - name: "Tripwire Thresholds"
+        notes: "Threshold configuration"
       - name: "Clipboard"
         notes: "Copy/paste support"
       - name: "Import"
-        tools: [{name: "Open Metric Library"}, {name: "Merge Metric Library"}]
+        tools: [{name: "Open", type: button}]
       - name: "Publish"
         tools:
           - name: "Publish"
@@ -840,13 +968,28 @@ ribbon:
 
   # ---- Fields ----
   - tab: Fields
+    keytip: "I"
+    send_keys: "Alt,I"
     automation_id: uxFields
     enabled_when: always
     groups:
       - name: "Source Fields"
+        tools:
+          - {name: "Map to All Projects"}
+          - {name: "Map All Code Fields for this Project"}
+          - {name: "Map All Code Fields for All Projects"}
+          - {name: "Map All User Fields for All Projects"}
       - name: "Mapped Fields"
+        tools:
+          - {name: "Delete", automation_id: DeleteMappedFieldCommand}
+          - {name: "Load Default Mapping"}
       - name: "Activity Fields"
+        tools:
+          - {name: "Delete", automation_id: DeleteActivityFieldCommand}
       - name: "Templates"
+        tools:
+          - {name: "Open", type: button}
+          - {name: "Save", type: button}
 
 # ============================================================
 # AUTOMATION IDS (for wpf_find / wpf_find_by_path)
@@ -1265,6 +1408,39 @@ automation_ids:
         Macros cannot do conditional branching, so error detection must be done
         by the AI agent after a macro completes. If a file dialog macro reports
         success but the expected result didn't happen, check for this pattern.
+
+  # -- Deltek Mentor Suggestions Dialog --
+  mentor_dialog:
+    description: >
+      A modal suggestion dialog that appears the FIRST time certain tabs are
+      activated (e.g., S3 Risk tab). It blocks all input to the main window.
+    status: verified
+    last_tested: "2026-02-24"
+    window_class: "#32770"
+    title: "Deltek Mentor Suggestions"
+    elements:
+      dont_show_checkbox:
+        automation_id: VerificationCheckBox
+        type: CheckBox
+        name: "Don't show this again"
+      ignore_button:
+        automation_id: CommandButton_2
+        name: Ignore
+      other_buttons:
+        - automation_id: CommandButton_0
+          name: "Risk Advisor"
+        - automation_id: CommandButton_1
+          name: "Risk Register"
+    handling: >
+      To dismiss: click Ignore (CommandButton_2). To suppress permanently:
+      check VerificationCheckBox first, then click Ignore.
+      This dialog blocks the main window — subsequent tab switches or tool
+      clicks will silently fail until the dialog is dismissed.
+    notes: >
+      The dialog text and buttons vary by context. On the Risk tab it offers
+      Risk Advisor and Risk Register options. Other tabs may show different
+      suggestions. Always check for this dialog after switching to a new tab
+      for the first time in a session.
 
 # ============================================================
 # ACTIVITY GRID COLUMNS (default column set)
