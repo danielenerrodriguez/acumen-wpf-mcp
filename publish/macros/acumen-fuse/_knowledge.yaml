@@ -1239,6 +1239,33 @@ automation_ids:
         - "wpf_file_dialog tool cannot find FileNameControlHost — must use wpf_find + wpf_type instead"
         - "wpf_screenshot does not capture this dialog (modal OS window)"
 
+    error_detection:
+      description: >
+        When a file path is invalid, a child error dialog (#32770) appears on top
+        of the file dialog. The parent dialog's controls become IsEnabled=False.
+      status: verified
+      last_tested: "2026-02-24"
+      detection_method:
+        fast_check: >
+          After entering a path and pressing Enter/Open, use wpf_find for
+          AutomationId='1148' (standard) or 'FileNameControlHost' (DirectUI)
+          and check IsEnabled. If False, an error dialog is blocking.
+        error_dialog_structure:
+          window_class: "#32770"
+          ok_button_automation_id: "2"
+          error_text_automation_id: "65535"
+          notes: >
+            The error dialog is a child #32770 window inside the parent file dialog.
+            It has an OK button (AutomationId=2), an icon (AutomationId=20),
+            and error text (AutomationId=65535) like "'path' does not exist."
+        recovery: >
+          Click the OK button (AutomationId=2) to dismiss the error dialog,
+          then either correct the path or press Escape to cancel the file dialog.
+      notes: >
+        Macros cannot do conditional branching, so error detection must be done
+        by the AI agent after a macro completes. If a file dialog macro reports
+        success but the expected result didn't happen, check for this pattern.
+
 # ============================================================
 # ACTIVITY GRID COLUMNS (default column set)
 # ============================================================
@@ -1505,6 +1532,7 @@ navigation_tips:
   - tip: "Status bar shows 'Ready' when idle - poll this to know when operations complete"
   - tip: "The application menu (file menu) is accessed via uxApplicationMenu or keytip Alt,F"
   - tip: "IMPORTANT: There are TWO types of file dialogs. Open/Import dialogs use standard Win32 with AutomationId '1148' (wpf_file_dialog works). Save/Export dialogs (Save As workbook, Export to Excel) use DirectUI with AutomationId 'FileNameControlHost' (wpf_file_dialog does NOT work — use wpf_find + wpf_type + Enter instead)."
+  - tip: "FILE DIALOG ERROR DETECTION: After a file dialog macro, if IsEnabled=False on the filename field (1148 or FileNameControlHost), an error dialog is blocking. Find the child #32770 window, read AutomationId=65535 for the error text, click AutomationId=2 (OK) to dismiss, then Escape to cancel."
   - tip: "DO NOT use the import-file macro — it is broken. The Fuse application menu has no 'Import' item. Use import-xer macro instead (imports via ribbon: Alt,S,O,A for P6 files)."
   - tip: "The Publish menu item for Excel export is named 'To Microsoft Excel®' (with ® symbol), not 'To Excel'."
   - tip: "wpf_screenshot only captures the main application window — modal file dialogs and OS dialogs are NOT captured. Trust keytip sequences and use appropriate dialog interaction method."
