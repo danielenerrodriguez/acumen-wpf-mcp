@@ -2,8 +2,6 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
 
 namespace WpfMcp;
 
@@ -19,21 +17,15 @@ public class MacroEngine : IDisposable
     private readonly Dictionary<string, MacroDefinition> _macros = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<MacroLoadError> _loadErrors = new();
     private readonly Dictionary<string, KnowledgeBase> _knowledgeBases = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Cached parsed dictionaries for knowledge bases, populated during Reload().</summary>
+    private readonly Dictionary<string, Dictionary<string, object>> _parsedKnowledgeBases = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _macrosPath;
     private FileSystemWatcher? _watcher;
     private Timer? _debounceTimer;
     private readonly object _reloadLock = new();
     private bool _disposed;
 
-    private static readonly IDeserializer s_yaml = new DeserializerBuilder()
-        .WithNamingConvention(UnderscoredNamingConvention.Instance)
-        .IgnoreUnmatchedProperties()
-        .Build();
-
-    /// <summary>Deserializer for knowledge base files (generic dictionary).</summary>
-    private static readonly IDeserializer s_dictYaml = new DeserializerBuilder()
-        .IgnoreUnmatchedProperties()
-        .Build();
+    // Use shared deserializers from YamlHelpers to avoid duplicate configuration
 
     private static readonly Regex s_paramPattern = new(@"\{\{(\w+)\}\}", RegexOptions.Compiled);
 
@@ -69,6 +61,7 @@ public class MacroEngine : IDisposable
             _macros.Clear();
             _loadErrors.Clear();
             _knowledgeBases.Clear();
+            _parsedKnowledgeBases.Clear();
             if (!Directory.Exists(_macrosPath)) return;
 
             foreach (var file in Directory.GetFiles(_macrosPath, "*.yaml", SearchOption.AllDirectories))
@@ -90,7 +83,7 @@ public class MacroEngine : IDisposable
                 try
                 {
                     var yaml = File.ReadAllText(file);
-                    var macro = s_yaml.Deserialize<MacroDefinition>(yaml);
+                    var macro = YamlHelpers.Deserializer.Deserialize<MacroDefinition>(yaml);
                     if (macro == null)
                     {
                         _loadErrors.Add(new MacroLoadError(relativePath, macroName,
@@ -129,7 +122,7 @@ public class MacroEngine : IDisposable
         try
         {
             var yaml = File.ReadAllText(filePath);
-            var dict = s_dictYaml.Deserialize<Dictionary<string, object>>(yaml);
+            var dict = YamlHelpers.DictDeserializer.Deserialize<Dictionary<string, object>>(yaml);
             if (dict == null) return;
 
             // Verify it has kind: knowledge-base
@@ -143,6 +136,7 @@ public class MacroEngine : IDisposable
 
             var summary = BuildKnowledgeSummary(dict, productName);
             _knowledgeBases[productName] = new KnowledgeBase(productName, relativePath, summary, yaml);
+            _parsedKnowledgeBases[productName] = dict;
         }
         catch (Exception ex)
         {
@@ -388,36 +382,19 @@ public class MacroEngine : IDisposable
     {
         lock (_reloadLock)
         {
-            foreach (var (folderName, kb) in _knowledgeBases)
+            foreach (var (folderName, dict) in _parsedKnowledgeBases)
             {
-                try
+                // Check application.process_name using the cached parsed dictionary
+                if (dict.TryGetValue("application", out var appObj) && appObj is Dictionary<object, object> app)
                 {
-                    var dict = s_dictYaml.Deserialize<Dictionary<string, object>>(kb.FullContent);
-                    if (dict == null) continue;
-
-                    // Check application.process_name
-                    if (dict.TryGetValue("application", out var appObj) && appObj is Dictionary<object, object> app)
-                    {
-                        if (app.TryGetValue("process_name", out var pn) &&
-                            string.Equals(pn?.ToString(), processName, StringComparison.OrdinalIgnoreCase))
-                            return folderName;
-                    }
+                    if (app.TryGetValue("process_name", out var pn) &&
+                        string.Equals(pn?.ToString(), processName, StringComparison.OrdinalIgnoreCase))
+                        return folderName;
                 }
-                catch { /* skip malformed knowledge bases */ }
             }
         }
         return null;
     }
-
-    /// <summary>
-    /// YAML serializer for writing macro files from dictionaries.
-    /// Uses underscore naming convention to match the existing YAML format.
-    /// </summary>
-    private static readonly ISerializer s_yamlSerializer = new SerializerBuilder()
-        .WithNamingConvention(UnderscoredNamingConvention.Instance)
-        .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitDefaults)
-        .DisableAliases()
-        .Build();
 
     /// <summary>
     /// Save a macro definition to disk as a YAML file.
@@ -482,7 +459,7 @@ public class MacroEngine : IDisposable
         yamlDoc["steps"] = steps;
 
         // Serialize to YAML
-        var yaml = s_yamlSerializer.Serialize(yamlDoc);
+        var yaml = YamlHelpers.Serializer.Serialize(yamlDoc);
 
         // Write the file
         var dir = Path.GetDirectoryName(fullPath);
@@ -667,7 +644,7 @@ public class MacroEngine : IDisposable
             {
                 var depth = step.MaxDepth ?? Constants.DefaultSnapshotDepth;
                 var r = engine.GetSnapshot(depth);
-                return new StepResult(r.success, r.success ? r.tree : r.tree);
+                return new StepResult(r.success, r.tree);
             }
 
             case "find":
@@ -775,6 +752,7 @@ public class MacroEngine : IDisposable
             }
 
             case "send_keys":
+            case "keys":
             {
                 var keys = SubstituteParams(step.Keys, parameters);
                 if (keys == null)
@@ -790,9 +768,10 @@ public class MacroEngine : IDisposable
                     return new StepResult(false, "set_value requires a ref");
                 if (!cache.TryGet(refKey, out var el))
                     return new StepResult(false, $"Unknown ref '{refKey}'");
-                var text = SubstituteParams(step.Text, parameters);
+                // Prefer 'value' property; fall back to 'text' for backward compatibility
+                var text = SubstituteParams(step.Value ?? step.Text, parameters);
                 if (text == null)
-                    return new StepResult(false, "set_value requires text");
+                    return new StepResult(false, "set_value requires a value (use 'value' or 'text' field)");
                 var r = engine.SetElementValue(el!, text);
                 return new StepResult(r.success, r.message);
             }

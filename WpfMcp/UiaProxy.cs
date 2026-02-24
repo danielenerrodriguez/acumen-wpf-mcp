@@ -22,6 +22,20 @@ public class UiaProxyClient : IDisposable
 
     public bool IsConnected => _pipe?.IsConnected ?? false;
 
+    /// <summary>Default constructor — call <see cref="ConnectAsync"/> to establish the pipe.</summary>
+    public UiaProxyClient() { }
+
+    /// <summary>
+    /// Internal constructor for testing — accepts a pre-connected pipe stream.
+    /// Avoids the need for reflection-based injection in tests.
+    /// </summary>
+    internal UiaProxyClient(NamedPipeClientStream pipe)
+    {
+        _pipe = pipe;
+        _reader = new StreamReader(pipe);
+        _writer = new StreamWriter(pipe) { AutoFlush = true };
+    }
+
     public async Task ConnectAsync(int timeoutMs = 5000)
     {
         _pipe = new NamedPipeClientStream(".", Constants.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
@@ -30,12 +44,15 @@ public class UiaProxyClient : IDisposable
         _writer = new StreamWriter(_pipe) { AutoFlush = true };
     }
 
-    public async Task<JsonElement> CallAsync(string method, Dictionary<string, object?>? args = null)
+    public async Task<JsonElement> CallAsync(
+        string method,
+        Dictionary<string, object?>? args = null,
+        CancellationToken cancellation = default)
     {
         if (_pipe == null || !_pipe.IsConnected)
             throw new InvalidOperationException("Not connected to elevated UIA server");
 
-        await _lock.WaitAsync();
+        await _lock.WaitAsync(cancellation);
         try
         {
             var request = new Dictionary<string, object?>
@@ -45,9 +62,9 @@ public class UiaProxyClient : IDisposable
             };
 
             var json = JsonSerializer.Serialize(request);
-            await _writer!.WriteLineAsync(json);
+            await _writer!.WriteLineAsync(json.AsMemory(), cancellation);
 
-            var response = await _reader!.ReadLineAsync();
+            var response = await _reader!.ReadLineAsync(cancellation);
             if (response == null)
                 throw new IOException("Server closed connection");
 
@@ -64,6 +81,7 @@ public class UiaProxyClient : IDisposable
         try { _reader?.Dispose(); } catch { }
         try { _writer?.Dispose(); } catch { }
         try { _pipe?.Dispose(); } catch { }
+        try { _lock.Dispose(); } catch { }
     }
 }
 
@@ -74,7 +92,9 @@ public class UiaProxyClient : IDisposable
 public static class UiaProxyServer
 {
     private static readonly string _lastClientFile =
-        Path.Combine(AppContext.BaseDirectory, "last_client.txt");
+        Path.Combine(
+            Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory,
+            "last_client.txt");
 
     private static readonly ElementCache _cache = new();
     private static readonly Lazy<MacroEngine> _macroEngine = new(() => new MacroEngine());
@@ -272,7 +292,7 @@ public static class UiaProxyServer
             {
                 switch (method)
                 {
-                    case "attach":
+                    case Constants.Commands.Attach:
                     {
                         var name = GetStringArg(args, "processName");
                         var pid = GetIntArg(args, "pid");
@@ -281,13 +301,13 @@ public static class UiaProxyServer
                             SaveLastClient(name);
                         return Json(result.success, result.message);
                     }
-                    case "snapshot":
+                    case Constants.Commands.Snapshot:
                     {
                         var depth = GetIntArg(args, "maxDepth") ?? 3;
                         var result = engine.GetSnapshot(depth);
                         return Json(result.success, result.tree);
                     }
-                    case "children":
+                    case Constants.Commands.Children:
                     {
                         System.Windows.Automation.AutomationElement? parent = null;
                         var key = GetStringArg(args, "refKey");
@@ -309,7 +329,7 @@ public static class UiaProxyServer
                         }
                         return JsonSerializer.Serialize(new { ok = true, result = items });
                     }
-                    case "find":
+                    case Constants.Commands.Find:
                     {
                         var automationId = GetStringArg(args, "automationId");
                         var name = GetStringArg(args, "name");
@@ -324,7 +344,7 @@ public static class UiaProxyServer
                         }
                         return Json(false, result.message);
                     }
-                    case "findByPath":
+                    case Constants.Commands.FindByPath:
                     {
                         var pathArr = args.GetProperty("path");
                         var segments = new List<string>();
@@ -339,33 +359,33 @@ public static class UiaProxyServer
                         }
                         return Json(false, result.message);
                     }
-                    case "click":
+                    case Constants.Commands.Click:
                     {
                         var key = args.GetProperty("refKey").GetString()!;
                         if (!_cache.TryGet(key, out var el)) return Json(false, $"Unknown ref '{key}'");
                         var result = engine.ClickElement(el!);
                         return Json(result.success, result.message);
                     }
-                    case "rightClick":
+                    case Constants.Commands.RightClick:
                     {
                         var key = args.GetProperty("refKey").GetString()!;
                         if (!_cache.TryGet(key, out var el)) return Json(false, $"Unknown ref '{key}'");
                         var result = engine.RightClickElement(el!);
                         return Json(result.success, result.message);
                     }
-                    case "type":
+                    case Constants.Commands.Type:
                     {
                         var text = args.GetProperty("text").GetString()!;
                         var result = engine.TypeText(text);
                         return Json(result.success, result.message);
                     }
-                    case "sendKeys":
+                    case Constants.Commands.SendKeys:
                     {
                         var keys = args.GetProperty("keys").GetString()!;
                         var result = engine.SendKeyboardShortcut(keys);
                         return Json(result.success, result.message);
                     }
-                    case "setValue":
+                    case Constants.Commands.SetValue:
                     {
                         var key = args.GetProperty("refKey").GetString()!;
                         if (!_cache.TryGet(key, out var el)) return Json(false, $"Unknown ref '{key}'");
@@ -373,7 +393,7 @@ public static class UiaProxyServer
                         var result = engine.SetElementValue(el!, value);
                         return Json(result.success, result.message);
                     }
-                    case "getValue":
+                    case Constants.Commands.GetValue:
                     {
                         var key = args.GetProperty("refKey").GetString()!;
                         if (!_cache.TryGet(key, out var el)) return Json(false, $"Unknown ref '{key}'");
@@ -382,32 +402,32 @@ public static class UiaProxyServer
                             return JsonSerializer.Serialize(new { ok = true, result = result.value });
                         return Json(false, result.message);
                     }
-                    case "focus":
+                    case Constants.Commands.Focus:
                     {
                         var result = engine.FocusWindow();
                         return Json(result.success, result.message);
                     }
-                    case "fileDialog":
+                    case Constants.Commands.FileDialog:
                     {
                         var filePath = args.GetProperty("filePath").GetString()!;
                         var result = engine.FileDialogSetPath(filePath);
                         return Json(result.success, result.message);
                     }
-                    case "screenshot":
+                    case Constants.Commands.Screenshot:
                     {
                         var result = engine.TakeScreenshot();
                         if (result.success)
                             return JsonSerializer.Serialize(new { ok = true, result = result.message, base64 = result.base64 });
                         return Json(false, result.message);
                     }
-                    case "properties":
+                    case Constants.Commands.Properties:
                     {
                         var key = args.GetProperty("refKey").GetString()!;
                         if (!_cache.TryGet(key, out var el)) return Json(false, $"Unknown ref '{key}'");
                         var props = engine.GetElementProperties(el!);
                         return JsonSerializer.Serialize(new { ok = true, result = props });
                     }
-                    case "status":
+                    case Constants.Commands.Status:
                     {
                         return JsonSerializer.Serialize(new
                         {
@@ -417,7 +437,7 @@ public static class UiaProxyServer
                             pid = engine.ProcessId
                         });
                     }
-                    case "macroList":
+                    case Constants.Commands.MacroList:
                     {
                         var macroEng = _macroEngine.Value;
                         var macros = macroEng.List();
@@ -430,7 +450,7 @@ public static class UiaProxyServer
                         }).ToList();
                         return JsonSerializer.Serialize(new { ok = true, result = macros, loadErrors, knowledgeBases });
                     }
-                    case "macro":
+                    case Constants.Commands.Macro:
                     {
                         var macroName = GetStringArg(args, "name");
                         if (string.IsNullOrEmpty(macroName))
@@ -455,7 +475,7 @@ public static class UiaProxyServer
                             macroName, parsedParams, engine, _cache).GetAwaiter().GetResult();
                         return JsonSerializer.Serialize(new { ok = macroResult.Success, result = macroResult });
                     }
-                    case "executeMacroYaml":
+                    case Constants.Commands.ExecuteMacroYaml:
                     {
                         var yamlContent = GetStringArg(args, "yaml");
                         if (string.IsNullOrEmpty(yamlContent))
@@ -464,11 +484,7 @@ public static class UiaProxyServer
                         MacroDefinition macroDef;
                         try
                         {
-                            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
-                                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance)
-                                .IgnoreUnmatchedProperties()
-                                .Build();
-                            macroDef = deserializer.Deserialize<MacroDefinition>(yamlContent);
+                            macroDef = YamlHelpers.Deserializer.Deserialize<MacroDefinition>(yamlContent);
                         }
                         catch (Exception ex)
                         {
@@ -498,7 +514,7 @@ public static class UiaProxyServer
                             macroDef, displayName, execParams, engine, _cache).GetAwaiter().GetResult();
                         return JsonSerializer.Serialize(new { ok = execResult.Success, result = execResult });
                     }
-                    case "launch":
+                    case Constants.Commands.Launch:
                     {
                         var exePath = GetStringArg(args, "exePath");
                         if (string.IsNullOrEmpty(exePath))
@@ -518,7 +534,7 @@ public static class UiaProxyServer
                         }
                         return Json(result.success, result.message);
                     }
-                    case "waitForWindow":
+                    case Constants.Commands.WaitForWindow:
                     {
                         var titleContains = GetStringArg(args, "titleContains");
                         var automationId = GetStringArg(args, "automationId");
@@ -532,7 +548,7 @@ public static class UiaProxyServer
                             timeout, pollMs).GetAwaiter().GetResult();
                         return Json(result.success, result.message);
                     }
-                    case "saveMacro":
+                    case Constants.Commands.SaveMacro:
                     {
                         var saveName = GetStringArg(args, "name");
                         if (string.IsNullOrEmpty(saveName))
@@ -552,7 +568,7 @@ public static class UiaProxyServer
                         List<Dictionary<string, object>> parsedSteps;
                         try
                         {
-                            parsedSteps = ParseJsonArray(stepsJson);
+                            parsedSteps = JsonHelpers.ParseJsonArray(stepsJson);
                         }
                         catch (Exception ex)
                         {
@@ -565,7 +581,7 @@ public static class UiaProxyServer
                         {
                             try
                             {
-                                parsedParams = ParseJsonArray(paramsJson);
+                                parsedParams = JsonHelpers.ParseJsonArray(paramsJson);
                             }
                             catch (Exception ex)
                             {
@@ -606,36 +622,4 @@ public static class UiaProxyServer
     static string Json(bool ok, string msg) =>
         JsonSerializer.Serialize(ok ? new { ok, result = msg } : (object)new { ok, error = msg });
 
-    /// <summary>Parse a JSON array of objects into a list of string-keyed dictionaries.</summary>
-    private static List<Dictionary<string, object>> ParseJsonArray(string json)
-    {
-        var result = new List<Dictionary<string, object>>();
-        var doc = JsonDocument.Parse(json);
-        foreach (var element in doc.RootElement.EnumerateArray())
-        {
-            var dict = new Dictionary<string, object>();
-            foreach (var prop in element.EnumerateObject())
-            {
-                dict[prop.Name] = ConvertJsonElement(prop.Value);
-            }
-            result.Add(dict);
-        }
-        return result;
-    }
-
-    /// <summary>Convert a JsonElement to a plain .NET object for YAML serialization.</summary>
-    private static object ConvertJsonElement(JsonElement element)
-    {
-        return element.ValueKind switch
-        {
-            JsonValueKind.String => element.GetString()!,
-            JsonValueKind.Number => element.TryGetInt32(out var i) ? i : element.GetDouble(),
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            JsonValueKind.Array => element.EnumerateArray().Select(ConvertJsonElement).ToList(),
-            JsonValueKind.Object => element.EnumerateObject()
-                .ToDictionary(p => p.Name, p => ConvertJsonElement(p.Value)),
-            _ => element.ToString()
-        };
-    }
 }

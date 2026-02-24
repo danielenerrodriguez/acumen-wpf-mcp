@@ -1,7 +1,5 @@
 using System.IO;
 using System.Text;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
 
 namespace WpfMcp;
 
@@ -10,20 +8,11 @@ namespace WpfMcp;
 /// </summary>
 public static class MacroSerializer
 {
-    private static readonly ISerializer s_yaml = new SerializerBuilder()
-        .WithNamingConvention(UnderscoredNamingConvention.Instance)
-        .ConfigureDefaultValuesHandling(DefaultValuesHandling.OmitDefaults)
-        .DisableAliases()
-        .Build();
-
     /// <summary>Serialize a MacroDefinition to a YAML string.</summary>
     public static string ToYaml(MacroDefinition macro)
     {
-        // YamlDotNet serializer produces the full object.
-        // We post-process to remove empty collections and zero-value fields
-        // that OmitDefaults doesn't catch on reference types.
-        var yaml = s_yaml.Serialize(macro);
-        return yaml;
+        // Uses shared serializer from YamlHelpers (underscore naming, omit defaults, no aliases).
+        return YamlHelpers.Serializer.Serialize(macro);
     }
 
     /// <summary>

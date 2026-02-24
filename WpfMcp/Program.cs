@@ -65,54 +65,8 @@ await CliMode.RunAsync(args, macrosPath);
 // =====================================================================
 async Task RunMcpConnectAsync(string[] cliArgs)
 {
-    // --- Ensure elevated server is running ---
-    if (!IsServerRunning(Constants.MutexName))
-    {
-        Console.Error.WriteLine("[WPF MCP] Elevated server not running. Launching...");
-        Console.Error.WriteLine("[WPF MCP] You may see an elevation prompt. Please approve it.");
-
-        if (!LaunchElevatedServer())
-        {
-            Console.Error.WriteLine("[WPF MCP] ERROR: Failed to launch elevated server.");
-            return;
-        }
-
-        Console.Error.WriteLine("[WPF MCP] Waiting for elevated server to start...");
-        bool ready = false;
-        for (int i = 0; i < Constants.ServerStartupTimeoutSeconds; i++)
-        {
-            await Task.Delay(Constants.ServerStartupPollMs);
-            if (IsServerRunning(Constants.MutexName)) { ready = true; break; }
-        }
-
-        if (!ready)
-        {
-            Console.Error.WriteLine($"[WPF MCP] ERROR: Server did not start within {Constants.ServerStartupTimeoutSeconds} seconds.");
-            return;
-        }
-
-        Console.Error.WriteLine("[WPF MCP] Elevated server is running.");
-        await Task.Delay(Constants.ServerPostStartDelayMs); // let pipe listener start
-    }
-    else
-    {
-        Console.Error.WriteLine("[WPF MCP] Elevated server already running.");
-    }
-
-    // --- Connect proxy client to elevated server ---
-    var proxy = new UiaProxyClient();
-    try
-    {
-        Console.Error.WriteLine("[WPF MCP] Connecting to elevated server pipe...");
-        await proxy.ConnectAsync(timeoutMs: Constants.PipeConnectTimeoutMs);
-        Console.Error.WriteLine("[WPF MCP] Connected!");
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine($"[WPF MCP] ERROR: Could not connect to pipe: {ex.Message}");
-        proxy.Dispose();
-        return;
-    }
+    var proxy = await EnsureServerAndConnectAsync(Console.Error);
+    if (proxy == null) return;
 
     // --- Wire proxy into tools and start MCP stdio server ---
     WpfTools.Proxy = proxy;
@@ -205,6 +159,60 @@ static string BuildServerInstructions(string? macrosPathOverride)
 }
 
 // =====================================================================
+// Shared: Ensure elevated server is running and connect via pipe
+// =====================================================================
+async Task<UiaProxyClient?> EnsureServerAndConnectAsync(TextWriter log)
+{
+    if (!IsServerRunning(Constants.MutexName))
+    {
+        log.WriteLine("[WPF MCP] Elevated server not running. Launching...");
+        log.WriteLine("[WPF MCP] You may see an elevation prompt. Please approve it.");
+
+        if (!LaunchElevatedServer())
+        {
+            log.WriteLine("[WPF MCP] ERROR: Failed to launch elevated server.");
+            return null;
+        }
+
+        log.WriteLine("[WPF MCP] Waiting for elevated server to start...");
+        bool ready = false;
+        for (int i = 0; i < Constants.ServerStartupTimeoutSeconds; i++)
+        {
+            await Task.Delay(Constants.ServerStartupPollMs);
+            if (IsServerRunning(Constants.MutexName)) { ready = true; break; }
+        }
+
+        if (!ready)
+        {
+            log.WriteLine($"[WPF MCP] ERROR: Server did not start within {Constants.ServerStartupTimeoutSeconds} seconds.");
+            return null;
+        }
+
+        log.WriteLine("[WPF MCP] Elevated server is running.");
+        await Task.Delay(Constants.ServerPostStartDelayMs);
+    }
+    else
+    {
+        log.WriteLine("[WPF MCP] Elevated server already running.");
+    }
+
+    var proxy = new UiaProxyClient();
+    try
+    {
+        log.WriteLine("[WPF MCP] Connecting to elevated server pipe...");
+        await proxy.ConnectAsync(timeoutMs: Constants.PipeConnectTimeoutMs);
+        log.WriteLine("[WPF MCP] Connected!");
+        return proxy;
+    }
+    catch (Exception ex)
+    {
+        log.WriteLine($"[WPF MCP] ERROR: Could not connect to pipe: {ex.Message}");
+        proxy.Dispose();
+        return null;
+    }
+}
+
+// =====================================================================
 // Helpers
 // =====================================================================
 static bool IsServerRunning(string mutexName)
@@ -272,11 +280,7 @@ async Task RunDragDropMacroAsync(string yamlPath, string[]? cliParams = null)
     try
     {
         yamlContent = File.ReadAllText(yamlPath);
-        var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
-            .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
-            .Build();
-        macro = deserializer.Deserialize<MacroDefinition>(yamlContent);
+        macro = YamlHelpers.Deserializer.Deserialize<MacroDefinition>(yamlContent);
     }
     catch (Exception ex)
     {
@@ -323,44 +327,10 @@ async Task RunDragDropMacroAsync(string yamlPath, string[]? cliParams = null)
         }
     }
 
-    // Ensure elevated server is running
-    if (!IsServerRunning(Constants.MutexName))
+    // Ensure elevated server is running and connect
+    using var proxy = await EnsureServerAndConnectAsync(Console.Out);
+    if (proxy == null)
     {
-        Console.WriteLine("Starting elevated server (approve the elevation prompt)...");
-        if (!LaunchElevatedServer())
-        {
-            Console.WriteLine("ERROR: Failed to launch elevated server.");
-            WaitForKeypress();
-            return;
-        }
-
-        bool ready = false;
-        for (int i = 0; i < Constants.ServerStartupTimeoutSeconds; i++)
-        {
-            await Task.Delay(Constants.ServerStartupPollMs);
-            if (IsServerRunning(Constants.MutexName)) { ready = true; break; }
-        }
-
-        if (!ready)
-        {
-            Console.WriteLine("ERROR: Server did not start in time.");
-            WaitForKeypress();
-            return;
-        }
-
-        await Task.Delay(Constants.ServerPostStartDelayMs);
-    }
-
-    // Connect to elevated server
-    using var proxy = new UiaProxyClient();
-    try
-    {
-        Console.WriteLine("Connecting to elevated server...");
-        await proxy.ConnectAsync(timeoutMs: Constants.PipeConnectTimeoutMs);
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"ERROR: Could not connect to pipe: {ex.Message}");
         WaitForKeypress();
         return;
     }

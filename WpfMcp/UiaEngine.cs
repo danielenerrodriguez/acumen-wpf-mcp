@@ -165,24 +165,6 @@ public class UiaEngine
         return tcs.Task.GetAwaiter().GetResult();
     }
 
-    /// <summary>Dispatch a void action to the STA thread and wait for completion.</summary>
-    private void RunOnSta(Action action)
-    {
-        if (Thread.CurrentThread == _staThread)
-        {
-            action();
-            return;
-        }
-
-        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _taskQueue.Enqueue(() =>
-        {
-            try { action(); tcs.SetResult(true); }
-            catch (Exception ex) { tcs.SetException(ex); }
-        });
-        tcs.Task.GetAwaiter().GetResult();
-    }
-
     public (bool success, string message) Attach(string processName)
     {
         return RunOnSta(() =>
@@ -881,14 +863,14 @@ public class UiaEngine
         // Click the field to ensure focus
         var clickResult = ClickElement(editResult.element);
         if (!clickResult.success) return (false, $"Failed to click filename field: {clickResult.message}");
-        Thread.Sleep(100);
+        Thread.Sleep(Constants.FileDialogPostClickMs);
 
         // Clear existing text, type the path, press Enter
         SendKeyboardShortcut("Ctrl+A");
-        Thread.Sleep(50);
+        Thread.Sleep(Constants.FileDialogPostSelectAllMs);
         var typeResult = TypeText(filePath);
         if (!typeResult.success) return (false, $"Failed to type path: {typeResult.message}");
-        Thread.Sleep(100);
+        Thread.Sleep(Constants.FileDialogPreEnterMs);
         SendKeyboardShortcut("Enter");
 
         return (true, $"File dialog: entered '{filePath}'");

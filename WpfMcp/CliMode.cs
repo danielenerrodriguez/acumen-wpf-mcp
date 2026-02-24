@@ -330,11 +330,7 @@ public static class CliMode
         try
         {
             var yaml = File.ReadAllText(yamlPath);
-            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
-                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance)
-                .IgnoreUnmatchedProperties()
-                .Build();
-            macro = deserializer.Deserialize<MacroDefinition>(yaml);
+            macro = YamlHelpers.Deserializer.Deserialize<MacroDefinition>(yaml);
         }
         catch (Exception ex)
         {

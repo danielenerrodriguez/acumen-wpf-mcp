@@ -45,6 +45,11 @@ public static class Constants
     public const int DefaultSnapshotDepth = 3;
     public const int MaxWalkDepth = 10;
 
+    // File dialog interaction delays
+    public const int FileDialogPostClickMs = 100;
+    public const int FileDialogPostSelectAllMs = 50;
+    public const int FileDialogPreEnterMs = 100;
+
     // Macro defaults
     public const int DefaultMacroTimeoutSec = 60;
     public const int DefaultStepTimeoutSec = 5;
@@ -58,4 +63,31 @@ public static class Constants
 
     // Shared JSON options
     public static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
+
+    // Proxy command names — shared between UiaProxyClient callers and UiaProxyServer dispatch
+    public static class Commands
+    {
+        public const string Attach = "attach";
+        public const string Snapshot = "snapshot";
+        public const string Children = "children";
+        public const string Find = "find";
+        public const string FindByPath = "findByPath";
+        public const string Click = "click";
+        public const string RightClick = "rightClick";
+        public const string Type = "type";
+        public const string SendKeys = "sendKeys";
+        public const string SetValue = "setValue";
+        public const string GetValue = "getValue";
+        public const string Focus = "focus";
+        public const string FileDialog = "fileDialog";
+        public const string Screenshot = "screenshot";
+        public const string Properties = "properties";
+        public const string Status = "status";
+        public const string MacroList = "macroList";
+        public const string Macro = "macro";
+        public const string ExecuteMacroYaml = "executeMacroYaml";
+        public const string Launch = "launch";
+        public const string WaitForWindow = "waitForWindow";
+        public const string SaveMacro = "saveMacro";
+    }
 }

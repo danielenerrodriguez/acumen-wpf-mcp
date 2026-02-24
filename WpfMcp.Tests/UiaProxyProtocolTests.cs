@@ -19,39 +19,18 @@ public class UiaProxyProtocolTests
         var server = new NamedPipeServerStream(pipeName,
             PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 
-        var client = CreateTestClient(pipeName);
+        var clientPipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 
         var serverConnect = server.WaitForConnectionAsync();
-        await ConnectTestClient(client, pipeName);
+        await clientPipe.ConnectAsync(5000);
         await serverConnect;
+
+        var client = new UiaProxyClient(clientPipe);
 
         var reader = new StreamReader(server);
         var writer = new StreamWriter(server) { AutoFlush = true };
 
         return (server, reader, writer, client);
-    }
-
-    private static UiaProxyClient CreateTestClient(string pipeName)
-    {
-        return new UiaProxyClient();
-    }
-
-    private static async Task ConnectTestClient(UiaProxyClient client, string pipeName)
-    {
-        // Inject a custom pipe via reflection since ConnectAsync uses a hardcoded name
-        var pipeField = typeof(UiaProxyClient).GetField("_pipe",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-        var readerField = typeof(UiaProxyClient).GetField("_reader",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-        var writerField = typeof(UiaProxyClient).GetField("_writer",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-
-        var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-        await pipe.ConnectAsync(5000);
-
-        pipeField.SetValue(client, pipe);
-        readerField.SetValue(client, new StreamReader(pipe));
-        writerField.SetValue(client, new StreamWriter(pipe) { AutoFlush = true });
     }
 
     [Fact]

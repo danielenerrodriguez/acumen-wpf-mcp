@@ -41,7 +41,7 @@ public static class WpfTools
                     ["ifNotRunning"] = true,
                     ["timeout"] = timeout ?? 30
                 };
-                var launchResp = await Proxy.CallAsync("launch", launchArgs);
+                var launchResp = await Proxy.CallAsync(Constants.Commands.Launch, launchArgs);
                 if (launchResp.TryGetProperty("ok", out var lok) && !lok.GetBoolean())
                     return FormatResponse(launchResp);
 
@@ -53,7 +53,7 @@ public static class WpfTools
                         ["titleContains"] = wait_for_title,
                         ["timeout"] = timeout ?? 30
                     };
-                    var waitResp = await Proxy.CallAsync("waitForWindow", waitArgs);
+                    var waitResp = await Proxy.CallAsync(Constants.Commands.WaitForWindow, waitArgs);
                     if (waitResp.TryGetProperty("ok", out var wok) && !wok.GetBoolean())
                         return FormatResponse(waitResp);
                 }
@@ -62,7 +62,7 @@ public static class WpfTools
             }
 
             var args = new Dictionary<string, object?> { ["processName"] = process_name, ["pid"] = pid };
-            var resp = await Proxy.CallAsync("attach", args);
+            var resp = await Proxy.CallAsync(Constants.Commands.Attach, args);
 
             // If wait_for_title specified, wait for window readiness after attach
             if (resp.TryGetProperty("ok", out var aok) && aok.GetBoolean() && !string.IsNullOrEmpty(wait_for_title))
@@ -124,7 +124,7 @@ public static class WpfTools
         if (Proxy != null)
         {
             var args = new Dictionary<string, object?> { ["maxDepth"] = max_depth };
-            var resp = await Proxy.CallAsync("snapshot", args);
+            var resp = await Proxy.CallAsync(Constants.Commands.Snapshot, args);
             return FormatResponse(resp);
         }
 
@@ -147,7 +147,7 @@ public static class WpfTools
                 ["automationId"] = automation_id, ["name"] = name,
                 ["className"] = class_name, ["controlType"] = control_type
             };
-            var resp = await Proxy.CallAsync("find", args);
+            var resp = await Proxy.CallAsync(Constants.Commands.Find, args);
             return FormatProxyFindResponse(resp);
         }
 
@@ -169,7 +169,7 @@ public static class WpfTools
         if (Proxy != null)
         {
             var args = new Dictionary<string, object?> { ["path"] = path };
-            var resp = await Proxy.CallAsync("findByPath", args);
+            var resp = await Proxy.CallAsync(Constants.Commands.FindByPath, args);
             return FormatProxyFindResponse(resp);
         }
 
@@ -191,7 +191,7 @@ public static class WpfTools
         if (Proxy != null)
         {
             var args = new Dictionary<string, object?> { ["refKey"] = ref_key };
-            var resp = await Proxy.CallAsync("children", args);
+            var resp = await Proxy.CallAsync(Constants.Commands.Children, args);
             if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
             {
                 var items = resp.GetProperty("result");
@@ -230,7 +230,7 @@ public static class WpfTools
         [Description("Element reference from a previous find (e.g., 'e1')")] string ref_key)
     {
         if (Proxy != null)
-            return FormatResponse(await Proxy.CallAsync("click", new() { ["refKey"] = ref_key }));
+            return FormatResponse(await Proxy.CallAsync(Constants.Commands.Click, new() { ["refKey"] = ref_key }));
 
         if (!_cache.TryGet(ref_key, out var element))
             return $"Error: Unknown element reference '{ref_key}'";
@@ -243,7 +243,7 @@ public static class WpfTools
         [Description("Element reference from a previous find (e.g., 'e1')")] string ref_key)
     {
         if (Proxy != null)
-            return FormatResponse(await Proxy.CallAsync("rightClick", new() { ["refKey"] = ref_key }));
+            return FormatResponse(await Proxy.CallAsync(Constants.Commands.RightClick, new() { ["refKey"] = ref_key }));
 
         if (!_cache.TryGet(ref_key, out var element))
             return $"Error: Unknown element reference '{ref_key}'";
@@ -256,7 +256,7 @@ public static class WpfTools
         [Description("Text to type")] string text)
     {
         if (Proxy != null)
-            return FormatResponse(await Proxy.CallAsync("type", new() { ["text"] = text }));
+            return FormatResponse(await Proxy.CallAsync(Constants.Commands.Type, new() { ["text"] = text }));
 
         var result = UiaEngine.Instance.TypeText(text);
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
@@ -268,7 +268,7 @@ public static class WpfTools
         [Description("Value to set")] string value)
     {
         if (Proxy != null)
-            return FormatResponse(await Proxy.CallAsync("setValue", new() { ["refKey"] = ref_key, ["value"] = value }));
+            return FormatResponse(await Proxy.CallAsync(Constants.Commands.SetValue, new() { ["refKey"] = ref_key, ["value"] = value }));
 
         if (!_cache.TryGet(ref_key, out var element))
             return $"Error: Unknown element reference '{ref_key}'";
@@ -282,7 +282,7 @@ public static class WpfTools
     {
         if (Proxy != null)
         {
-            var resp = await Proxy.CallAsync("getValue", new() { ["refKey"] = ref_key });
+            var resp = await Proxy.CallAsync(Constants.Commands.GetValue, new() { ["refKey"] = ref_key });
             if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
                 return $"OK: {resp.GetProperty("result").GetString()}";
             return $"Error: {resp.GetProperty("error").GetString()}";
@@ -299,7 +299,7 @@ public static class WpfTools
         [Description("Full path to the file to select (e.g., 'C:\\Data\\project.xer')")] string file_path)
     {
         if (Proxy != null)
-            return FormatResponse(await Proxy.CallAsync("fileDialog", new() { ["filePath"] = file_path }));
+            return FormatResponse(await Proxy.CallAsync(Constants.Commands.FileDialog, new() { ["filePath"] = file_path }));
 
         var result = UiaEngine.Instance.FileDialogSetPath(file_path);
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
@@ -310,7 +310,7 @@ public static class WpfTools
         [Description("Keys to send (e.g., 'Ctrl+S', 'Alt,F', 'Enter', 'Escape')")] string keys)
     {
         if (Proxy != null)
-            return FormatResponse(await Proxy.CallAsync("sendKeys", new() { ["keys"] = keys }));
+            return FormatResponse(await Proxy.CallAsync(Constants.Commands.SendKeys, new() { ["keys"] = keys }));
 
         var result = UiaEngine.Instance.SendKeyboardShortcut(keys);
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
@@ -320,7 +320,7 @@ public static class WpfTools
     public static async Task<string> wpf_focus()
     {
         if (Proxy != null)
-            return FormatResponse(await Proxy.CallAsync("focus"));
+            return FormatResponse(await Proxy.CallAsync(Constants.Commands.Focus));
 
         var result = UiaEngine.Instance.FocusWindow();
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
@@ -331,7 +331,7 @@ public static class WpfTools
     {
         if (Proxy != null)
         {
-            var resp = await Proxy.CallAsync("screenshot");
+            var resp = await Proxy.CallAsync(Constants.Commands.Screenshot);
             if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
             {
                 var msg = resp.GetProperty("result").GetString();
@@ -352,7 +352,7 @@ public static class WpfTools
     {
         if (Proxy != null)
         {
-            var resp = await Proxy.CallAsync("properties", new() { ["refKey"] = ref_key });
+            var resp = await Proxy.CallAsync(Constants.Commands.Properties, new() { ["refKey"] = ref_key });
             if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
                 return JsonSerializer.Serialize(resp.GetProperty("result"), Constants.IndentedJson);
             return $"Error: {resp.GetProperty("error").GetString()}";
@@ -369,7 +369,7 @@ public static class WpfTools
     {
         if (Proxy != null)
         {
-            var resp = await Proxy.CallAsync("status");
+            var resp = await Proxy.CallAsync(Constants.Commands.Status);
             if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
             {
                 var attached = resp.GetProperty("attached").GetBoolean();
@@ -394,7 +394,7 @@ public static class WpfTools
     {
         if (Proxy != null)
         {
-            var resp = await Proxy.CallAsync("macroList");
+            var resp = await Proxy.CallAsync(Constants.Commands.MacroList);
             if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
             {
                 var output = JsonSerializer.Serialize(resp.GetProperty("result"), Constants.IndentedJson);
@@ -454,7 +454,7 @@ public static class WpfTools
         if (Proxy != null)
         {
             var args = new Dictionary<string, object?> { ["name"] = name, ["parameters"] = parameters };
-            var resp = await Proxy.CallAsync("macro", args);
+            var resp = await Proxy.CallAsync(Constants.Commands.Macro, args);
             if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
                 return JsonSerializer.Serialize(resp.GetProperty("result"), Constants.IndentedJson);
             return $"Error: {resp.GetProperty("error").GetString()}";
@@ -499,7 +499,7 @@ public static class WpfTools
                 ["timeout"] = timeout,
                 ["force"] = force
             };
-            var resp = await Proxy.CallAsync("saveMacro", args);
+            var resp = await Proxy.CallAsync(Constants.Commands.SaveMacro, args);
             if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
             {
                 var filePath = resp.TryGetProperty("filePath", out var fp) ? fp.GetString() : "";
@@ -521,7 +521,7 @@ public static class WpfTools
         List<Dictionary<string, object>> parsedSteps;
         try
         {
-            parsedSteps = ParseStepsJson(steps);
+            parsedSteps = JsonHelpers.ParseJsonArray(steps);
         }
         catch (Exception ex)
         {
@@ -534,7 +534,7 @@ public static class WpfTools
         {
             try
             {
-                parsedParams = ParseStepsJson(parameters); // same format: array of objects
+                parsedParams = JsonHelpers.ParseJsonArray(parameters); // same format: array of objects
             }
             catch (Exception ex)
             {
@@ -548,38 +548,6 @@ public static class WpfTools
         if (result.Ok)
             return $"OK: {result.Message}\nMacro: {result.MacroName}\nFile: {result.FilePath}";
         return $"Error: {result.Message}";
-    }
-
-    /// <summary>Parse a JSON array of objects into a list of string-keyed dictionaries.</summary>
-    private static List<Dictionary<string, object>> ParseStepsJson(string json)
-    {
-        var result = new List<Dictionary<string, object>>();
-        var doc = JsonDocument.Parse(json);
-        foreach (var element in doc.RootElement.EnumerateArray())
-        {
-            var dict = new Dictionary<string, object>();
-            foreach (var prop in element.EnumerateObject())
-            {
-                dict[prop.Name] = ConvertJsonElement(prop.Value);
-            }
-            result.Add(dict);
-        }
-        return result;
-    }
-
-    /// <summary>Convert a JsonElement to a plain .NET object for YAML serialization.</summary>
-    private static object ConvertJsonElement(JsonElement element)
-    {
-        return element.ValueKind switch
-        {
-            JsonValueKind.String => element.GetString()!,
-            JsonValueKind.Number => element.TryGetInt32(out var i) ? i : element.GetDouble(),
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            JsonValueKind.Array => element.EnumerateArray().Select(ConvertJsonElement).ToList(),
-            JsonValueKind.Object => element.EnumerateObject().ToDictionary(p => p.Name, p => ConvertJsonElement(p.Value)),
-            _ => element.ToString()
-        };
     }
 
     // Helper: format simple ok/error response from proxy

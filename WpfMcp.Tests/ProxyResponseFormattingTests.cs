@@ -20,25 +20,13 @@ public class ProxyResponseFormattingTests
         var server = new NamedPipeServerStream(pipeName,
             PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 
-        var client = new UiaProxyClient();
-
-        // Inject custom pipe via reflection
-        var pipeField = typeof(UiaProxyClient).GetField("_pipe",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-        var readerField = typeof(UiaProxyClient).GetField("_reader",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-        var writerField = typeof(UiaProxyClient).GetField("_writer",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-
         var clientPipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 
         var serverConnect = server.WaitForConnectionAsync();
         await clientPipe.ConnectAsync(5000);
         await serverConnect;
 
-        pipeField.SetValue(client, clientPipe);
-        readerField.SetValue(client, new StreamReader(clientPipe));
-        writerField.SetValue(client, new StreamWriter(clientPipe) { AutoFlush = true });
+        var client = new UiaProxyClient(clientPipe);
 
         var reader = new StreamReader(server);
         var writer = new StreamWriter(server) { AutoFlush = true };

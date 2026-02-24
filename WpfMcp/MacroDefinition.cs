@@ -73,9 +73,16 @@ public class MacroStep
     [YamlMember(Alias = "ref")]
     public string? Ref { get; set; }
 
-    // --- type ---
+    // --- type / set_value ---
     [YamlMember(Alias = "text")]
     public string? Text { get; set; }
+
+    /// <summary>
+    /// Dedicated value field for set_value action. Falls back to <see cref="Text"/>
+    /// when null, for backward compatibility with macros that use 'text' for set_value.
+    /// </summary>
+    [YamlMember(Alias = "value")]
+    public string? Value { get; set; }
 
     // --- send_keys ---
     [YamlMember(Alias = "keys")]
