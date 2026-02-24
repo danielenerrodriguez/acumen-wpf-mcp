@@ -57,6 +57,7 @@ update_instructions:
       - "Keep total cumulative wait under 12-15 seconds to avoid MCP tool timeout"
       - "Prefer inlined steps over nested sub-macros to avoid cumulative timeout issues"
       - "Include blind dialog dismissal steps (e.g., Left,Enter for overwrite, Tab,Enter for Mentor) even when dialogs may not appear — harmless if no dialog is present"
+      - "Prefer wait_for_enabled over static wait steps when waiting for import/processing to complete — use automation_id: uxRibbons with timeout: 30 to poll until tabs become enabled"
 
   # Inline annotation conventions for AI agents
   annotations:
@@ -1673,6 +1674,7 @@ workflows:
       - "Alt,S,O,A (Oracle Primavera > Add File, All types)"
       - "File dialog: navigate to XER file"
       - "Alt,S,R,I (Import > Import All)"
+      - "wait_for_enabled on uxRibbons (polls until tabs are enabled = import complete)"
     issues:
       - "wpf_screenshot does not capture the file dialog (separate OS window) — agent must trust the keytip sequence worked"
 
@@ -1683,22 +1685,25 @@ workflows:
     existing_macro: import-xer-and-analyze.yaml
     steps:
       - "Run import_xer workflow (inline, not nested)"
-      - "Wait for import to finish"
+      - "wait_for_enabled on uxRibbons (replaces static wait)"
       - "Run run_fuse_analysis workflow (inline, not nested)"
     notes: >
       Macro was rewritten from nested (calls import-xer + run-fuse-analysis) to
-      flat inline steps to avoid MCP tool invocation timeout. Nested macros with
-      cumulative wait >12-15 seconds will fail silently.
+      flat inline steps to avoid MCP tool invocation timeout. Now uses
+      wait_for_enabled instead of static waits for import completion detection.
 
   import_msp:
     description: "Import a Microsoft Project file"
-    status: predicted
+    status: verified
+    last_tested: "2026-02-24"
+    existing_macro: import-mpp-circular-logic.yaml
     steps:
       - "Ensure S1 // Projects tab is active"
       - "Click MicrosoftProjectMenuTool > Add File"
       - "File dialog: navigate to MPP/XML file"
-      - "Import: click ImportAllMenuTool"
-    notes: "Keytip sequence for MSP import needs live verification"
+      - "Alt,S,R,I (Import > Import All)"
+      - "wait_for_enabled on uxRibbons (polls until tabs are enabled = import complete)"
+    notes: "MSP import verified via import-mpp-circular-logic macro. Uses wait_for_enabled for reliable completion detection."
 
   import_excel:
     description: "Import from Microsoft Excel"
@@ -1806,7 +1811,7 @@ navigation_tips:
   - tip: "Use keytips (Alt + letter sequences) for fastest navigation. Verified sequences are in the keytips.verified_sequences section."
   - tip: "Tabs can be clicked directly using wpf_find with automation_id (e.g., 'uxProjects', 'uxRibbons', 'RiskTab')"
   - tip: "Menu tools are split buttons - clicking the top half triggers the default action, clicking the bottom arrow opens the submenu"
-  - tip: "Many tabs (Diagnostics, Logic, Risk, Dashboard) are disabled until a project is imported. Tab switching via keytips or click will appear to succeed but has no visible effect without data."
+  - tip: "Many tabs (Diagnostics, Logic, Risk, Dashboard) are disabled (IsEnabled=False) until a project is imported. Tab switching via keytips or click will appear to succeed but has no visible effect without data. Use wait_for_enabled on uxRibbons to detect when import completes."
   - tip: "The Projects sidebar (XamOutlookBar) shows the workbook hierarchy. Use uxTreeView to find project nodes."
   - tip: "Activity Grid supports Scroll and Grid patterns - use these for reading cell data"
   - tip: "Status bar shows 'Ready' when idle - poll this to know when operations complete"
@@ -1820,7 +1825,10 @@ navigation_tips:
   - tip: "SAVE PROMPT: File > New, File > Open, and File > Close will trigger a save prompt dialog if the workbook has unsaved changes. The dialog has Yes/No/Cancel buttons. Use wpf_find(automation_id=CommandButton_7) to click 'No' to discard."
   - tip: "Window title format is '<WorkbookName> - Deltek Acumen' after a workbook is opened"
   - tip: "For send_keys, use comma-separated keys for sequential presses (e.g., 'Alt,F,C') and + for simultaneous (e.g., 'Ctrl+A')"
-  - tip: "After importing data, wait for status bar to return to 'Ready' before proceeding"
+  - tip: "IMPORT COMPLETION DETECTION: After triggering Import All, use wait_for_enabled with automation_id: uxRibbons (or any non-S1 tab like uxLogic, RiskTab, uxDashboards) to detect import completion. These tabs are IsEnabled=False when no data is loaded and become IsEnabled=True once import finishes. This is more reliable than static wait steps and adapts to file size. Example macro step: action: wait_for_enabled, automation_id: uxRibbons, timeout: 30"
+    status: verified
+    last_tested: "2026-02-24"
+  - tip: "After importing data, the status bar returns to 'Ready' — but prefer wait_for_enabled on uxRibbons as the primary completion signal"
   - tip: "Right-click context menus exist in the Projects tree and Activity Grid"
   - tip: "RISK ANALYSIS PREREQUISITE: The workbook must be saved to disk before running Risk Analysis. If not saved, a dialog appears saying 'Please save the workbook before running Risk Analysis.' Always save (Alt,F,S or Alt,F,A,D) before clicking Run Risk Analysis."
   - tip: "MENTOR DIALOGS DURING RISK ANALYSIS: After clicking Run Risk Analysis, up to 2 Mentor suggestion dialogs may appear in sequence: (1) 'no uncertainty or mapped risks' and (2) 'schedule quality too low'. Use Tab,Enter to dismiss each (moves focus from OK to Ignore and presses it). Always check for additional dialogs after dismissing one."

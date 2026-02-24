@@ -131,7 +131,7 @@ steps:
 ```
 
 ### Step Types
-`launch`, `wait_for_window`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys` (alias), `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `macro`
+`launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys` (alias), `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `macro`
 
 ### Macros Path Resolution
 `Constants.ResolveMacrosPath()`: explicit `--macros-path` arg > `WPFMCP_MACROS_PATH` env var > `macros/` next to exe
@@ -195,13 +195,12 @@ data_formats: { ... }           # Supported import/export formats
 |------|---------|
 | `WpfMcp/Program.cs` | Entry point: mode routing (`--server`, `--mcp-connect`, `--mcp`, drag-drop, CLI) |
 | `WpfMcp/Constants.cs` | Shared constants, `ResolveMacrosPath()` |
-| `WpfMcp/Tools.cs` | 19 MCP tool definitions (16 core + 3 recording) |
+| `WpfMcp/Tools.cs` | 16 MCP tool definitions |
 | `WpfMcp/UiaEngine.cs` | Core UI Automation engine (STA thread, SendInput, launch, wait) |
 | `WpfMcp/UiaProxy.cs` | Proxy client/server over named pipe |
 | `WpfMcp/MacroDefinition.cs` | YAML POCOs for macros + `KnowledgeBase` + `SaveMacroResult` records |
 | `WpfMcp/MacroEngine.cs` | Load/validate/execute/save macros, FileSystemWatcher, knowledge base loading |
-| `WpfMcp/MacroSerializer.cs` | YAML serialization, `BuildFromRecordedActions` |
-| `WpfMcp/InputRecorder.cs` | Low-level hooks for recording user interactions |
+| `WpfMcp/MacroSerializer.cs` | YAML serialization (`ToYaml`, `SaveToFile`) |
 | `WpfMcp/CliMode.cs` | Interactive CLI for manual testing |
 | `WpfMcp/ElementCache.cs` | Thread-safe element reference cache (e1, e2, ...) |
 | `WpfMcp/Resources.cs` | MCP resources — `knowledge://{productName}` endpoint |

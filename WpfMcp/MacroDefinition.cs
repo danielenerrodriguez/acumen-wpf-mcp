@@ -129,6 +129,11 @@ public class MacroStep
     [YamlMember(Alias = "title_contains")]
     public string? TitleContains { get; set; }
 
+    // --- wait_for_enabled ---
+    /// <summary>Target enabled state to wait for (default true = wait until enabled).</summary>
+    [YamlMember(Alias = "enabled")]
+    public bool? Enabled { get; set; }
+
     // --- timeouts ---
     /// <summary>Per-step timeout in seconds. 0 = use default.</summary>
     [YamlMember(Alias = "timeout")]

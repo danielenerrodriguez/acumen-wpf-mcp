@@ -298,9 +298,9 @@ public class MacroEngine : IDisposable
     private static readonly HashSet<string> s_knownActions = new(StringComparer.OrdinalIgnoreCase)
     {
         "send_keys", "keys", "find", "find_by_path", "click", "right_click",
-        "type", "set_value", "get_value", "wait", "macro", "launch",
-        "wait_for_window", "focus", "snapshot", "screenshot", "properties",
-        "children", "file_dialog", "attach"
+        "type", "set_value", "get_value", "wait", "wait_for_enabled", "macro",
+        "launch", "wait_for_window", "focus", "snapshot", "screenshot",
+        "properties", "children", "file_dialog", "attach"
     };
 
     /// <summary>
@@ -362,6 +362,10 @@ public class MacroEngine : IDisposable
                 break;
             case "wait_for_window":
                 if (!Has("title_contains")) return $"{StepPrefix()}: requires 'title_contains' field";
+                break;
+            case "wait_for_enabled":
+                if (!Has("automation_id") && !Has("name") && !Has("control_type") && !Has("class_name") && !Has("ref"))
+                    return $"{StepPrefix()}: requires at least one of: automation_id, name, control_type, class_name, ref";
                 break;
             case "file_dialog":
                 if (!Has("text")) return $"{StepPrefix()}: requires 'text' field (the file path)";
@@ -866,6 +870,65 @@ public class MacroEngine : IDisposable
                     titleContains, automationId, name, controlType,
                     waitTimeout, pollMs, stepCts.Token);
                 return new StepResult(r.success, r.message);
+            }
+
+            case "wait_for_enabled":
+            {
+                var targetEnabled = step.Enabled ?? true;
+                var retryInterval = step.RetryInterval ?? Constants.DefaultRetryIntervalSec;
+
+                // If a ref is provided, use the cached element directly
+                var refKey = ResolveRef(step.Ref, aliases);
+                if (refKey != null)
+                {
+                    if (!cache.TryGet(refKey, out var el))
+                        return new StepResult(false, $"Unknown ref '{refKey}'");
+
+                    while (true)
+                    {
+                        var isEnabled = engine.IsElementEnabled(el!);
+                        if (isEnabled == targetEnabled)
+                            return new StepResult(true,
+                                $"Element [{refKey}] IsEnabled={isEnabled} (target={targetEnabled})");
+
+                        if (stepCts.IsCancellationRequested)
+                            return new StepResult(false,
+                                $"Element [{refKey}] IsEnabled={isEnabled} after {stepTimeoutSec}s (target={targetEnabled})",
+                                $"wait_for_enabled: ref={refKey}, target={targetEnabled}");
+
+                        await Task.Delay(TimeSpan.FromSeconds(retryInterval), stepCts.Token);
+                    }
+                }
+
+                // Otherwise, find by criteria and check IsEnabled
+                var automationId = SubstituteParams(step.AutomationId, parameters);
+                var name = SubstituteParams(step.Name, parameters);
+                var className = SubstituteParams(step.ClassName, parameters);
+                var controlType = SubstituteParams(step.ControlType, parameters);
+
+                while (true)
+                {
+                    var r = engine.FindElement(automationId, name, className, controlType);
+                    if (r.success && r.element != null)
+                    {
+                        var isEnabled = engine.IsElementEnabled(r.element);
+                        if (isEnabled == targetEnabled)
+                        {
+                            var rk = cache.Add(r.element);
+                            if (step.SaveAs != null)
+                                aliases[step.SaveAs] = rk;
+                            return new StepResult(true,
+                                $"Element [{rk}] IsEnabled={isEnabled} (target={targetEnabled})");
+                        }
+                    }
+
+                    if (stepCts.IsCancellationRequested)
+                        return new StepResult(false,
+                            $"Element not enabled={targetEnabled} after {stepTimeoutSec}s",
+                            $"wait_for_enabled: automation_id={automationId}, name={name}, target={targetEnabled}");
+
+                    await Task.Delay(TimeSpan.FromSeconds(retryInterval), stepCts.Token);
+                }
             }
 
             case "macro":

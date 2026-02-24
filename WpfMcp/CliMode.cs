@@ -36,16 +36,12 @@ public static class CliMode
         Console.WriteLine("  macros                     - List available macros");
         Console.WriteLine("  macro <name> [k=v ...]     - Run a macro with optional parameters");
         Console.WriteLine("  run <path.yaml> [k=v ...]  - Run a YAML macro file directly (or drag file here)");
-        Console.WriteLine("  record-start <name>        - Start recording a macro");
-        Console.WriteLine("  record-stop                - Stop recording and save");
-        Console.WriteLine("  record-status              - Show recording status");
         Console.WriteLine("  quit                       - Exit");
         Console.WriteLine();
 
         var engine = UiaEngine.Instance;
         var cache = new ElementCache();
         var macroEngine = new MacroEngine(macrosPath);
-        var recorder = new InputRecorder(engine);
         var resolvedMacrosPath = Constants.ResolveMacrosPath(macrosPath);
 
         while (true)
@@ -289,46 +285,6 @@ public static class CliMode
                             if (macroResult.Error != null)
                                 Console.WriteLine($"  Error: {macroResult.Error}");
                             Console.WriteLine($"  Steps completed: {macroResult.StepsExecuted}/{macroResult.TotalSteps}");
-                        }
-                        break;
-
-                    case "record-start":
-                        if (string.IsNullOrEmpty(arg))
-                        {
-                            Console.WriteLine("Usage: record-start <name> (e.g., acumen-fuse/my-workflow)");
-                            break;
-                        }
-                        var startResult = recorder.StartRecording(arg.Trim(), resolvedMacrosPath);
-                        Console.WriteLine(startResult.success ? $"OK: {startResult.message}" : $"Error: {startResult.message}");
-                        break;
-
-                    case "record-stop":
-                        var stopResult = recorder.StopRecording();
-                        if (stopResult.success)
-                        {
-                            Console.WriteLine($"OK: {stopResult.message}");
-                            if (stopResult.filePath != null)
-                                Console.WriteLine($"  File: {stopResult.filePath}");
-                            if (stopResult.yaml != null)
-                            {
-                                Console.WriteLine("  --- Generated YAML ---");
-                                Console.WriteLine(stopResult.yaml);
-                                Console.WriteLine("  --- End YAML ---");
-                            }
-                        }
-                        else
-                        {
-                            Console.WriteLine($"Error: {stopResult.message}");
-                        }
-                        break;
-
-                    case "record-status":
-                        Console.WriteLine($"State: {recorder.State}");
-                        if (recorder.State == InputRecorder.RecorderState.Recording)
-                        {
-                            Console.WriteLine($"  Macro: {recorder.MacroName}");
-                            Console.WriteLine($"  Actions: {recorder.ActionCount}");
-                            Console.WriteLine($"  Duration: {recorder.Duration:mm\\:ss}");
                         }
                         break;
 

@@ -43,8 +43,11 @@ steps:
   - action: focus
   - action: send_keys
     keys: Alt,S,R,I
-  - action: wait
-    seconds: 2
+
+  # 3a. Wait for import to complete (tabs become enabled)
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 30
 
   # 4. Save As via keytip Alt,F,A,D
   - action: focus

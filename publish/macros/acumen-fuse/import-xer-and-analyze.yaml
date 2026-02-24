@@ -35,10 +35,10 @@ steps:
   - action: send_keys
     keys: Alt,S,R,I
 
-  # 5. Wait for import, then switch to Diagnostics tab and run analysis
-  - action: wait
-    seconds: 2
-  - action: focus
+  # 5. Wait for import to complete (tabs become enabled), then switch to Diagnostics tab and run analysis
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 30
   - action: find
     automation_id: uxRibbons
     timeout: 5

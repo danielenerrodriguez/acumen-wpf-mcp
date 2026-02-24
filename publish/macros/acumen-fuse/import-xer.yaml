@@ -37,6 +37,7 @@ steps:
   - action: send_keys
     keys: Alt,S,R,I
 
-  # 6. Wait for import to complete
-  - action: wait
-    seconds: 2
+  # 6. Wait for import to complete (tabs become enabled)
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 30

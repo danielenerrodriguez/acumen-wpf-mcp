@@ -1,0 +1,70 @@
+name: Import MPP and View Circular Logic
+description: Imports an MPP file into Acumen Fuse via Microsoft Project > Add File, runs Import All, switches to S2 Logic tab, and selects Circular Logic view
+timeout: 90
+parameters:
+  - name: filePath
+    description: Full path to the MPP file to import
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Samples\Current Schedule.mpp'
+  - name: exePath
+    description: Path to Fuse.exe
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
+
+steps:
+  # 1. Ensure Fuse is running and ready
+  - action: macro
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
+
+  # 2. Switch to S1 Projects tab and open MSP file dialog
+  - action: focus
+  - action: find
+    automation_id: uxProjects
+    timeout: 5
+    save_as: projectsTab
+  - action: click
+    ref: projectsTab
+
+  - action: find
+    automation_id: MicrosoftProjectMenuTool
+    timeout: 5
+    save_as: mspMenu
+  - action: click
+    ref: mspMenu
+
+  # 3. Navigate the file dialog to the target MPP file
+  - action: file_dialog
+    text: '{{filePath}}'
+    timeout: 15
+
+  # 4. Wait for file to load into the workbook
+  - action: wait
+    seconds: 2
+
+  # 5. Run Import All via keytips
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,R,I
+
+  # 6. Wait for import to complete (tabs become enabled)
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 30
+
+  # 7. Switch to S2 Logic tab
+  - action: find
+    automation_id: uxLogic
+    timeout: 5
+    save_as: logicTab
+  - action: click
+    ref: logicTab
+
+  # 8. Select Circular Logic view
+  - action: find
+    name: Circular Logic
+    timeout: 5
+    save_as: circularBtn
+  - action: click
+    ref: circularBtn

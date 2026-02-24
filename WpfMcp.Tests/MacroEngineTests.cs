@@ -964,6 +964,121 @@ steps:
         Assert.StartsWith("Step 3", error);
     }
 
+    // --- wait_for_enabled validation ---
+
+    [Fact]
+    public void ValidateSteps_WaitForEnabledWithAutomationId_ReturnsNull()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "wait_for_enabled", ["automation_id"] = "uxRibbons" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void ValidateSteps_WaitForEnabledWithRef_ReturnsNull()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "wait_for_enabled", ["ref"] = "e1" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void ValidateSteps_WaitForEnabledWithName_ReturnsNull()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "wait_for_enabled", ["name"] = "S2 // Diagnostics" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void ValidateSteps_WaitForEnabledWithoutAnyCriteria_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "wait_for_enabled" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("at least one of", error);
+    }
+
+    [Fact]
+    public void Load_WaitForEnabledStep_ParsesAllFields()
+    {
+        WriteMacro("wait-enabled.yaml", @"
+name: Wait Enabled
+description: Tests wait_for_enabled parsing
+steps:
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    enabled: true
+    timeout: 30
+    retry_interval: 0.5
+    save_as: tab
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("wait-enabled");
+        Assert.NotNull(macro);
+        var step = macro!.Steps[0];
+        Assert.Equal("wait_for_enabled", step.Action);
+        Assert.Equal("uxRibbons", step.AutomationId);
+        Assert.True(step.Enabled);
+        Assert.Equal(30, step.StepTimeout);
+        Assert.Equal(0.5, step.RetryInterval);
+        Assert.Equal("tab", step.SaveAs);
+    }
+
+    [Fact]
+    public void Load_WaitForEnabledStep_EnabledFalse_ParsesCorrectly()
+    {
+        WriteMacro("wait-disabled.yaml", @"
+name: Wait Disabled
+description: Tests wait_for_enabled with enabled=false
+steps:
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    enabled: false
+    timeout: 10
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("wait-disabled");
+        Assert.NotNull(macro);
+        var step = macro!.Steps[0];
+        Assert.Equal("wait_for_enabled", step.Action);
+        Assert.False(step.Enabled);
+        Assert.Equal(10, step.StepTimeout);
+    }
+
+    [Fact]
+    public void Load_WaitForEnabledStep_EnabledOmitted_DefaultsToNull()
+    {
+        WriteMacro("wait-default.yaml", @"
+name: Wait Default
+description: Tests wait_for_enabled with enabled omitted
+steps:
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 30
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("wait-default");
+        Assert.NotNull(macro);
+        var step = macro!.Steps[0];
+        Assert.Null(step.Enabled); // defaults to null, runtime treats as true
+    }
+
     // --- GetProductFolder ---
 
     [Fact]
