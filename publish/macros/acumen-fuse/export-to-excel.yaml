@@ -41,16 +41,28 @@ steps:
   - action: wait
     seconds: 1
 
-  # Find and click "To Excel" in the dropdown
+  # Find and click "To Microsoft Excel®" in the dropdown
   - action: find
-    name: To Excel
+    name: "To Microsoft Excel®"
     control_type: MenuItem
     timeout: 5
     save_as: toExcelItem
   - action: click
     ref: toExcelItem
 
-  # Navigate the Save As file dialog
-  - action: file_dialog
+  # Save As dialog — need to check which type appears (standard vs DirectUI)
+  - action: wait
+    seconds: 2
+
+  - action: find
+    automation_id: FileNameControlHost
+    timeout: 5
+
+  - action: type
     text: '{{filePath}}'
-    timeout: 15
+
+  - action: send_keys
+    keys: Enter
+
+  - action: wait
+    seconds: 2

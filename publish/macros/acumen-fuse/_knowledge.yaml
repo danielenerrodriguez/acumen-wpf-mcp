@@ -79,8 +79,12 @@ application:
       notes: "Loading/initializing, second window handle"
     - phase: ready
       duration_seconds: "12+"
-      title_contains: "Workbook1 - Deltek Acumen"
-      notes: "Application ready, third window handle. Title changes to workbook name after open."
+      title_contains: " - Deltek Acumen"
+      notes: >
+        Application ready. Title is always '<name> - Deltek Acumen' (with dash).
+        Use ' - Deltek Acumen' (with leading space+dash) as the readiness check —
+        it matches both 'Workbook1 - Deltek Acumen' and '<savedname> - Deltek Acumen'
+        but NOT the bare 'Deltek Acumen' loading phase title.
 
 # ============================================================
 # INSTALLATION DIRECTORY
@@ -1443,16 +1447,19 @@ workflows:
 
   export_to_excel:
     description: "Export diagnostics results to Excel"
-    status: untested
+    status: verified
+    last_tested: "2026-02-24"
     existing_macro: export-to-excel.yaml
     prerequisites: "Fuse analysis must have been run"
     steps:
       - "On S2 // Diagnostics tab"
-      - "Click PublishAnalysisMenuTool > To Excel"
-      - "Save As dialog: enter filename"
+      - "Click PublishAnalysisMenuTool > 'To Microsoft Excel®' (NOT 'To Excel')"
+      - "Save As dialog: uses DirectUI FileNameControlHost (NOT standard 1148)"
+      - "Type filepath, press Enter"
     notes: >
-      The Save As dialog for Excel export may use DirectUI (FileNameControlHost) like
-      Save As Workbook, or it may use standard Win32 (1148). Needs live verification.
+      Confirmed: the Publish dropdown menu item is named 'To Microsoft Excel®'
+      (with registered trademark symbol), not 'To Excel'.
+      Export Save dialog uses DirectUI (FileNameControlHost), same as workbook Save As.
 
   run_risk_analysis:
     description: "Run Monte Carlo risk analysis"
@@ -1497,7 +1504,9 @@ navigation_tips:
   - tip: "Activity Grid supports Scroll and Grid patterns - use these for reading cell data"
   - tip: "Status bar shows 'Ready' when idle - poll this to know when operations complete"
   - tip: "The application menu (file menu) is accessed via uxApplicationMenu or keytip Alt,F"
-  - tip: "IMPORTANT: There are TWO types of file dialogs. Open/Import dialogs use standard Win32 with AutomationId '1148' (wpf_file_dialog works). Save As dialog (Alt,F,A,D) uses DirectUI with AutomationId 'FileNameControlHost' (wpf_file_dialog does NOT work — use wpf_find + wpf_type + Enter instead)."
+  - tip: "IMPORTANT: There are TWO types of file dialogs. Open/Import dialogs use standard Win32 with AutomationId '1148' (wpf_file_dialog works). Save/Export dialogs (Save As workbook, Export to Excel) use DirectUI with AutomationId 'FileNameControlHost' (wpf_file_dialog does NOT work — use wpf_find + wpf_type + Enter instead)."
+  - tip: "DO NOT use the import-file macro — it is broken. The Fuse application menu has no 'Import' item. Use import-xer macro instead (imports via ribbon: Alt,S,O,A for P6 files)."
+  - tip: "The Publish menu item for Excel export is named 'To Microsoft Excel®' (with ® symbol), not 'To Excel'."
   - tip: "wpf_screenshot only captures the main application window — modal file dialogs and OS dialogs are NOT captured. Trust keytip sequences and use appropriate dialog interaction method."
   - tip: "MCP TOOL TIMEOUT: There is a ~15-20 second timeout on MCP tool invocations. Macros with total wait time >12s will fail silently. Keep individual wait steps to 2-3 seconds max. Avoid deeply nested macros — flatten into inline steps instead."
   - tip: "SAVE PROMPT: File > New, File > Open, and File > Close will trigger a save prompt dialog if the workbook has unsaved changes. The dialog has Yes/No/Cancel buttons. Use wpf_find(automation_id=CommandButton_7) to click 'No' to discard."

@@ -1,6 +1,6 @@
 name: Open File Menu
-description: Opens the Acumen Fuse File menu via ribbon keytips
-timeout: 130
+description: Opens the Acumen Fuse application (file) menu via keytips
+timeout: 10
 
 parameters:
   - name: exePath
@@ -13,9 +13,9 @@ steps:
     macro_name: acumen-fuse/launch
     params:
       exePath: "{{exePath}}"
-      
+
   - action: focus
   - action: send_keys
     keys: "Alt,F"
   - action: wait
-    seconds: 0.5
+    seconds: 1

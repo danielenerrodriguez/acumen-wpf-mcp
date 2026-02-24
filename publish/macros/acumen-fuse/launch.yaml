@@ -17,7 +17,10 @@ steps:
     if_not_running: true
     timeout: 60
 
+  # Ready state title is always "<name> - Deltek Acumen" (with dash).
+  # Loading phase is bare "Deltek Acumen" (no dash), so " - Deltek Acumen" 
+  # distinguishes ready from loading AND works with any workbook name.
   - action: wait_for_window
-    title_contains: "Workbook1"
+    title_contains: " - Deltek Acumen"
     timeout: 90
     retry_interval: 2
