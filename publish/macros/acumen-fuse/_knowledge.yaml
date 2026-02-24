@@ -1,7 +1,7 @@
 # Acumen Fuse Knowledge Base
 # For use by AI agents navigating Deltek Acumen Fuse via WPF MCP tools
 # Version: 8.12.0 x64
-# Last updated: 2026-02-24
+# Last updated: 2026-02-24 (verified macros, fixed Save As dialog, added MCP timeout tips)
 
 kind: knowledge-base
 
@@ -12,6 +12,8 @@ update_instructions:
     - "When new macros are created (add to workflows section)"
     - "When the Acumen application version changes"
     - "After discovering new dialog automation IDs or control structures"
+    - "After testing a macro or workflow and observing unexpected behavior"
+    - "When an entry's status changes (e.g., predicted keytip confirmed or found wrong)"
   how_to_update:
     - "Read the current _knowledge.yaml file"
     - "Add or modify the relevant section"
@@ -22,12 +24,42 @@ update_instructions:
     - "YAML must parse without errors"
     - "New automation IDs should be verified via live wpf_find before adding"
     - "New keytip sequences should be verified via live send_keys before marking as verified"
-    - "Mark unverified items with 'notes: Predicted - needs live verification'"
   file_convention:
     - "Knowledge base files use underscore prefix: _knowledge.yaml"
     - "One knowledge base per product subfolder (e.g., acumen-fuse/_knowledge.yaml)"
     - "The MCP server skips _*.yaml files from macro loading"
     - "Knowledge bases are served as MCP resources and summarized in wpf_macro_list"
+
+  # Inline annotation conventions for AI agents
+  annotations:
+    description: >
+      AI agents should annotate knowledge base entries inline to track
+      verification status, record issues, and leave notes for future agents.
+      This avoids stale or misleading information accumulating over time.
+    fields:
+      status:
+        description: "Verification status of the entry"
+        values:
+          verified: "Confirmed working via live testing"
+          predicted: "Derived from source code analysis, not yet tested live"
+          failed: "Tested live and did not work as expected"
+          untested: "Added but never tested"
+          deprecated: "Was working but may no longer apply (version change, etc.)"
+      last_tested:
+        description: "ISO date (YYYY-MM-DD) of last live verification"
+        example: "2026-02-24"
+      issues:
+        description: "Known problems, unexpected behaviors, or caveats. Use a list for multiple issues."
+        example: "['Tab switch has no visible effect without imported data', 'Screenshot tool does not capture modal dialogs']"
+      notes:
+        description: "General context, tips, or explanation. Already widely used in this file."
+    rules:
+      - "When you test something and it works, set status: verified and last_tested to today"
+      - "When you test something and it fails, set status: failed, add an issues entry explaining what happened, and set last_tested"
+      - "When adding new entries from source code analysis alone, set status: predicted"
+      - "When correcting an entry, update the value AND add a note explaining the correction"
+      - "Do NOT delete failed entries — mark them as failed with issues so future agents know"
+      - "Prefer specific issues over vague ones: 'Alt,S0 does not activate Diagnostics tab' is better than 'did not work'"
 
 application:
   name: Deltek Acumen Fuse
@@ -219,7 +251,22 @@ keytips:
         action: Save current workbook
       - keytip: "A"
         caption: Save As
-        action: Save workbook with new name
+        action: Opens Save As submenu (NOT a direct save)
+        status: verified
+        last_tested: "2026-02-24"
+        submenu:
+          - keytip: "D"
+            caption: Deltek Acumen Workbook
+            action: Save As standard .afw workbook
+            full_sequence: "Alt,F,A,D"
+            status: verified
+            last_tested: "2026-02-24"
+            notes: "Opens a DirectUI Save dialog (NOT standard Win32). Use FileNameControlHost automation ID, not 1148."
+          - keytip: "D0"
+            caption: Deltek Acumen Metric Library Template
+            action: Save As metric library template
+            status: predicted
+            notes: "Keytip D0 predicted due to conflict with D above"
       - keytip: "P"
         caption: Print
         action: Print current view
@@ -237,60 +284,87 @@ keytips:
     - keytip: "S"
       header: "S1 // Projects"
       automation_id: uxProjects
+      status: verified
+      last_tested: "2026-02-24"
       notes: "First S-tab gets bare 'S'. Verified working."
     - keytip: "S0"
       header: "S2 // Diagnostics"
       automation_id: uxRibbons
-      notes: "Predicted - needs live verification"
+      status: predicted
+      notes: "Predicted keytip 'S0' - needs live verification. Tab can be activated via wpf_find + click on automation_id uxRibbons."
+      issues:
+        - "Cannot visually confirm tab switch without imported data (tabs show empty content)"
     - keytip: "S1"
       header: "S2 // Logic"
       automation_id: uxLogic
+      status: predicted
       notes: "Predicted - needs live verification"
     - keytip: "S2"
       header: "S2 // Benchmarking"
       automation_id: "S2 // Benchmarking"
+      status: predicted
       notes: "Predicted - needs live verification"
     - keytip: "S3"
       header: "S3 // Risk"
       automation_id: RiskTab
+      status: predicted
       notes: "Predicted - needs live verification"
     - keytip: "S4"
       header: "S4 // Acceleration"
       automation_id: "S4 // Acceleration"
+      status: predicted
       notes: "Predicted - needs live verification"
     - keytip: "S5"
       header: "S5 // Dashboard"
       automation_id: uxDashboards
+      status: predicted
       notes: "Predicted - needs live verification"
     - keytip: "F0"
       header: Forensics
       automation_id: UxEnhancedForensicsTabItem
+      status: predicted
       notes: "Predicted - conflicts with File 'F'"
     - keytip: "M"
       header: Metrics
       automation_id: uxMetrics
+      status: predicted
       notes: "Predicted - no conflict"
     - keytip: "F1"
       header: Fields
       automation_id: uxFields
+      status: predicted
       notes: "Predicted - conflicts with File 'F' and Forensics"
 
   verified_sequences:
     - keys: "Alt,F,N"
       action: "File > New workbook"
+      status: verified
+      last_tested: "2026-02-24"
     - keys: "Alt,F,O"
       action: "File > Open workbook"
+      status: verified
+      last_tested: "2026-02-24"
     - keys: "Alt,F,S"
       action: "File > Save workbook"
+      status: verified
+      last_tested: "2026-02-24"
     - keys: "Alt,F,C"
       action: "File > Close workbook"
+      status: verified
+      last_tested: "2026-02-24"
     - keys: "Alt,F,E"
       action: "File > Exit Fuse"
+      status: verified
+      last_tested: "2026-02-24"
     - keys: "Alt,S,O,A"
       action: "S1 Projects > Oracle Primavera > Add P6 file (All types)"
-      notes: "Opens file dialog for XER/XML import"
+      status: verified
+      last_tested: "2026-02-24"
+      notes: "Opens file dialog for XER/XML import. Dialog is a separate OS window — wpf_screenshot does not capture it."
     - keys: "Alt,S,R,I"
       action: "S1 Projects > Import > Import All"
+      status: verified
+      last_tested: "2026-02-24"
       notes: "Imports all linked projects"
 
 # ============================================================
@@ -1134,13 +1208,32 @@ automation_ids:
 
   # -- File Dialogs --
   file_dialogs:
-    filename_field:
-      automation_id: "1148"
-      class_name: Edit
-      notes: >
-        Standard Windows file dialog filename field.
-        Interaction: click field -> Ctrl+A -> type full path -> Enter.
-        Use wpf_file_dialog tool or file_dialog macro action.
+    standard_dialog:
+      description: "Used by Open, Import, and most file operations"
+      filename_field:
+        automation_id: "1148"
+        class_name: ComboBox
+        notes: >
+          Standard Windows file dialog filename field.
+          Interaction: click field -> Ctrl+A -> type full path -> Enter.
+          Use wpf_file_dialog tool or file_dialog macro action.
+      status: verified
+      last_tested: "2026-02-24"
+
+    save_as_dialog:
+      description: "Used by Save As > Deltek Acumen Workbook (Alt,F,A,D)"
+      filename_field:
+        automation_id: FileNameControlHost
+        class_name: DirectUI ComboBox
+        notes: >
+          Save As uses a DirectUI-based dialog, NOT the standard Win32 dialog.
+          wpf_file_dialog DOES NOT WORK with this dialog.
+          Instead use: wpf_find(automation_id=FileNameControlHost) -> wpf_type(path) -> send_keys(Enter).
+      status: verified
+      last_tested: "2026-02-24"
+      issues:
+        - "wpf_file_dialog tool cannot find FileNameControlHost — must use wpf_find + wpf_type instead"
+        - "wpf_screenshot does not capture this dialog (modal OS window)"
 
 # ============================================================
 # ACTIVITY GRID COLUMNS (default column set)
@@ -1216,6 +1309,9 @@ projects_sidebar:
 workflows:
   new_workbook:
     description: "Create a new empty workbook"
+    status: verified
+    last_tested: "2026-02-24"
+    existing_macro: new-workbook.yaml
     steps:
       - "Alt,F,N (File > New)"
       - "Handle save prompt if existing workbook is open"
@@ -1223,37 +1319,83 @@ workflows:
 
   open_workbook:
     description: "Open an existing workbook file"
+    status: verified
+    last_tested: "2026-02-24"
+    existing_macro: open-workbook.yaml
     steps:
       - "Alt,F,O (File > Open)"
-      - "Navigate file dialog to select .afw workbook file"
+      - "Navigate file dialog to select .afw workbook file (standard Win32 dialog, uses AutomationId 1148)"
       - "Handle save prompt if existing workbook is open"
-    result: "Workbook loads with all projects/snapshots"
+    result: "Workbook loads with all projects/snapshots. Window title changes to workbook name."
+    notes: "Open dialog uses standard Win32 file dialog — wpf_file_dialog works."
 
   save_workbook:
     description: "Save the current workbook"
+    status: verified
+    last_tested: "2026-02-24"
+    existing_macro: save-workbook.yaml
     steps:
       - "Alt,F,S (File > Save)"
-      - "If new workbook: Save As dialog appears, enter name"
+      - "If new workbook: Save As dialog appears (DirectUI, uses FileNameControlHost, NOT 1148)"
     result: "Workbook saved to disk"
+    notes: "If the workbook has already been saved once, no dialog appears — just saves in place."
+
+  save_workbook_as:
+    description: "Save the current workbook to a new file location"
+    status: verified
+    last_tested: "2026-02-24"
+    existing_macro: save-workbook-as.yaml
+    steps:
+      - "Alt,F,A,D (File > Save As > Deltek Acumen Workbook)"
+      - "Wait 2s for DirectUI Save dialog to open"
+      - "wpf_find(automation_id=FileNameControlHost) to locate filename field"
+      - "wpf_type(filepath) to enter the new path"
+      - "Enter to confirm"
+    result: "Workbook saved to new location. Window title changes to new filename."
+    issues:
+      - "Save As dialog uses DirectUI ComboBox (FileNameControlHost), NOT standard Win32 (1148)"
+      - "wpf_file_dialog tool does NOT work with this dialog"
+      - "wpf_screenshot cannot capture this dialog (modal OS window)"
 
   close_workbook:
     description: "Close the current workbook without saving"
+    status: verified
+    last_tested: "2026-02-24"
+    existing_macro: close-workbook.yaml
     steps:
       - "Alt,F,C (File > Close)"
       - "Right,Enter (select 'No' on save prompt to discard)"
-    existing_macro: close-workbook.yaml
 
   import_xer:
     description: "Import a Primavera P6 XER file"
+    status: verified
+    last_tested: "2026-02-24"
+    existing_macro: import-xer.yaml
     steps:
       - "Ensure S1 // Projects tab is active"
       - "Alt,S,O,A (Oracle Primavera > Add File, All types)"
       - "File dialog: navigate to XER file"
       - "Alt,S,R,I (Import > Import All)"
-    existing_macro: import-xer.yaml
+    issues:
+      - "wpf_screenshot does not capture the file dialog (separate OS window) — agent must trust the keytip sequence worked"
+
+  import_xer_and_analyze:
+    description: "Import XER file and run Fuse diagnostics — full end-to-end workflow"
+    status: verified
+    last_tested: "2026-02-24"
+    existing_macro: import-xer-and-analyze.yaml
+    steps:
+      - "Run import_xer workflow (inline, not nested)"
+      - "Wait for import to finish"
+      - "Run run_fuse_analysis workflow (inline, not nested)"
+    notes: >
+      Macro was rewritten from nested (calls import-xer + run-fuse-analysis) to
+      flat inline steps to avoid MCP tool invocation timeout. Nested macros with
+      cumulative wait >12-15 seconds will fail silently.
 
   import_msp:
     description: "Import a Microsoft Project file"
+    status: predicted
     steps:
       - "Ensure S1 // Projects tab is active"
       - "Click MicrosoftProjectMenuTool > Add File"
@@ -1263,6 +1405,7 @@ workflows:
 
   import_excel:
     description: "Import from Microsoft Excel"
+    status: predicted
     steps:
       - "Ensure S1 // Projects tab is active"
       - "Click GetMicrosoftExcelFileButton > Add File"
@@ -1271,15 +1414,24 @@ workflows:
 
   run_fuse_analysis:
     description: "Run the Fuse diagnostics analysis"
+    status: verified
+    last_tested: "2026-02-24"
+    existing_macro: run-fuse-analysis.yaml
     prerequisites: "Project must be imported with activities"
     steps:
       - "Switch to S2 // Diagnostics tab (click uxRibbons tab)"
       - "Click FuseMenuTool > Run Fuse Analysis (or press F9)"
       - "Wait for analysis to complete (watch status bar)"
     shortcut: F9
+    notes: >
+      Analysis runs very fast on small files (54 activities < 1 second).
+      Results are cached — subsequent runs even faster.
+      27 analysis sub-tabs populate after analysis (Schedule Quality, Characteristics, Duration, Logic, etc.).
+      Wait step reduced from 10s to 3s to avoid MCP timeout.
 
   run_forensic_analysis:
     description: "Run a forensic comparison between projects"
+    status: predicted
     prerequisites: "Minimum 2 projects must be imported"
     steps:
       - "Switch to Forensics tab (click UxEnhancedForensicsTabItem)"
@@ -1291,14 +1443,20 @@ workflows:
 
   export_to_excel:
     description: "Export diagnostics results to Excel"
+    status: untested
+    existing_macro: export-to-excel.yaml
     prerequisites: "Fuse analysis must have been run"
     steps:
       - "On S2 // Diagnostics tab"
       - "Click PublishAnalysisMenuTool > To Excel"
       - "Save As dialog: enter filename"
+    notes: >
+      The Save As dialog for Excel export may use DirectUI (FileNameControlHost) like
+      Save As Workbook, or it may use standard Win32 (1148). Needs live verification.
 
   run_risk_analysis:
     description: "Run Monte Carlo risk analysis"
+    status: predicted
     prerequisites: "Project imported, uncertainty assigned"
     steps:
       - "Switch to S3 // Risk tab (click RiskTab)"
@@ -1309,6 +1467,7 @@ workflows:
 
   schedule_cleanse:
     description: "Cleanse and fix schedule flaws"
+    status: predicted
     steps:
       - "On S1 // Projects tab, select the project"
       - "Click Cleanse Schedule in Scenario Generation group"
@@ -1318,6 +1477,7 @@ workflows:
 
   accelerate_schedule:
     description: "Run schedule acceleration"
+    status: predicted
     steps:
       - "Switch to S4 // Acceleration tab"
       - "Click Accelerate Schedule in Acceleration group"
@@ -1332,12 +1492,15 @@ navigation_tips:
   - tip: "Use keytips (Alt + letter sequences) for fastest navigation. Verified sequences are in the keytips.verified_sequences section."
   - tip: "Tabs can be clicked directly using wpf_find with automation_id (e.g., 'uxProjects', 'uxRibbons', 'RiskTab')"
   - tip: "Menu tools are split buttons - clicking the top half triggers the default action, clicking the bottom arrow opens the submenu"
-  - tip: "Many tabs (Diagnostics, Logic, Risk, Dashboard) are disabled until a project is imported"
+  - tip: "Many tabs (Diagnostics, Logic, Risk, Dashboard) are disabled until a project is imported. Tab switching via keytips or click will appear to succeed but has no visible effect without data."
   - tip: "The Projects sidebar (XamOutlookBar) shows the workbook hierarchy. Use uxTreeView to find project nodes."
   - tip: "Activity Grid supports Scroll and Grid patterns - use these for reading cell data"
   - tip: "Status bar shows 'Ready' when idle - poll this to know when operations complete"
   - tip: "The application menu (file menu) is accessed via uxApplicationMenu or keytip Alt,F"
-  - tip: "File dialogs use AutomationId '1148' for the filename field - use wpf_file_dialog tool"
+  - tip: "IMPORTANT: There are TWO types of file dialogs. Open/Import dialogs use standard Win32 with AutomationId '1148' (wpf_file_dialog works). Save As dialog (Alt,F,A,D) uses DirectUI with AutomationId 'FileNameControlHost' (wpf_file_dialog does NOT work — use wpf_find + wpf_type + Enter instead)."
+  - tip: "wpf_screenshot only captures the main application window — modal file dialogs and OS dialogs are NOT captured. Trust keytip sequences and use appropriate dialog interaction method."
+  - tip: "MCP TOOL TIMEOUT: There is a ~15-20 second timeout on MCP tool invocations. Macros with total wait time >12s will fail silently. Keep individual wait steps to 2-3 seconds max. Avoid deeply nested macros — flatten into inline steps instead."
+  - tip: "SAVE PROMPT: File > New, File > Open, and File > Close will trigger a save prompt dialog if the workbook has unsaved changes. The dialog has Yes/No/Cancel buttons. Use wpf_find(automation_id=CommandButton_7) to click 'No' to discard."
   - tip: "Window title format is '<WorkbookName> - Deltek Acumen' after a workbook is opened"
   - tip: "For send_keys, use comma-separated keys for sequential presses (e.g., 'Alt,F,C') and + for simultaneous (e.g., 'Ctrl+A')"
   - tip: "After importing data, wait for status bar to return to 'Ready' before proceeding"

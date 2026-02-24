@@ -27,4 +27,4 @@ steps:
 
   # Wait for the workbook to load
   - action: wait
-    seconds: 5
+    seconds: 3

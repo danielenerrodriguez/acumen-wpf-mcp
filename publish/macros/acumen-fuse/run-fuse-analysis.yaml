@@ -32,4 +32,4 @@ steps:
 
   # Wait for analysis to complete
   - action: wait
-    seconds: 10
+    seconds: 3

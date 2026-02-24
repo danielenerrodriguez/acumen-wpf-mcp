@@ -18,9 +18,21 @@ steps:
 
   - action: focus
   - action: send_keys
-    keys: Alt,F,A
+    keys: Alt,F,A,D
 
-  # Navigate the Save As file dialog
-  - action: file_dialog
+  # Save As dialog uses DirectUI ComboBox (FileNameControlHost), not standard 1148
+  - action: wait
+    seconds: 2
+
+  - action: find
+    automation_id: FileNameControlHost
+    timeout: 5
+
+  - action: type
     text: '{{filePath}}'
-    timeout: 15
+
+  - action: send_keys
+    keys: Enter
+
+  - action: wait
+    seconds: 2

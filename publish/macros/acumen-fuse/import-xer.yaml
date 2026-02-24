@@ -39,4 +39,4 @@ steps:
 
   # 6. Wait for import to complete
   - action: wait
-    seconds: 5
+    seconds: 2

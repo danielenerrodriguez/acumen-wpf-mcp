@@ -1,6 +1,6 @@
 name: Import XER and Run Analysis
 description: Complete workflow - imports a P6 XER file and runs Fuse diagnostics analysis
-timeout: 180
+timeout: 60
 parameters:
   - name: filePath
     description: Full path to the XER file to import
@@ -12,19 +12,42 @@ parameters:
     default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
 
 steps:
-  # 1. Import the XER file
+  # 1. Ensure Fuse is running
   - action: macro
-    macro_name: acumen-fuse/import-xer
+    macro_name: acumen-fuse/launch
     params:
-      filePath: '{{filePath}}'
       exePath: '{{exePath}}'
 
-  # 2. Wait for import to finish
+  # 2. Open file dialog via keytips (S1 Projects > Oracle Primavera > All types)
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,O,A
+
+  # 3. Navigate the file dialog to the XER file
+  - action: file_dialog
+    text: '{{filePath}}'
+    timeout: 10
+
+  # 4. Wait for file to load, then import all
   - action: wait
-    seconds: 5
+    seconds: 1
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,R,I
 
-  # 3. Run Fuse analysis
-  - action: macro
-    macro_name: acumen-fuse/run-fuse-analysis
-    params:
-      exePath: '{{exePath}}'
+  # 5. Wait for import, then switch to Diagnostics tab and run analysis
+  - action: wait
+    seconds: 2
+  - action: focus
+  - action: find
+    automation_id: uxRibbons
+    timeout: 5
+    save_as: diagnosticsTab
+  - action: click
+    ref: diagnosticsTab
+  - action: send_keys
+    keys: F9
+
+  # 6. Brief wait for analysis to complete
+  - action: wait
+    seconds: 2
