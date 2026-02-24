@@ -423,7 +423,13 @@ public static class UiaProxyServer
                         var macroEng = _macroEngine.Value;
                         var macros = macroEng.List();
                         var loadErrors = macroEng.LoadErrors;
-                        return JsonSerializer.Serialize(new { ok = true, result = macros, loadErrors });
+                        var knowledgeBases = macroEng.KnowledgeBases.Select(kb => new
+                        {
+                            productName = kb.ProductName,
+                            filePath = kb.FilePath,
+                            summary = kb.Summary
+                        }).ToList();
+                        return JsonSerializer.Serialize(new { ok = true, result = macros, loadErrors, knowledgeBases });
                     }
                     case "macro":
                     {

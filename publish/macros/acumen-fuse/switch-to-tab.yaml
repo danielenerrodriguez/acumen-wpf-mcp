@@ -1,0 +1,30 @@
+name: Switch to Tab
+description: Switches to a specific ribbon tab by automation ID
+timeout: 15
+parameters:
+  - name: tabId
+    description: >
+      Automation ID of the tab. Valid values:
+      uxProjects (S1 Projects), uxRibbons (S2 Diagnostics),
+      uxLogic (S2 Logic), RiskTab (S3 Risk),
+      uxDashboards (S5 Dashboard), UxEnhancedForensicsTabItem (Forensics),
+      uxMetrics (Metrics), uxFields (Fields)
+    required: true
+  - name: exePath
+    description: Path to Fuse.exe
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
+
+steps:
+  - action: macro
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
+
+  - action: focus
+  - action: find
+    automation_id: '{{tabId}}'
+    timeout: 5
+    save_as: targetTab
+  - action: click
+    ref: targetTab

@@ -1,0 +1,26 @@
+name: Save Workbook As
+description: Saves the current Acumen Fuse workbook to a new file location
+timeout: 30
+parameters:
+  - name: filePath
+    description: Full path for the new workbook file (.afw)
+    required: true
+  - name: exePath
+    description: Path to Fuse.exe
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
+
+steps:
+  - action: macro
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
+
+  - action: focus
+  - action: send_keys
+    keys: Alt,F,A
+
+  # Navigate the Save As file dialog
+  - action: file_dialog
+    text: '{{filePath}}'
+    timeout: 15

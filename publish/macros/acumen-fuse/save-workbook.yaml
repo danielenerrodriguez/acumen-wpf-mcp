@@ -1,0 +1,18 @@
+name: Save Workbook
+description: Saves the current Acumen Fuse workbook
+timeout: 30
+parameters:
+  - name: exePath
+    description: Path to Fuse.exe
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
+
+steps:
+  - action: macro
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
+
+  - action: focus
+  - action: send_keys
+    keys: Alt,F,S

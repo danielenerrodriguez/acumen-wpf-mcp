@@ -232,7 +232,8 @@ public static class CliMode
                     case "macros":
                         var macroList = macroEngine.List();
                         var loadErrors = macroEngine.LoadErrors;
-                        if (macroList.Count == 0 && loadErrors.Count == 0)
+                        var knowledgeBases = macroEngine.KnowledgeBases;
+                        if (macroList.Count == 0 && loadErrors.Count == 0 && knowledgeBases.Count == 0)
                         {
                             Console.WriteLine("No macros found. Place .yaml files in the macros/ folder.");
                             break;
@@ -246,6 +247,12 @@ public static class CliMode
                                 foreach (var p in m.Parameters)
                                     Console.WriteLine($"    {p.Name}{(p.Required ? " (required)" : "")} - {p.Description}{(p.Default != null ? $" [default: {p.Default}]" : "")}");
                             }
+                        }
+                        if (knowledgeBases.Count > 0)
+                        {
+                            Console.WriteLine($"\nKnowledge bases ({knowledgeBases.Count}):");
+                            foreach (var kb in knowledgeBases)
+                                Console.WriteLine(kb.Summary);
                         }
                         if (loadErrors.Count > 0)
                         {

@@ -155,6 +155,40 @@ steps:
 - Do NOT push — let the user push manually
 - Do NOT create ZenDesk tickets
 
+## Knowledge Base System
+
+Product-specific knowledge bases provide AI agents with the context they need to navigate WPF applications — automation IDs, keytips, keyboard shortcuts, ribbon structure, workflows, and more.
+
+### File Convention
+- Knowledge bases are YAML files named `_knowledge.yaml` (underscore prefix)
+- Located in product subfolders: `publish/macros/{product}/_knowledge.yaml`
+- Skipped by the macro loader (underscore prefix exclusion)
+- Must have `kind: knowledge-base` as a top-level field
+
+### How It Works
+1. **`MacroEngine.Reload()`** loads `_knowledge.yaml` files into `_knowledgeBases` dictionary (keyed by product folder name)
+2. **`wpf_macro_list`** includes a condensed summary for each knowledge base (verified keytips, key automation IDs, workflow/tip counts)
+3. **MCP Resource** `knowledge://{productName}` serves the full YAML content via `Resources.cs`
+4. Parsed as `Dictionary<string, object>` (not POCOs) — flexible, no C# changes needed when YAML schema changes
+
+### Knowledge Base YAML Structure
+```yaml
+kind: knowledge-base
+update_instructions: { ... }    # When/how AI agents should update this file
+installation: { ... }           # Exe path, samples, templates, skills directories
+application: { ... }            # Name, version, startup phases
+keyboard_shortcuts: [ ... ]     # InputBinding shortcuts (Ctrl+N, Ctrl+O, etc.)
+keytips: { ... }                # Application menu + ribbon tab keytip sequences
+ribbon: { ... }                 # Complete ribbon structure (tabs, groups, tools, commands)
+automation_ids: { ... }         # 80+ IDs by category (panels, grids, trees, etc.)
+workflows: [ ... ]              # Step-by-step recipes for common tasks
+navigation_tips: [ ... ]        # Practical tips for driving the application
+data_formats: { ... }           # Supported import/export formats
+```
+
+### Current Knowledge Bases
+- `acumen-fuse` — Deltek Acumen Fuse (1400+ lines, 80+ automation IDs, 12 workflows, 14 navigation tips)
+
 ## File Reference
 
 | File | Purpose |
@@ -164,9 +198,10 @@ steps:
 | `WpfMcp/Tools.cs` | 18 MCP tool definitions (15 core + 3 recording) |
 | `WpfMcp/UiaEngine.cs` | Core UI Automation engine (STA thread, SendInput, launch, wait) |
 | `WpfMcp/UiaProxy.cs` | Proxy client/server over named pipe |
-| `WpfMcp/MacroDefinition.cs` | YAML POCOs for macros |
-| `WpfMcp/MacroEngine.cs` | Load/validate/execute macros, FileSystemWatcher |
+| `WpfMcp/MacroDefinition.cs` | YAML POCOs for macros + `KnowledgeBase` record |
+| `WpfMcp/MacroEngine.cs` | Load/validate/execute macros, FileSystemWatcher, knowledge base loading |
 | `WpfMcp/MacroSerializer.cs` | YAML serialization, `BuildFromRecordedActions` |
 | `WpfMcp/InputRecorder.cs` | Low-level hooks for recording user interactions |
 | `WpfMcp/CliMode.cs` | Interactive CLI for manual testing |
 | `WpfMcp/ElementCache.cs` | Thread-safe element reference cache (e1, e2, ...) |
+| `WpfMcp/Resources.cs` | MCP resources — `knowledge://{productName}` endpoint |

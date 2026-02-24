@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
@@ -10,11 +11,13 @@ namespace WpfMcp;
 /// Macros are discovered from the macros/ folder next to the exe,
 /// or from the path specified by WPFMCP_MACROS_PATH env var.
 /// Watches the macros directory for changes and auto-reloads.
+/// Also loads _knowledge.yaml files as knowledge bases for AI agents.
 /// </summary>
 public class MacroEngine : IDisposable
 {
     private readonly Dictionary<string, MacroDefinition> _macros = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<MacroLoadError> _loadErrors = new();
+    private readonly Dictionary<string, KnowledgeBase> _knowledgeBases = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _macrosPath;
     private FileSystemWatcher? _watcher;
     private Timer? _debounceTimer;
@@ -26,12 +29,23 @@ public class MacroEngine : IDisposable
         .IgnoreUnmatchedProperties()
         .Build();
 
+    /// <summary>Deserializer for knowledge base files (generic dictionary).</summary>
+    private static readonly IDeserializer s_dictYaml = new DeserializerBuilder()
+        .IgnoreUnmatchedProperties()
+        .Build();
+
     private static readonly Regex s_paramPattern = new(@"\{\{(\w+)\}\}", RegexOptions.Compiled);
 
     /// <summary>YAML files that failed to parse on the last reload.</summary>
     public IReadOnlyList<MacroLoadError> LoadErrors
     {
         get { lock (_reloadLock) return _loadErrors.ToList(); }
+    }
+
+    /// <summary>Knowledge base files loaded from the macros directory.</summary>
+    public IReadOnlyList<KnowledgeBase> KnowledgeBases
+    {
+        get { lock (_reloadLock) return _knowledgeBases.Values.ToList(); }
     }
 
     public MacroEngine(string? macrosPath = null, bool enableWatcher = true)
@@ -50,11 +64,21 @@ public class MacroEngine : IDisposable
         {
             _macros.Clear();
             _loadErrors.Clear();
+            _knowledgeBases.Clear();
             if (!Directory.Exists(_macrosPath)) return;
 
             foreach (var file in Directory.GetFiles(_macrosPath, "*.yaml", SearchOption.AllDirectories))
             {
+                var fileName = Path.GetFileName(file);
                 var relativePath = Path.GetRelativePath(_macrosPath, file);
+
+                // Knowledge base files use underscore prefix convention (_knowledge.yaml)
+                if (fileName.StartsWith('_'))
+                {
+                    LoadKnowledgeBase(file, relativePath);
+                    continue;
+                }
+
                 var macroName = relativePath
                     .Replace(Path.DirectorySeparatorChar, '/')
                     .Replace(".yaml", "", StringComparison.OrdinalIgnoreCase);
@@ -86,11 +110,148 @@ public class MacroEngine : IDisposable
                 }
             }
 
-            if (_loadErrors.Count > 0)
-                Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss}] Macros reloaded: {_macros.Count} loaded, {_loadErrors.Count} errors");
-            else if (_macros.Count > 0)
-                Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss}] Macros reloaded: {_macros.Count} loaded");
+            var parts = new List<string>();
+            if (_macros.Count > 0) parts.Add($"{_macros.Count} macros");
+            if (_knowledgeBases.Count > 0) parts.Add($"{_knowledgeBases.Count} knowledge base(s)");
+            if (_loadErrors.Count > 0) parts.Add($"{_loadErrors.Count} errors");
+            if (parts.Count > 0)
+                Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss}] Reloaded: {string.Join(", ", parts)}");
         }
+    }
+
+    /// <summary>Load a _knowledge.yaml file, parse it as a dictionary, and build a summary.</summary>
+    private void LoadKnowledgeBase(string filePath, string relativePath)
+    {
+        try
+        {
+            var yaml = File.ReadAllText(filePath);
+            var dict = s_dictYaml.Deserialize<Dictionary<string, object>>(yaml);
+            if (dict == null) return;
+
+            // Verify it has kind: knowledge-base
+            if (!dict.TryGetValue("kind", out var kindObj) ||
+                kindObj?.ToString() != "knowledge-base")
+                return;
+
+            // Derive product name from folder path (e.g., "acumen-fuse/_knowledge.yaml" -> "acumen-fuse")
+            var dir = Path.GetDirectoryName(relativePath);
+            var productName = string.IsNullOrEmpty(dir) ? "default" : dir.Replace(Path.DirectorySeparatorChar, '/');
+
+            var summary = BuildKnowledgeSummary(dict, productName);
+            _knowledgeBases[productName] = new KnowledgeBase(productName, relativePath, summary, yaml);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Warning: Failed to load knowledge base '{filePath}': {ex.Message}");
+        }
+    }
+
+    /// <summary>Build a condensed text summary from the knowledge base dictionary.</summary>
+    private static string BuildKnowledgeSummary(Dictionary<string, object> dict, string productName)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"  {productName}:");
+
+        // Application info
+        if (dict.TryGetValue("application", out var appObj) && appObj is Dictionary<object, object> app)
+        {
+            var name = app.TryGetValue("name", out var n) ? n?.ToString() : "Unknown";
+            var version = app.TryGetValue("version", out var v) ? v?.ToString() : "";
+            var exePath = app.TryGetValue("exe_path", out var e) ? e?.ToString() : "";
+            sb.AppendLine($"    Application: {name} {version}");
+            if (!string.IsNullOrEmpty(exePath))
+                sb.AppendLine($"    Exe Path: {exePath}");
+        }
+
+        // Installation / Samples
+        if (dict.TryGetValue("installation", out var instObj) && instObj is Dictionary<object, object> inst)
+        {
+            var basePath = inst.TryGetValue("base_path", out var bp) ? bp?.ToString() : "";
+            if (!string.IsNullOrEmpty(basePath))
+                sb.AppendLine($"    Install Path: {basePath}");
+            if (inst.TryGetValue("samples", out var samplesObj) && samplesObj is Dictionary<object, object> samples)
+            {
+                var sampleCount = 0;
+                foreach (var kv in samples)
+                {
+                    if (kv.Value is List<object> list) sampleCount += list.Count;
+                }
+                if (sampleCount > 0)
+                    sb.AppendLine($"    Sample Files: {sampleCount}+ files available");
+            }
+        }
+
+        // Verified keytips
+        if (dict.TryGetValue("keytips", out var keytipsObj) && keytipsObj is Dictionary<object, object> keytips)
+        {
+            if (keytips.TryGetValue("verified_sequences", out var seqObj) && seqObj is List<object> seqs)
+            {
+                var keytipLines = new List<string>();
+                foreach (var seq in seqs)
+                {
+                    if (seq is Dictionary<object, object> s)
+                    {
+                        var keys = s.TryGetValue("keys", out var k) ? k?.ToString() : "";
+                        var action = s.TryGetValue("action", out var a) ? a?.ToString() : "";
+                        if (!string.IsNullOrEmpty(keys))
+                            keytipLines.Add($"{keys} ({action})");
+                    }
+                }
+                if (keytipLines.Count > 0)
+                    sb.AppendLine($"    Verified Keytips: {string.Join(", ", keytipLines)}");
+            }
+        }
+
+        // Keyboard shortcuts
+        if (dict.TryGetValue("keyboard_shortcuts", out var shortcutsObj) && shortcutsObj is List<object> shortcuts)
+        {
+            var shortcutLines = new List<string>();
+            foreach (var sc in shortcuts)
+            {
+                if (sc is Dictionary<object, object> s)
+                {
+                    var key = s.TryGetValue("key", out var k) ? k?.ToString() : "";
+                    var action = s.TryGetValue("action", out var a) ? a?.ToString() : "";
+                    if (!string.IsNullOrEmpty(key))
+                        shortcutLines.Add($"{key} ({action})");
+                }
+            }
+            if (shortcutLines.Count > 0)
+                sb.AppendLine($"    Keyboard Shortcuts: {string.Join(", ", shortcutLines)}");
+        }
+
+        // Key automation IDs (just tab-level ones as highlights)
+        if (dict.TryGetValue("automation_ids", out var aidsObj) && aidsObj is Dictionary<object, object> aids)
+        {
+            var idCount = 0;
+            var tabIds = new List<string>();
+            if (aids.TryGetValue("ribbon_tabs", out var tabsObj) && tabsObj is List<object> tabs)
+            {
+                foreach (var tab in tabs)
+                {
+                    if (tab is Dictionary<object, object> t && t.TryGetValue("id", out var id))
+                        tabIds.Add(id.ToString()!);
+                }
+            }
+            foreach (var section in aids.Values)
+            {
+                if (section is List<object> list) idCount += list.Count;
+            }
+            if (tabIds.Count > 0)
+                sb.AppendLine($"    Key Automation IDs: {string.Join(", ", tabIds)} + {idCount} more");
+        }
+
+        // Navigation tips count
+        if (dict.TryGetValue("navigation_tips", out var tipsObj) && tipsObj is List<object> tips)
+            sb.AppendLine($"    Navigation Tips: {tips.Count} tips available");
+
+        // Workflows count
+        if (dict.TryGetValue("workflows", out var wfObj) && wfObj is Dictionary<object, object> workflows)
+            sb.AppendLine($"    Workflows: {workflows.Count} documented workflows");
+
+        sb.AppendLine($"    Full details: use MCP resource 'knowledge://{productName}'");
+
+        return sb.ToString().TrimEnd();
     }
 
     private void StartWatcher()

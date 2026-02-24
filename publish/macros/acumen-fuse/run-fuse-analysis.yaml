@@ -1,0 +1,35 @@
+name: Run Fuse Analysis
+description: Runs the Fuse diagnostics analysis on the current workbook (equivalent to pressing F9)
+timeout: 120
+parameters:
+  - name: exePath
+    description: Path to Fuse.exe
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
+
+# Prerequisites: A project must be imported with activities loaded
+
+steps:
+  - action: macro
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
+
+  # Switch to S2 // Diagnostics tab
+  - action: focus
+  - action: find
+    automation_id: uxRibbons
+    timeout: 5
+    save_as: diagnosticsTab
+  - action: click
+    ref: diagnosticsTab
+
+  # Run Fuse analysis (F9 shortcut)
+  - action: wait
+    seconds: 1
+  - action: send_keys
+    keys: F9
+
+  # Wait for analysis to complete
+  - action: wait
+    seconds: 10

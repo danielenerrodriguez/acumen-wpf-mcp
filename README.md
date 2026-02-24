@@ -17,6 +17,7 @@ This server lets an AI agent interact with a running WPF application through UI 
 - **Send keyboard shortcuts** (e.g., `Ctrl+S`, `Alt,F` for ribbon keytips)
 - **Take screenshots** of the application window
 - **Inspect properties** of any cached element
+- **Knowledge bases** provide AI agents with structured navigation context (automation IDs, keytips, workflows) per application
 
 ## Why the Proxy Architecture
 
@@ -180,7 +181,7 @@ Runs a standard MCP stdio server without elevation. Only works if the target app
 | `wpf_screenshot` | Capture the application window as a PNG |
 | `wpf_properties` | Get detailed properties of a cached element |
 | `wpf_macro` | Execute a named macro with optional parameters |
-| `wpf_macro_list` | List all available macros and their parameters |
+| `wpf_macro_list` | List all available macros, parameters, and knowledge base summaries |
 | `wpf_record_start` | Start recording user interactions as a macro |
 | `wpf_record_stop` | Stop recording and save the macro YAML file |
 | `wpf_record_status` | Check recording state, action count, and duration |
@@ -408,6 +409,84 @@ The `wpf_record_stop` tool also returns the generated YAML in the response, so t
 - Mouse **moves** are ignored — only clicks are recorded
 - The recorder must be started and stopped through the proxy (`--mcp-connect` mode) or CLI mode — not direct MCP mode
 
+## Knowledge Bases
+
+Knowledge bases are YAML files that give AI agents the context they need to navigate a specific WPF application without trial and error. Instead of blind exploration via snapshots, the agent starts with a structured map of automation IDs, keytip sequences, ribbon layout, workflows, and sample file paths.
+
+### How It Works
+
+1. Place a `_knowledge.yaml` file in a product subfolder (e.g., `publish/macros/acumen-fuse/_knowledge.yaml`)
+2. The file must have `kind: knowledge-base` as a top-level field
+3. On startup, `MacroEngine` loads knowledge bases into memory (parsed as flexible `Dictionary<string, object>`, no C# class updates needed when the YAML schema changes)
+4. `wpf_macro_list` includes a condensed summary alongside macros — keytip count, key automation IDs, workflow/tip counts
+5. The full content is available as an MCP Resource at `knowledge://{productName}` (e.g., `knowledge://acumen-fuse`)
+
+The underscore prefix (`_knowledge.yaml`) ensures these files are skipped by the macro loader — they aren't macros, they're reference data.
+
+### YAML Structure
+
+```yaml
+kind: knowledge-base
+update_instructions:              # When/how AI agents should update this file
+  when_to_update: [...]
+  validation_rules: [...]
+
+installation:                     # Exe path, samples, templates, skills directories
+  exe_path: "C:\\Program Files\\..."
+  samples_directory: "..."
+
+application:                      # Name, version, startup phases
+  name: Deltek Acumen Fuse
+  startup_phases: [...]
+
+keyboard_shortcuts:               # Global shortcuts from InputBindings
+  - shortcut: Ctrl+N
+    action: New Workbook
+
+keytips:                          # Ribbon keytip sequences (verified against live UI)
+  application_menu:
+    trigger: "Alt,F"
+    items: [...]
+  tabs: [...]
+
+ribbon:                           # Complete ribbon structure (tabs, groups, tools, commands)
+  tabs:
+    - name: Projects
+      automation_id: uxProjects
+      groups: [...]
+
+automation_ids:                   # All known IDs organized by category
+  main_panels: [...]
+  grids_and_trees: [...]
+
+workflows:                        # Step-by-step recipes for common tasks
+  - name: Import XER and Run Analysis
+    steps: [...]
+
+navigation_tips:                  # Practical tips for driving the app
+  - "Use Alt keytips for reliable ribbon navigation..."
+
+data_formats:                     # Supported import/export formats
+  import: [...]
+  export: [...]
+```
+
+### Current Knowledge Bases
+
+| Product | File | Content |
+|---------|------|---------|
+| `acumen-fuse` | `publish/macros/acumen-fuse/_knowledge.yaml` | 1400+ lines, 80+ automation IDs, 12 workflows, 14 navigation tips, verified keytip sequences |
+
+### MCP Resource Access
+
+AI agents can read the full knowledge base via the MCP resource protocol:
+
+```
+Resource URI: knowledge://acumen-fuse
+```
+
+This returns the complete YAML content. The `wpf_macro_list` tool response includes a summary so agents know a knowledge base exists without needing to fetch the full resource.
+
 ## Project Structure
 
 ```
@@ -423,21 +502,29 @@ C:\WpfMcp\
     Tools.cs                            18 MCP tool definitions (15 core + 3 recording)
     UiaEngine.cs                        Core UI Automation engine (STA thread, SendInput)
     UiaProxy.cs                         Proxy client/server for named pipe communication
-    MacroDefinition.cs                  YAML-deserialized POCOs for macros
-    MacroEngine.cs                      Load, validate, and execute macro YAML files
+    MacroDefinition.cs                  YAML-deserialized POCOs for macros + KnowledgeBase record
+    MacroEngine.cs                      Load, validate, execute macros; knowledge base loading
     MacroSerializer.cs                  YAML serialization and BuildFromRecordedActions
     InputRecorder.cs                    Low-level hooks, keyboard state machine, recording
+    Resources.cs                        MCP resources (knowledge://{productName} endpoint)
     CliMode.cs                          Interactive CLI for manual testing
   publish/
-    macros/                             Version-controlled macro YAML files
+    macros/                             Version-controlled macro + knowledge base YAML files
       acumen-fuse/
-        open-file-menu.yaml            Focus + Alt,F (example)
-        find-projects-view.yaml        Find element with retry (example)
-        import-file.yaml               Full workflow with parameters (example)
+        _knowledge.yaml                Knowledge base (automation IDs, keytips, workflows)
+        launch.yaml                    Launch Fuse and wait for ready state
+        import-xer.yaml               Import XER file via file dialog
+        import-xer-and-analyze.yaml    Import XER and run full analysis
+        new-workbook.yaml              Create new workbook
+        open-workbook.yaml             Open existing workbook via file dialog
+        save-workbook.yaml             Save current workbook
+        export-to-excel.yaml           Export data to Excel
+        switch-to-tab.yaml            Switch ribbon tab by keytip
+        ...                            (+ more macros)
     WpfMcp.exe                          Build output (gitignored)
     *.dll                               Build output (gitignored)
   WpfMcp.Tests/
-    WpfMcp.Tests.csproj                 xUnit test project (87 tests)
+    WpfMcp.Tests.csproj                 xUnit test project (94 tests)
     MacroEngineTests.cs                 27 tests for macro loading, validation, execution
     MacroSerializerTests.cs             16 tests for YAML serialization and action building
     InputRecorderTests.cs               13 tests for recorder state and wait computation

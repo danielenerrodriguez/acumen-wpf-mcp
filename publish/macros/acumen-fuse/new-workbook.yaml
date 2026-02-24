@@ -1,0 +1,25 @@
+name: New Workbook
+description: Creates a new empty workbook in Acumen Fuse, optionally closing the current one without saving
+timeout: 30
+parameters:
+  - name: exePath
+    description: Path to Fuse.exe
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
+
+steps:
+  - action: macro
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
+
+  - action: focus
+  - action: send_keys
+    keys: Alt,F,N
+
+  # If a workbook is already open, a save prompt appears.
+  # Press Right (to select "No") then Enter to discard changes.
+  - action: wait
+    seconds: 1
+  - action: send_keys
+    keys: Right,Enter

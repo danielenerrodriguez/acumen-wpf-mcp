@@ -1,0 +1,56 @@
+name: Export Diagnostics to Excel
+description: Exports the current Fuse diagnostics results to an Excel file
+timeout: 60
+parameters:
+  - name: filePath
+    description: Full path for the output Excel file (.xlsx)
+    required: true
+  - name: exePath
+    description: Path to Fuse.exe
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
+
+# Prerequisites: Fuse analysis must have been run on S2 // Diagnostics tab
+
+steps:
+  - action: macro
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
+
+  # Ensure we're on S2 // Diagnostics tab
+  - action: focus
+  - action: find
+    automation_id: uxRibbons
+    timeout: 5
+    save_as: diagnosticsTab
+  - action: click
+    ref: diagnosticsTab
+
+  - action: wait
+    seconds: 1
+
+  # Click Publish menu > find "To Excel" option
+  - action: find
+    automation_id: PublishAnalysisMenuTool
+    timeout: 5
+    save_as: publishMenu
+  - action: click
+    ref: publishMenu
+
+  - action: wait
+    seconds: 1
+
+  # Find and click "To Excel" in the dropdown
+  - action: find
+    name: To Excel
+    control_type: MenuItem
+    timeout: 5
+    save_as: toExcelItem
+  - action: click
+    ref: toExcelItem
+
+  # Navigate the Save As file dialog
+  - action: file_dialog
+    text: '{{filePath}}'
+    timeout: 15

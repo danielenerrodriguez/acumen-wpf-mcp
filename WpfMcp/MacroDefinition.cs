@@ -148,3 +148,17 @@ public record MacroResult(
     int? FailedStepIndex = null,
     string? FailedAction = null,
     string? Error = null);
+
+/// <summary>
+/// Represents a knowledge base file (_knowledge.yaml) that provides
+/// navigation context for AI agents automating a specific application.
+/// </summary>
+public record KnowledgeBase(
+    /// <summary>Product name derived from folder (e.g., "acumen-fuse").</summary>
+    string ProductName,
+    /// <summary>Relative file path within the macros directory.</summary>
+    string FilePath,
+    /// <summary>Condensed summary for inclusion in wpf_macro_list response.</summary>
+    string Summary,
+    /// <summary>Full raw YAML content for the MCP resource.</summary>
+    string FullContent);

@@ -389,7 +389,7 @@ public static class WpfTools
     /// <summary>Shared macro engine instance. Loaded once from the macros/ folder.</summary>
     private static readonly Lazy<MacroEngine> _macroEngine = new(() => new MacroEngine());
 
-    [McpServerTool, Description("List all available macros with their descriptions and parameters.")]
+    [McpServerTool, Description("List all available macros with their descriptions and parameters. Also shows knowledge base summaries for supported applications.")]
     public static async Task<string> wpf_macro_list()
     {
         if (Proxy != null)
@@ -400,6 +400,16 @@ public static class WpfTools
                 var output = JsonSerializer.Serialize(resp.GetProperty("result"), Constants.IndentedJson);
                 if (resp.TryGetProperty("loadErrors", out var errors) && errors.GetArrayLength() > 0)
                     output += $"\n\nLoad Errors:\n{JsonSerializer.Serialize(errors, Constants.IndentedJson)}";
+                if (resp.TryGetProperty("knowledgeBases", out var kbs) && kbs.GetArrayLength() > 0)
+                {
+                    output += "\n\nKnowledge Bases:";
+                    foreach (var kb in kbs.EnumerateArray())
+                    {
+                        var summary = kb.TryGetProperty("summary", out var s) ? s.GetString() : "";
+                        if (!string.IsNullOrEmpty(summary))
+                            output += $"\n{summary}";
+                    }
+                }
                 return output;
             }
             return $"Error: {resp.GetProperty("error").GetString()}";
@@ -408,8 +418,9 @@ public static class WpfTools
         var engine = _macroEngine.Value;
         var macros = engine.List();
         var loadErrors = engine.LoadErrors;
+        var knowledgeBases = engine.KnowledgeBases;
 
-        if (macros.Count == 0 && loadErrors.Count == 0)
+        if (macros.Count == 0 && loadErrors.Count == 0 && knowledgeBases.Count == 0)
             return "No macros found. Place .yaml files in the macros/ folder.";
 
         var result = macros.Count > 0
@@ -419,8 +430,21 @@ public static class WpfTools
         if (loadErrors.Count > 0)
             result += $"\n\nLoad Errors ({loadErrors.Count}):\n{JsonSerializer.Serialize(loadErrors, Constants.IndentedJson)}";
 
+        if (knowledgeBases.Count > 0)
+        {
+            result += "\n\nKnowledge Bases:";
+            foreach (var kb in knowledgeBases)
+                result += $"\n{kb.Summary}";
+        }
+
         return result;
     }
+
+    /// <summary>
+    /// Provides access to the knowledge base summaries for static resource registration.
+    /// </summary>
+    internal static IReadOnlyList<KnowledgeBase> GetKnowledgeBases() =>
+        _macroEngine.Value.KnowledgeBases;
 
     [McpServerTool, Description("Run a named macro with optional parameters. Use wpf_macro_list to see available macros.")]
     public static async Task<string> wpf_macro(

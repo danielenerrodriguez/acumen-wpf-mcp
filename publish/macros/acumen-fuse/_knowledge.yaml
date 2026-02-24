@@ -1,0 +1,1398 @@
+# Acumen Fuse Knowledge Base
+# For use by AI agents navigating Deltek Acumen Fuse via WPF MCP tools
+# Version: 8.12.0 x64
+# Last updated: 2026-02-24
+
+kind: knowledge-base
+
+update_instructions:
+  when_to_update:
+    - "After discovering new automation IDs via wpf_snapshot or wpf_find"
+    - "After verifying predicted keytip sequences via live send_keys testing"
+    - "When new macros are created (add to workflows section)"
+    - "When the Acumen application version changes"
+    - "After discovering new dialog automation IDs or control structures"
+  how_to_update:
+    - "Read the current _knowledge.yaml file"
+    - "Add or modify the relevant section"
+    - "Write back via cmd.exe copy (WSL /mnt/c/ writes can silently fail)"
+    - "The MCP server auto-reloads via FileSystemWatcher on changes"
+  validation:
+    - "Ensure 'kind: knowledge-base' is present at the top level"
+    - "YAML must parse without errors"
+    - "New automation IDs should be verified via live wpf_find before adding"
+    - "New keytip sequences should be verified via live send_keys before marking as verified"
+    - "Mark unverified items with 'notes: Predicted - needs live verification'"
+  file_convention:
+    - "Knowledge base files use underscore prefix: _knowledge.yaml"
+    - "One knowledge base per product subfolder (e.g., acumen-fuse/_knowledge.yaml)"
+    - "The MCP server skips _*.yaml files from macro loading"
+    - "Knowledge bases are served as MCP resources and summarized in wpf_macro_list"
+
+application:
+  name: Deltek Acumen Fuse
+  version: "8.12.0 x64"
+  exe_path: "C:\\Program Files\\Deltek\\Acumen 8.12\\Fuse.exe"
+  framework: WPF (Infragistics XamRibbon)
+  process_name: Fuse
+
+  startup_phases:
+    - phase: splash
+      duration_seconds: "0-2"
+      title_contains: "Please wait while the application opens"
+      notes: "Splash screen, first window handle"
+    - phase: loading
+      duration_seconds: "2-12"
+      title_contains: "Deltek Acumen"
+      notes: "Loading/initializing, second window handle"
+    - phase: ready
+      duration_seconds: "12+"
+      title_contains: "Workbook1 - Deltek Acumen"
+      notes: "Application ready, third window handle. Title changes to workbook name after open."
+
+# ============================================================
+# INSTALLATION DIRECTORY
+# ============================================================
+# Paths vary by Acumen version. Check C:\Program Files\Deltek\ for installed versions.
+installation:
+  base_path: "C:\\Program Files\\Deltek\\Acumen 8.12"
+  exe: Fuse.exe
+  notes: "Path varies by version. The base_path contains the exe, DLLs, and subfolders below."
+
+  samples:
+    path: "{{base_path}}\\Samples"
+    notes: "Sample data files for testing. Contents vary by Acumen version."
+    workbooks:
+      - file: AcumenSampleWorkbookP6.afw
+        description: "Pre-built sample workbook with Primavera P6 data"
+      - file: AcumenSampleWorkbookMSP.afw
+        description: "Pre-built sample workbook with Microsoft Project data"
+    primavera_xer:
+      - file: "Initial  Plan.xer"
+        description: "Initial plan baseline (NOTE: double space in filename)"
+      - file: "1 Month Update.xer"
+        description: "1-month status update"
+      - file: "6 Month Update.xer"
+        description: "6-month status update"
+      - file: "1 Year Update.xer"
+        description: "1-year status update"
+      - file: "Current Schedule.xer"
+        description: "Current schedule snapshot"
+      - file: "New Project.xer"
+        description: "Empty new project template"
+      - file: snapshots.xer
+        description: "Multiple snapshots for trend analysis"
+    microsoft_project:
+      - file: "Initial Plan.mpp"
+      - file: "1 Month Update.mpp"
+      - file: "6 Month Update.mpp"
+      - file: "1 Year Update.mpp"
+      - file: "Current Schedule.mpp"
+      - file: "New Project.mpp"
+    primavera_xml:
+      path: "{{base_path}}\\Samples\\Primavera P6 XML"
+      files: ["Initial_Plan.xml", "1_Month_Update.xml", "6_Month_Update.xml", "Current_Schedule.xml", "1_Year_Update.xml", "snapshots.xml"]
+    open_plan:
+      files: ["InitialPlan.bk3", "1MonthUpdate.bk3", "6MonthUpdate.bk3", "1YearUpdate.bk3", "CurrentSchedule.bk3"]
+    asta_powerproject:
+      files: ["Initial Plan.pp", "1 Month Update.pp", "6 Month Update.pp", "1 Year Update.pp", "Current Schedule.ppx", "Current Schedule.pp"]
+    excel_cost:
+      - file: PopulatedRiskRegister.xlsx
+        description: "Sample risk register for import"
+      - file: CostRiskTemplate.xlsx
+        description: "Cost risk analysis template"
+      - file: SampleCostRisk.xlsx
+        description: "Sample cost risk data"
+      - file: "PrismG2 Sample.xlsx"
+        description: "ARES PRISM G2 sample data"
+      - file: Status-update.xlsx
+        description: "Status update data"
+      - file: WADTemplate.xlsx
+        description: "Work Authorization Document template"
+      - file: "X12 CAP.xlsx"
+        description: "X12 CAP cost data"
+
+  templates:
+    path: "{{base_path}}\\Templates"
+    metric_templates:
+      - file: dcma.aft
+        description: "DCMA 14-point assessment metrics"
+      - file: gao.aft
+        description: "GAO schedule assessment metrics"
+      - file: nasa.aft
+        description: "NASA health check metrics"
+      - file: dcma_decm_metrics_89_DECM_V7.0.aft
+        description: "DCMA DECM metrics v7.0"
+      - file: SNAP_Metric_Examples.aft
+        description: "SNAP metric examples"
+    workbook_templates:
+      - file: DOE_EVMS_metrics_87_EVMS_V8.0_workbooktemplate.afw
+        description: "DOE EVMS v8.0 workbook template"
+      - file: DOE_EVMS_metrics_87_EVMS_IRSA_V8.0_workbooktemplate.afw
+        description: "DOE EVMS IRSA v8.0 workbook template"
+      - file: DOE_EVMS_metrics_87_IRSA_V8.0_workbooktemplate.afw
+        description: "DOE IRSA v8.0 workbook template"
+    report_templates:
+      - file: ExecutiveBriefingTemplate.xml
+      - file: RiskExecutiveBriefingTemplate.xml
+
+  skills:
+    path: "{{base_path}}\\Skills"
+    folders: [NarrativeSkills, RiskSkills]
+    notes: "AI/GenAI skills for Acumen Mentor feature"
+
+  decm_samples:
+    path: "{{base_path}}\\DECM Samples"
+    notes: "DCMA DECM cost data samples with CSV and WAD templates"
+    files:
+      - CSV_Template.csv
+      - WAD_Template.xlsx
+    folders: [Baseline, Month1, Month2, Time_Phased, CSV_CostFileFormat]
+
+  documentation:
+    path: "{{base_path}}\\Documentation"
+    notes: "Product documentation folder"
+
+# ============================================================
+# KEYBOARD SHORTCUTS (InputBindings from MainView.xaml)
+# ============================================================
+keyboard_shortcuts:
+  - key: F1
+    action: Display help for current tab
+    command: DisplayCurrentTabHelpCommand
+  - key: F9
+    action: Run Fuse analysis
+    command: FuseCommand
+  - key: NumpadAdd
+    action: Expand current node
+    command: ExpandCommand
+  - key: NumpadSubtract
+    action: Collapse current node
+    command: CollapseCommand
+  - key: NumpadMultiply
+    action: Expand all nodes
+    command: ExpandAllCommand
+  - key: NumpadDivide
+    action: Collapse all nodes
+    command: CollapseAllCommand
+  - key: Ctrl+Shift+F5
+    action: UIA copy details (debug)
+    command: UiaCopyDetailsCommand
+  - key: Ctrl+Shift+F6
+    action: UIA copy all (debug)
+    command: UiaCopyAllCommand
+
+# ============================================================
+# KEYTIPS (Infragistics XamRibbon auto-generated from Caption/Header)
+# ============================================================
+# Keytips are auto-generated by Infragistics from the first letter of
+# the Header (tabs) or Caption (tools). Conflicts get disambiguation
+# suffixes (0, 1, 2...). Press Alt to activate keytip mode.
+#
+# VERIFIED keytip sequences (tested live):
+#   Alt,S,O,A  -> S1 Projects > Oracle Primavera > Add P6 file (All types)
+#   Alt,S,R,I  -> S1 Projects > Import group > Import All
+#   Alt,F,C    -> File menu > Close
+#   Alt,F,N    -> File menu > New
+#   Alt,F,O    -> File menu > Open
+#   Alt,F,S    -> File menu > Save
+
+keytips:
+  notes: >
+    Keytips are 100% auto-generated by Infragistics XamRibbon from
+    Caption/Header text. No explicit KeyTip= attributes exist in the
+    codebase. The exact disambiguation for conflicting tabs (all S*
+    tabs start with 'S') must be discovered via live testing. Known
+    working sequences are listed under 'verified_sequences'.
+
+  application_menu:
+    keytip: F
+    items:
+      - keytip: "N"
+        caption: New
+        action: Create new workbook
+      - keytip: "O"
+        caption: Open
+        action: Open existing workbook
+      - keytip: "S"
+        caption: Save
+        action: Save current workbook
+      - keytip: "A"
+        caption: Save As
+        action: Save workbook with new name
+      - keytip: "P"
+        caption: Print
+        action: Print current view
+      - keytip: "C"
+        caption: Close
+        action: Close current workbook
+      - keytip: "F"
+        caption: Fuse Options
+        action: Open options dialog (footer)
+      - keytip: "E"
+        caption: Exit Fuse
+        action: Exit application (footer)
+
+  ribbon_tabs:
+    - keytip: "S"
+      header: "S1 // Projects"
+      automation_id: uxProjects
+      notes: "First S-tab gets bare 'S'. Verified working."
+    - keytip: "S0"
+      header: "S2 // Diagnostics"
+      automation_id: uxRibbons
+      notes: "Predicted - needs live verification"
+    - keytip: "S1"
+      header: "S2 // Logic"
+      automation_id: uxLogic
+      notes: "Predicted - needs live verification"
+    - keytip: "S2"
+      header: "S2 // Benchmarking"
+      automation_id: "S2 // Benchmarking"
+      notes: "Predicted - needs live verification"
+    - keytip: "S3"
+      header: "S3 // Risk"
+      automation_id: RiskTab
+      notes: "Predicted - needs live verification"
+    - keytip: "S4"
+      header: "S4 // Acceleration"
+      automation_id: "S4 // Acceleration"
+      notes: "Predicted - needs live verification"
+    - keytip: "S5"
+      header: "S5 // Dashboard"
+      automation_id: uxDashboards
+      notes: "Predicted - needs live verification"
+    - keytip: "F0"
+      header: Forensics
+      automation_id: UxEnhancedForensicsTabItem
+      notes: "Predicted - conflicts with File 'F'"
+    - keytip: "M"
+      header: Metrics
+      automation_id: uxMetrics
+      notes: "Predicted - no conflict"
+    - keytip: "F1"
+      header: Fields
+      automation_id: uxFields
+      notes: "Predicted - conflicts with File 'F' and Forensics"
+
+  verified_sequences:
+    - keys: "Alt,F,N"
+      action: "File > New workbook"
+    - keys: "Alt,F,O"
+      action: "File > Open workbook"
+    - keys: "Alt,F,S"
+      action: "File > Save workbook"
+    - keys: "Alt,F,C"
+      action: "File > Close workbook"
+    - keys: "Alt,F,E"
+      action: "File > Exit Fuse"
+    - keys: "Alt,S,O,A"
+      action: "S1 Projects > Oracle Primavera > Add P6 file (All types)"
+      notes: "Opens file dialog for XER/XML import"
+    - keys: "Alt,S,R,I"
+      action: "S1 Projects > Import > Import All"
+      notes: "Imports all linked projects"
+
+# ============================================================
+# RIBBON STRUCTURE (Tab > Group > Commands)
+# ============================================================
+ribbon:
+  # ---- S1 // Projects ----
+  - tab: "S1 // Projects"
+    automation_id: uxProjects
+    enabled_when: always
+    groups:
+      - name: "Get External Data From"
+        automation_id: ExternalDataRibbonGroup
+        tools:
+          - name: "Microsoft Project"
+            automation_id: MicrosoftProjectMenuTool
+            type: menu
+            items:
+              - "Add File" # GetMspFileCommand
+              - "Add from Active Project" # GetMspActiveProjectCommand
+              - "Add from Project Server" # GetMspServerProjectCommand
+              - "Add Server Projects as Single Project" # GetMspServerAsSingleProjectCommand
+              - "Create Project Link from MPP Schedule" # CreateMspMppScheduleCommand
+          - name: "Oracle Primavera"
+            automation_id: OraclePrimaveraMenuTool
+            type: menu
+            items:
+              - "Add File (XER, All types)" # GetXerFileCommand
+              - "Add Multiple XER Files" # GetXerMultipleFileCommand
+              - "Add Multiple XER Files as Single Project" # AddP6FileAsSingleProjectCommand
+              - "Add File (XML)" # GetP6XmlFileCommand
+              - "P6 Web Services" # EstablishP6WebServicesConnectionCommand
+              - "Add File (PLN)" # GetPlnFileCommand
+              - "Create Link from P6 XER" # CreateP6XerScheduleCommand
+              - "Set Baseline" # SetBaselineCommand
+              - "Set Baseline and Add Snapshot" # SetBaselineAndAddSnapshotCommand
+              - "Clear Baseline" # ClearBaselineCommand
+              - "Select Text Encoding" # SetCultureCommand
+          - name: "Microsoft Excel"
+            automation_id: GetMicrosoftExcelFileButton
+            type: menu
+            items:
+              - "Add File" # GetXlsFileCommand
+              - "Cobra CAP" # GetCobraCapFileCommand
+              - "ARES PRISM G2" # GetG2FileCommand
+              - "Create Cost Estimate" # CreateCostEstimateCommand
+          - name: "Deltek Open Plan"
+            automation_id: DeltekOpenPlanMenuTool
+            type: menu
+            items:
+              - "Add File (OPP)" # GetOppFileCommand
+              - "Add File (BK3)" # GetBk3FileCommand
+          - name: "Cost Data"
+            automation_id: ImportCostDataMenu
+            type: menu
+            items:
+              - "Import Cost Data" # GetCommonDataFileCommand
+          - name: "IPMDAR"
+            automation_id: IMPDARMenuTool
+            type: menu
+          - name: "DOE PARS"
+            type: button
+            command: GetDOEPARSFileCommand
+          - name: "Phoenix Project Manager"
+            type: button
+            command: GetPhoenixFileCommand
+          - name: "Powerproject"
+            type: button
+            command: GetAstaFileCommand
+          - name: "UN/CEFACT"
+            type: button
+            command: GetUncefactFileCommand
+          - name: "Safran"
+            type: button
+            command: GetSafranFileCommand
+
+      - name: "Import"
+        tools:
+          - name: "Import All Projects"
+            automation_id: ImportAllMenuTool
+            type: menu
+            items:
+              - "Import All Projects" # ImportAllCommand
+              - "Import Project" # ImportCommand
+          - name: "Filters"
+            automation_id: FiltersMenuTool
+            type: menu
+            items:
+              - "Normal"
+              - "Summaries"
+              - "Milestones"
+              - "LOE"
+              - "Complete"
+              - "In Progress"
+              - "Planned"
+              - "Resources"
+
+      - name: "Activities"
+        tools:
+          - name: "SmartGantt Config"
+            automation_id: DisplaySmarttGanttConfigurationWindow
+            type: button
+            notes: "Dialog box launcher for SmartGantt configuration"
+          - name: "Activity View"
+            automation_id: ProjectsTableView
+            type: menu
+            items:
+              - "SmartGantt grouping/filtering/display level/autofit settings"
+          - name: "Display Level Slider"
+            type: slider
+            notes: "Controls WBS hierarchy display depth"
+          - name: "SmartGantt"
+            automation_id: SmartGanttMenuTool
+            type: menu
+            items:
+              - "Top/bottom bar date modes, color schemes, progress/float display"
+          - name: "Timeline View"
+            automation_id: TimelineViewButton
+            type: menu
+
+      - name: "Scenario Generation"
+        automation_id: ScenarioGenerationRibbonGroup
+        tools:
+          - name: "Cleanse Schedule"
+            type: button
+            command: "ScheduleCleanser.ShowCommand"
+          - name: "Accelerate Schedule"
+            type: button
+            command: ShowScheduleCrasherWindowCommand
+          - name: "Schedule Realism Adviser"
+            type: button
+            command: CalibrationAdviserCommand
+          - name: "Scenario Calibration"
+            automation_id: ScenarioCalibrationMenuTool
+            type: menu
+            items:
+              - "Create Scenario" # CreateScenarioCommand
+              - "Run CPM" # RunCpmCommand
+              - "Calibration Template" # ShowCalibrationTemplateCommand
+          - name: "Export Scenario"
+            type: button
+
+      - name: "Editing"
+        tools:
+          - name: "Add Activity"
+            automation_id: AddActivityMenuTool
+            type: menu
+            items:
+              - "Add Activity" # AddActivityCommand
+              - "Add Milestone" # AddMilestoneCommand
+          - name: "Delete"
+            type: button
+            command: ProjectsRemoveCommand
+          - name: "Convert Snapshot to Project"
+            type: button
+          - name: "Contracts & Contractors"
+            automation_id: EditContractsMenuTool
+            type: menu
+
+      - name: "Publish"
+        tools:
+          - name: "Publish"
+            automation_id: ProjectsPublishedMenuTool
+            type: menu
+            items:
+              - "To Excel" # ToExcelCommand
+              - "To UN/CEFACT" # ToUncefactCommand
+              - "To MS Project MPP" # ToMSProjectMppCommand
+              - "To MS Project XML" # ToMSProjectXmlCommand
+              - "To Primavera P6 XER" # ExportToPrimaveraP6XerCommand
+              - "To Open Plan" # ExportToOpenPlanCommand
+              - "To IPMDAR Schedule" # ExportToIPMDRScheduleCommand
+              - "To IPMDAR Contract Performance" # ExportToIPMDRContractPerformanceCommand
+              - "Print and Export" # PrintAndExportCommand
+
+  # ---- S2 // Diagnostics ----
+  - tab: "S2 // Diagnostics"
+    automation_id: uxRibbons
+    enabled_when: project_imported
+    groups:
+      - name: "Ribbons"
+        notes: "Sub-component RibbonsRibbonGroup - metric selection"
+      - name: "Phases"
+        notes: "Sub-component PhasesRibbonGroup - phase navigation"
+      - name: "Intersections"
+        tools:
+          - name: "Charts"
+            type: menu
+            items: ["Area", "Bar", "Column", "Line", "Point", "Stacked", "Cumulative toggle", "Markers toggle", "Legend toggle"]
+      - name: "Tabs"
+        tools:
+          - name: "Apply To All"
+            command: ApplySettingsToAllCommand
+      - name: "Analyze"
+        tools:
+          - name: "Fuse"
+            automation_id: FuseMenuTool
+            type: menu
+            items:
+              - "Run Fuse Analysis" # FuseCommand
+              - "Adhere to Dates" # AdhereToDates
+              - "Variable Definition" # VariableDefinition.ShowCommand
+              - "Include/Exclude" # IncludeExclusions
+              - "Clear Exclusions" # ClearExclusionsCommand
+              - "Clear Annotations" # ClearAnnotationsCommand
+              - "Enable Logs" # EnableLogs
+              - "Clear Fuse Cache" # ClearFuseCacheCommand
+          - name: "Compare"
+            type: toggle
+            notes: "Toggle IsComparing mode"
+      - name: "Logic"
+        tools:
+          - name: "Trace"
+            automation_id: TraceLogicMenuTool
+            type: menu
+            items:
+              - "Toggle Logic Trace" # TraceLogicToggleCommand
+              - "Trace Forward" # TraceLogicForwardCommand
+              - "Trace Backward" # TraceLogicBackwardCommand
+              - "Trace Both Ways" # TraceLogicBothWaysCommand
+              - "Path Selection" # PathSelection.ShowDialogCommand
+              - "Driving Logic Only" # ChangeDrivingLogicSettingCommand
+      - name: "Display Settings"
+        tools:
+          - name: "Show/Hide"
+            type: menu
+            items: ["Ribbon Analyzer", "Phase Analyzer", "Show Activities", "Show Links"]
+          - name: "Reset Display"
+            command: ResetAllDisplaySettingsCommand
+      - name: "Activity Browser Modes"
+        tools:
+          - name: "Tabular View"
+            type: toggle
+          - name: "TreeMap"
+            type: toggle
+          - name: "Detailed"
+            type: toggle
+          - name: "Gantt"
+            type: toggle
+          - name: "Scorecard"
+            type: toggle
+          - name: "To Excel"
+            type: menu
+            command: "ActivityBrowser.ExportToExcelCommand"
+          - name: "Undock"
+            command: "ActivityBrowser.ShowInWindowCommand"
+      - name: "Publish"
+        tools:
+          - name: "Publish"
+            automation_id: PublishAnalysisMenuTool
+            type: menu
+            items:
+              - "Executive Briefing > To Word"
+              - "Executive Briefing > To PDF"
+              - "To Excel"
+              - "Fuse Analyst Report"
+              - "DCMA Report"
+              - "Fuse Detailed Metric Report"
+              - "Fuse Summary Metric Report"
+              - "Fuse Metric Validation Report"
+              - "Fuse Metric History Report"
+              - "Copy To Clipboard (various)"
+
+  # ---- S2 // Logic ----
+  - tab: "S2 // Logic"
+    automation_id: uxLogic
+    enabled_when: project_imported
+    groups:
+      - name: "Relationship Types"
+        tools: [{name: "All"}, {name: "FS"}, {name: "FF"}, {name: "SF"}, {name: "SS"}]
+      - name: "Lags and Leads"
+        tools: [{name: "Lags"}, {name: "Leads"}]
+      - name: "Logic Checks"
+        tools:
+          - {name: "Redundancy Index"}
+          - {name: "Circular Logic"}
+          - {name: "Open Ends"}
+          - {name: "Logic On Summaries"}
+          - {name: "Out Of Sequence"}
+          - {name: "Reverse Logic"}
+      - name: "Dangling Activities"
+        tools: [{name: "Open Starts"}, {name: "Open Finishes"}]
+      - name: "Logic Analysis"
+        tools:
+          - name: "Logic Sensitivity"
+          - name: "Logic Trace"
+            automation_id: LogicTraceMenuTool
+            type: menu
+            items: ["Forward", "Backward", "Both", "Path Selection"]
+      - name: "Publish"
+        tools: [{name: "To Excel"}, {name: "Copy to Clipboard"}, {name: "Print"}]
+
+  # ---- S2 // Benchmarking ----
+  - tab: "S2 // Benchmarking"
+    automation_id: "S2 // Benchmarking"
+    enabled_when: project_imported
+    groups:
+      - name: "Cloud Based Metric Libraries"
+        notes: "Dynamic radio buttons from Libraries.View"
+      - name: "Characteristics"
+        notes: "Project type combo box"
+      - name: "Edit"
+        tools: [{name: "Copy"}, {name: "Refresh Cloud Libraries"}, {name: "Include/Exclude"}, {name: "Refresh Analysis"}]
+
+  # ---- S3 // Risk ----
+  - tab: "S3 // Risk"
+    automation_id: RiskTab
+    enabled_when: project_imported
+    groups:
+      - name: "Views"
+        tools:
+          - name: "Left Panel"
+            type: menu
+            items: ["Activities", "Risk Events", "None", "Most Critical Paths", "Histogram", "Tornado", "Risk Input Charts", "Distribution Analyzer"]
+          - name: "Right Panel"
+            type: menu
+            items: ["Activities", "Risk Events", "None", "Most Critical Paths", "Histogram", "Tornado", "Risk Input Charts", "Distribution Analyzer"]
+          - name: "Gantt"
+            type: toggle
+          - name: "Cash Flow"
+            type: toggle
+      - name: "Editing"
+        tools:
+          - {name: "Add Activity", automation_id: AddActivityMenuTool}
+          - {name: "Delete"}
+          - {name: "Add Risk Event"}
+      - name: "Activities"
+        notes: "SmartGantt grouping/filtering/display settings (mirrors Projects tab)"
+      - name: "Analysis"
+        tools:
+          - name: "Run Risk Analysis"
+            automation_id: RunRiskAnalysisMenuTool
+            type: menu
+            items:
+              - "Uncertainty Only"
+              - "Uncertainty and Risk Events"
+              - "Uncertainty and Risk Events (Mitigated, Excluding Overhead)"
+              - "Uncertainty and Risk Events (Mitigated, Including Overhead)"
+          - name: "Iterations"
+            automation_id: RiskIteraionsSpinEdit
+            type: spin_edit
+          - name: "Converge"
+            automation_id: RiskAnalyzeUntilConvergedCheckBox
+            type: checkbox
+          - name: "Fixed Seed"
+            automation_id: RiskUseFixedSeedCheckBox
+            type: checkbox
+          - name: "Correlation"
+            automation_id: RiskCorrelationCheckBox
+            type: checkbox
+          - name: "Integrate Cost/Schedule"
+            automation_id: RiskIntegrateCostScheduleCheckBox
+            type: checkbox
+          - name: "Build Scenario"
+            automation_id: BuildScenarioMenuTool
+            type: menu
+          - name: "Run CPM Automatically"
+            automation_id: RunCpmAutomaticallyToggleButton
+            type: toggle
+      - name: "Templates"
+        tools:
+          - {name: "Distribution Template"}
+          - {name: "Risk Event Template"}
+      - name: "Risk Models"
+        tools:
+          - {name: "Risk Advisor"}
+          - {name: "Selection Sets"}
+      - name: "Import/Publish"
+        tools:
+          - {name: "Import Risk Register from Excel", automation_id: ImportRiskRegisterFromExcel}
+          - {name: "Export Risk Register to Excel", automation_id: ExportRiskRegisterToExcel}
+          - {name: "Import from Enterprise Risk", automation_id: ImportRiskRegisterFromEnterpriseRisk}
+          - {name: "Export to Enterprise Risk", automation_id: ExportRiskRegisterFromEnterpriseRisk}
+
+  # ---- S4 // Acceleration ----
+  - tab: "S4 // Acceleration"
+    automation_id: "S4 // Acceleration"
+    enabled_when: always
+    groups:
+      - name: "Library"
+        tools: [{name: "Apply Script Library"}, {name: "Merge"}, {name: "Save As Template"}]
+      - name: "Script Editor"
+        tools: [{name: "Create Script"}, {name: "Remove Script"}]
+      - name: "Step Editor"
+        tools: [{name: "Create Step"}, {name: "Remove Step"}, {name: "Create Filter Set"}]
+      - name: "Acceleration"
+        tools:
+          - name: "Accelerate Schedule"
+            command: RunAccelerationCommand
+
+  # ---- S5 // Dashboard ----
+  - tab: "S5 // Dashboard"
+    automation_id: uxDashboards
+    enabled_when: project_imported
+    groups:
+      - name: "Layout"
+        notes: "Sub-component DashboardLayoutRibbonGroup"
+      - name: "Settings"
+        tools:
+          - name: "Widgets"
+            automation_id: WidgetsMenuTool
+            type: menu
+          - name: "View Mode"
+            automation_id: WidgetModeMenuTool
+            type: menu
+            items: ["Table", "Ribbons (Horizontal)", "Ribbons (Vertical)", "Metrics (Horizontal)", "Metrics (Vertical)"]
+          - name: "Autofit"
+            type: toggle
+          - name: "Copy"
+            type: button
+      - name: "Publish"
+        tools:
+          - name: "Copy To Clipboard"
+
+  # ---- Forensics ----
+  - tab: Forensics
+    automation_id: UxEnhancedForensicsTabItem
+    enabled_when: always
+    groups:
+      - name: "Create Analysis"
+        tools: [{name: "Create"}, {name: "Remove Current"}]
+      - name: "Forensic Checks"
+        notes: "Dynamic buttons from NonFieldAnalysisButtons"
+      - name: "General Fields"
+        notes: "Dynamic buttons from GeneralFieldButtons"
+      - name: "Input Fields"
+        notes: "Dynamic buttons from InputFieldButtons"
+      - name: "Output Fields"
+        notes: "Dynamic buttons from OutputFieldButtons"
+      - name: "SmartGantt"
+        tools: [{name: "Filter"}]
+      - name: "Publish"
+        tools:
+          - name: "Publish"
+            automation_id: PublishToExcelMenuTool
+            type: menu
+            items: ["To Excel (all checks)", "Current Tab to Excel"]
+
+  # ---- Metrics ----
+  - tab: Metrics
+    automation_id: uxMetrics
+    enabled_when: always
+    groups:
+      - name: "Metrics"
+        tools: [{name: "New Group"}, {name: "New Metric"}, {name: "Sync Metric Groups"}]
+      - name: "Variables"
+        notes: "Variable definition commands"
+      - name: "Project Variables"
+        tools:
+          - {name: "New", automation_id: NewProjectVariable}
+          - {name: "Delete", automation_id: DeleteProjectVariable}
+      - name: "Calculated Fields"
+        notes: "Calculated field editing"
+      - name: "Functions"
+        notes: "Function editing"
+      - name: "Control Account Metrics"
+        notes: "CA metric editing"
+      - name: "Work Package Metrics"
+        notes: "WP metric editing"
+      - name: "Clipboard"
+        notes: "Copy/paste support"
+      - name: "Import"
+        tools: [{name: "Open Metric Library"}, {name: "Merge Metric Library"}]
+      - name: "Publish"
+        tools:
+          - name: "Publish"
+            automation_id: MetricsPublishMenuTool
+            type: menu
+
+  # ---- Fields ----
+  - tab: Fields
+    automation_id: uxFields
+    enabled_when: always
+    groups:
+      - name: "Source Fields"
+      - name: "Mapped Fields"
+      - name: "Activity Fields"
+      - name: "Templates"
+
+# ============================================================
+# AUTOMATION IDS (for wpf_find / wpf_find_by_path)
+# ============================================================
+automation_ids:
+  # -- Window --
+  window:
+    - id: TitleBar
+      type: TitleBar
+      notes: "Main window title bar"
+    - id: SystemMenuBar
+      type: MenuBar
+    - id: Minimize
+      type: Button
+    - id: Maximize
+      type: Button
+    - id: Close
+      type: Button
+
+  # -- Ribbon --
+  ribbon:
+    - id: uxRibbon
+      type: ToolBar
+      class_name: XamRibbon
+      notes: "The main ribbon control"
+    - id: uxApplicationMenu
+      type: Menu
+      class_name: ApplicationMenu
+      notes: "File/application menu button (top-left logo)"
+    - id: XamRibbonTabs
+      type: Tab
+      class_name: XamTabControl
+      notes: "Container for all ribbon tabs"
+    - id: dropdownBtn
+      type: CheckBox
+      notes: "Quick Access Toolbar dropdown toggle"
+
+  # -- Ribbon Tabs --
+  ribbon_tabs:
+    - id: uxProjects
+      type: TabItem
+      name: "S1 // Projects"
+    - id: uxRibbons
+      type: TabItem
+      name: "S2 // Diagnostics"
+    - id: uxLogic
+      type: TabItem
+      name: "S2 // Logic"
+    - id: "S2 // Benchmarking"
+      type: TabItem
+      name: "S2 // Benchmarking"
+    - id: RiskTab
+      type: TabItem
+      name: "S3 // Risk"
+    - id: "S4 // Acceleration"
+      type: TabItem
+      name: "S4 // Acceleration"
+    - id: uxDashboards
+      type: TabItem
+      name: "S5 // Dashboard"
+    - id: UxEnhancedForensicsTabItem
+      type: TabItem
+      name: "Forensics"
+    - id: uxMetrics
+      type: TabItem
+      name: "Metrics"
+    - id: uxFields
+      type: TabItem
+      name: "Fields"
+
+  # -- Ribbon Groups --
+  ribbon_groups:
+    - id: ExternalDataRibbonGroup
+      type: ToolBar
+      tab: uxProjects
+      name: "Get External Data From"
+    - id: ScenarioGenerationRibbonGroup
+      type: ToolBar
+      tab: uxProjects
+      name: "Scenario Generation"
+
+  # -- Ribbon Tools (Buttons/Menus) --
+  ribbon_tools:
+    - id: MicrosoftProjectMenuTool
+      type: Menu
+      tab: uxProjects
+    - id: OraclePrimaveraMenuTool
+      type: Menu
+      tab: uxProjects
+    - id: GetMicrosoftExcelFileButton
+      type: Menu
+      tab: uxProjects
+    - id: DeltekOpenPlanMenuTool
+      type: Menu
+      tab: uxProjects
+    - id: ImportCostDataMenu
+      type: Menu
+      tab: uxProjects
+    - id: IMPDARMenuTool
+      type: Menu
+      tab: uxProjects
+    - id: ImportAllMenuTool
+      type: Menu
+      tab: uxProjects
+    - id: DisplaySmarttGanttConfigurationWindow
+      type: Button
+      tab: uxProjects
+      notes: "SmartGantt configuration dialog launcher"
+    - id: ProjectsTableView
+      type: Menu
+      tab: uxProjects
+      name: "Activity View"
+    - id: SmartGanttMenuTool
+      type: Menu
+      tab: uxProjects
+    - id: TimelineViewButton
+      type: Menu
+      tab: uxProjects
+    - id: ScenarioCalibrationMenuTool
+      type: Menu
+      tab: uxProjects
+    - id: AddActivityMenuTool
+      type: Menu
+      tab: uxProjects
+    - id: EditContractsMenuTool
+      type: Menu
+      tab: uxProjects
+    - id: ProjectsPublishedMenuTool
+      type: Menu
+      tab: uxProjects
+    - id: SaveAsButton
+      type: Button
+      tab: application_menu
+    - id: AddMspServerMenuItem
+      type: Button
+      tab: uxProjects
+    - id: PrimaveraWebServicesImport
+      type: Button
+      tab: uxProjects
+    - id: OpenPlanImportButton
+      type: Button
+      tab: uxProjects
+    - id: ImportCostDataButton
+      type: Button
+      tab: uxProjects
+    - id: FuseMenuTool
+      type: Menu
+      tab: uxRibbons
+    - id: TraceLogicMenuTool
+      type: Menu
+      tab: uxRibbons
+    - id: ExportToExcelMenuTool
+      type: Menu
+      tab: uxRibbons
+    - id: PublishAnalysisMenuTool
+      type: Menu
+      tab: uxRibbons
+    - id: LogicTraceMenuTool
+      type: Menu
+      tab: uxLogic
+    - id: RunRiskAnalysisMenuTool
+      type: Menu
+      tab: RiskTab
+    - id: RiskIteraionsSpinEdit
+      type: SpinEdit
+      tab: RiskTab
+    - id: RiskAnalyzeUntilConvergedCheckBox
+      type: CheckBox
+      tab: RiskTab
+    - id: RiskUseFixedSeedCheckBox
+      type: CheckBox
+      tab: RiskTab
+    - id: RiskCorrelationCheckBox
+      type: CheckBox
+      tab: RiskTab
+    - id: RiskIntegrateCostScheduleCheckBox
+      type: CheckBox
+      tab: RiskTab
+    - id: BuildScenarioMenuTool
+      type: Menu
+      tab: RiskTab
+    - id: RunCpmAutomaticallyToggleButton
+      type: ToggleButton
+      tab: RiskTab
+    - id: ImportRiskRegisterFromExcel
+      type: Button
+      tab: RiskTab
+    - id: ExportRiskRegisterToExcel
+      type: Button
+      tab: RiskTab
+    - id: ImportRiskRegisterFromEnterpriseRisk
+      type: Button
+      tab: RiskTab
+    - id: ExportRiskRegisterFromEnterpriseRisk
+      type: Button
+      tab: RiskTab
+    - id: WidgetsMenuTool
+      type: Menu
+      tab: uxDashboards
+    - id: WidgetModeMenuTool
+      type: Menu
+      tab: uxDashboards
+    - id: PublishToExcelMenuTool
+      type: Menu
+      tab: UxEnhancedForensicsTabItem
+    - id: NewProjectVariable
+      type: Button
+      tab: uxMetrics
+    - id: DeleteProjectVariable
+      type: Button
+      tab: uxMetrics
+    - id: MetricsPublishMenuTool
+      type: Menu
+      tab: uxMetrics
+    - id: CurrencySymbol
+      type: ComboBox
+      tab: uxProjects
+    - id: RiskCurrencySymbol
+      type: ComboBox
+      tab: RiskTab
+
+  # -- Content Areas --
+  content:
+    - id: uxProjectsView
+      type: Custom
+      class_name: ProjectsView
+      notes: "Main content container for S1 tab"
+    - id: uxTreeView
+      type: Custom
+      class_name: ProjectsTreeView
+      notes: "Projects tree sidebar container"
+    - id: PART_TreeView
+      type: Tree
+      class_name: TreeView
+      notes: "Actual tree control inside uxTreeView"
+    - id: MinimizeButton
+      type: Button
+      notes: "Collapse projects sidebar"
+    - id: ControlHeader
+      type: Text
+      notes: "Shows 'Activities - WorkbookName'"
+    - id: PART_Timelines
+      type: Custom
+      class_name: UserControl
+      notes: "Timelines panel container"
+
+  # -- Dock Layout --
+  dock:
+    - id: DockLayoutManager
+      type: Group
+      class_name: DockLayoutManager
+      notes: "Main dock manager for panels"
+    - id: Filters
+      type: Group
+      notes: "Filters panel (collapsible)"
+    - id: BottomPanel
+      type: Group
+      notes: "Bottom activity details panel"
+    - id: PART_ExpandButton
+      type: Button
+      notes: "Panel expand/collapse buttons"
+
+  # -- Activity Grid --
+  grid:
+    - id: ActivityGrid
+      type: DataGrid
+      notes: "Main activity data grid (supports Scroll, Grid patterns)"
+    - id: SearchPanel
+      type: Pane
+      notes: "Grid search panel (offscreen by default)"
+    - id: HeaderPanel
+      type: Header
+      notes: "Grid column headers"
+    - id: AutoFilterRow
+      type: Custom
+      class_name: AutoFilterRowControl
+      notes: "Auto-filter row below headers"
+    - id: dataPresenter
+      type: Pane
+      notes: "Grid data area"
+
+  # -- Activity Details Tabs --
+  activity_details:
+    - id: DXTabControl
+      type: Tab
+      class_name: DXTabControl
+      notes: "Activity details tab strip"
+    - id: DXTabItem
+      type: TabItem
+      name: General
+    - id: DXTabItem0
+      type: TabItem
+      name: Status
+    - id: DXTabItem1
+      type: TabItem
+      name: Relationships
+    - id: DXTabItem2
+      type: TabItem
+      name: "Duration Uncertainty"
+    - id: DXTabItem3
+      type: TabItem
+      name: "Cost Uncertainty"
+    - id: DXTabItem4
+      type: TabItem
+      name: Cost
+    - id: DXTabItem5
+      type: TabItem
+      name: "Resource Assignments"
+    - id: DXTabItem6
+      type: TabItem
+      name: "Risk Events"
+    - id: DXTabItem7
+      type: TabItem
+      name: "Control Accounts / Work Packages"
+
+  # -- Activity Details Fields --
+  activity_detail_fields:
+    general: [Id, Project, Type, Description, WBS, Calendar]
+    status: [Remaining, "Remaining (Elapsed)", "Total Float", Status]
+    relationships: [Predecessors, Successors]
+    duration_uncertainty: [Remaining, "Lower %", "Upper %", "Risk Notes"]
+    cost_uncertainty: ["Remaining Cost", "Lower %", "Upper %", "Risk Notes"]
+    cost: ["Total Cost", "Actual Cost", "Remaining Cost"]
+
+  # -- Risk Tab Dialogs --
+  risk_dialogs:
+    - id: Ok
+      type: Button
+      context: "RiskCorrelationView / CorrelationView dialogs"
+    - id: Cancel
+      type: Button
+      context: "RiskCorrelationView / CorrelationView dialogs"
+    - id: CorrelationCoefficient
+      type: SpinEdit
+      context: "RiskCorrelationView / CorrelationView dialogs"
+    - id: RemoveAllCorrelations
+      type: Button
+    - id: RemoveCorrelations
+      type: Button
+    - id: AddCorrelations
+      type: Button
+    - id: AvailableActivitiesGrid
+      type: TreeList
+      context: CorrelationView
+    - id: CorrelatedActivitiesGrid
+      type: DataGrid
+      context: CorrelationView
+
+  # -- DOE PARS Dialog --
+  doe_pars_dialog:
+    - id: Ok
+      type: Button
+    - id: Cancel
+      type: Button
+    - id: ImportCostData
+      type: CheckBox
+    - id: ImportRiskData
+      type: CheckBox
+    - id: ProjectListBox
+      type: ListBox
+    - id: BaselineProjectsComboBox
+      type: ComboBox
+
+  # -- File Dialogs --
+  file_dialogs:
+    filename_field:
+      automation_id: "1148"
+      class_name: Edit
+      notes: >
+        Standard Windows file dialog filename field.
+        Interaction: click field -> Ctrl+A -> type full path -> Enter.
+        Use wpf_file_dialog tool or file_dialog macro action.
+
+# ============================================================
+# ACTIVITY GRID COLUMNS (default column set)
+# ============================================================
+activity_grid_columns:
+  - IncludeInTimeline
+  - Id
+  - Description
+  - Start
+  - Finish
+  - RemainingDuration
+  - Advice
+  - Calibration
+  - RemainingCost
+  - TotalFloat
+  - Calendar
+  - EarlyStart
+  - EarlyFinish
+  - LateStart
+  - LateFinish
+  - IsCritical
+  - "Activity Type"
+  - "Activity Status"
+  - "Percent Complete"
+  - GanttChart
+
+# ============================================================
+# STATUS BAR
+# ============================================================
+status_bar:
+  elements:
+    - name: status_text
+      class_name: FuseUserControl
+      default_value: "Ready"
+      notes: "Shows current status message"
+    - name: progress_bar
+      class_name: FuseUserControl
+      notes: "Progress bar for long operations"
+    - name: progress_percent
+      class_name: FuseUserControl
+      default_value: "0%"
+    - name: version
+      class_name: MainTrayView
+      value: "V8.12.0 x64"
+
+# ============================================================
+# PROJECTS SIDEBAR (XamOutlookBar)
+# ============================================================
+projects_sidebar:
+  class_name: XamOutlookBar
+  sections:
+    - name: Projects
+      class_name: OutlookBarGroup
+      contains:
+        - id: uxTreeView
+          type: ProjectsTreeView
+          notes: "Tree view showing workbook > projects > snapshots"
+    - name: "Explore Deltek Acumen"
+      class_name: OutlookBarGroup
+      notes: "Getting started / help section"
+  controls:
+    - id: MinimizeButton
+      action: "Collapse/expand sidebar"
+    - id: PART_VerticalSplitter
+      type: Thumb
+      action: "Resize sidebar width"
+    - id: MainOverflowMenu
+      type: Menu
+
+# ============================================================
+# COMMON WORKFLOWS (step-by-step for macro authors)
+# ============================================================
+workflows:
+  new_workbook:
+    description: "Create a new empty workbook"
+    steps:
+      - "Alt,F,N (File > New)"
+      - "Handle save prompt if existing workbook is open"
+    result: "New workbook 'Workbook1 (0)' appears in Projects pane"
+
+  open_workbook:
+    description: "Open an existing workbook file"
+    steps:
+      - "Alt,F,O (File > Open)"
+      - "Navigate file dialog to select .afw workbook file"
+      - "Handle save prompt if existing workbook is open"
+    result: "Workbook loads with all projects/snapshots"
+
+  save_workbook:
+    description: "Save the current workbook"
+    steps:
+      - "Alt,F,S (File > Save)"
+      - "If new workbook: Save As dialog appears, enter name"
+    result: "Workbook saved to disk"
+
+  close_workbook:
+    description: "Close the current workbook without saving"
+    steps:
+      - "Alt,F,C (File > Close)"
+      - "Right,Enter (select 'No' on save prompt to discard)"
+    existing_macro: close-workbook.yaml
+
+  import_xer:
+    description: "Import a Primavera P6 XER file"
+    steps:
+      - "Ensure S1 // Projects tab is active"
+      - "Alt,S,O,A (Oracle Primavera > Add File, All types)"
+      - "File dialog: navigate to XER file"
+      - "Alt,S,R,I (Import > Import All)"
+    existing_macro: import-xer.yaml
+
+  import_msp:
+    description: "Import a Microsoft Project file"
+    steps:
+      - "Ensure S1 // Projects tab is active"
+      - "Click MicrosoftProjectMenuTool > Add File"
+      - "File dialog: navigate to MPP/XML file"
+      - "Import: click ImportAllMenuTool"
+    notes: "Keytip sequence for MSP import needs live verification"
+
+  import_excel:
+    description: "Import from Microsoft Excel"
+    steps:
+      - "Ensure S1 // Projects tab is active"
+      - "Click GetMicrosoftExcelFileButton > Add File"
+      - "File dialog: navigate to XLSX file"
+      - "Import: click ImportAllMenuTool"
+
+  run_fuse_analysis:
+    description: "Run the Fuse diagnostics analysis"
+    prerequisites: "Project must be imported with activities"
+    steps:
+      - "Switch to S2 // Diagnostics tab (click uxRibbons tab)"
+      - "Click FuseMenuTool > Run Fuse Analysis (or press F9)"
+      - "Wait for analysis to complete (watch status bar)"
+    shortcut: F9
+
+  run_forensic_analysis:
+    description: "Run a forensic comparison between projects"
+    prerequisites: "Minimum 2 projects must be imported"
+    steps:
+      - "Switch to Forensics tab (click UxEnhancedForensicsTabItem)"
+      - "Click Create Analysis (starts wizard)"
+      - "Select base project, click Next"
+      - "Select comparison project(s), click Next"
+      - "Map subprojects if needed, click Next"
+      - "Select fields to compare, click Finish"
+
+  export_to_excel:
+    description: "Export diagnostics results to Excel"
+    prerequisites: "Fuse analysis must have been run"
+    steps:
+      - "On S2 // Diagnostics tab"
+      - "Click PublishAnalysisMenuTool > To Excel"
+      - "Save As dialog: enter filename"
+
+  run_risk_analysis:
+    description: "Run Monte Carlo risk analysis"
+    prerequisites: "Project imported, uncertainty assigned"
+    steps:
+      - "Switch to S3 // Risk tab (click RiskTab)"
+      - "Set iterations (RiskIteraionsSpinEdit)"
+      - "Click RunRiskAnalysisMenuTool"
+      - "Select analysis type (Uncertainty Only, etc.)"
+      - "Wait for simulation to complete"
+
+  schedule_cleanse:
+    description: "Cleanse and fix schedule flaws"
+    steps:
+      - "On S1 // Projects tab, select the project"
+      - "Click Cleanse Schedule in Scenario Generation group"
+      - "Select cleanse options in dialog"
+      - "Click OK"
+    result: "Cleanse scenario appears under the project"
+
+  accelerate_schedule:
+    description: "Run schedule acceleration"
+    steps:
+      - "Switch to S4 // Acceleration tab"
+      - "Click Accelerate Schedule in Acceleration group"
+      - "Set goal (activity or project target)"
+      - "Select acceleration script"
+      - "Click OK to run simulation"
+
+# ============================================================
+# UI NAVIGATION TIPS (for AI agents)
+# ============================================================
+navigation_tips:
+  - tip: "Use keytips (Alt + letter sequences) for fastest navigation. Verified sequences are in the keytips.verified_sequences section."
+  - tip: "Tabs can be clicked directly using wpf_find with automation_id (e.g., 'uxProjects', 'uxRibbons', 'RiskTab')"
+  - tip: "Menu tools are split buttons - clicking the top half triggers the default action, clicking the bottom arrow opens the submenu"
+  - tip: "Many tabs (Diagnostics, Logic, Risk, Dashboard) are disabled until a project is imported"
+  - tip: "The Projects sidebar (XamOutlookBar) shows the workbook hierarchy. Use uxTreeView to find project nodes."
+  - tip: "Activity Grid supports Scroll and Grid patterns - use these for reading cell data"
+  - tip: "Status bar shows 'Ready' when idle - poll this to know when operations complete"
+  - tip: "The application menu (file menu) is accessed via uxApplicationMenu or keytip Alt,F"
+  - tip: "File dialogs use AutomationId '1148' for the filename field - use wpf_file_dialog tool"
+  - tip: "Window title format is '<WorkbookName> - Deltek Acumen' after a workbook is opened"
+  - tip: "For send_keys, use comma-separated keys for sequential presses (e.g., 'Alt,F,C') and + for simultaneous (e.g., 'Ctrl+A')"
+  - tip: "After importing data, wait for status bar to return to 'Ready' before proceeding"
+  - tip: "Right-click context menus exist in the Projects tree and Activity Grid"
+
+# ============================================================
+# SUPPORTED DATA FORMATS
+# ============================================================
+data_formats:
+  import:
+    - name: "Oracle Primavera P6"
+      extensions: [".xer", ".xml", ".pln"]
+      tool_id: OraclePrimaveraMenuTool
+    - name: "Microsoft Project"
+      extensions: [".mpp", ".xml"]
+      tool_id: MicrosoftProjectMenuTool
+    - name: "Microsoft Excel"
+      extensions: [".xls", ".xlsx"]
+      tool_id: GetMicrosoftExcelFileButton
+    - name: "Deltek Open Plan"
+      extensions: [".opp", ".bk3"]
+      tool_id: DeltekOpenPlanMenuTool
+    - name: "Cost Data (CSV/Cobra/WAD/IPMDAR)"
+      tool_id: ImportCostDataMenu
+    - name: "IPMDAR"
+      tool_id: IMPDARMenuTool
+    - name: "DOE PARS"
+      command: GetDOEPARSFileCommand
+    - name: "Phoenix Project Manager"
+      command: GetPhoenixFileCommand
+    - name: "Asta Powerproject"
+      command: GetAstaFileCommand
+    - name: "UN/CEFACT XML"
+      command: GetUncefactFileCommand
+    - name: "Safran"
+      command: GetSafranFileCommand
+
+  export:
+    - name: "Microsoft Excel"
+      command: ToExcelCommand
+    - name: "UN/CEFACT XML"
+      command: ToUncefactCommand
+    - name: "Microsoft Project MPP"
+      command: ToMSProjectMppCommand
+    - name: "Microsoft Project XML"
+      command: ToMSProjectXmlCommand
+    - name: "Oracle Primavera P6 XER"
+      command: ExportToPrimaveraP6XerCommand
+    - name: "Deltek Open Plan"
+      command: ExportToOpenPlanCommand
+    - name: "IPMDAR Schedule"
+      command: ExportToIPMDRScheduleCommand
+    - name: "IPMDAR Contract Performance"
+      command: ExportToIPMDRContractPerformanceCommand
+
+  workbook:
+    extension: ".afw"
+    notes: "Acumen Fuse Workbook format. Contains all imported data, analysis results, and settings."

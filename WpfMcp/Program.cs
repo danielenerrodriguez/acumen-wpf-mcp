@@ -146,7 +146,8 @@ static IHost BuildMcpHost(string[] hostArgs)
             };
         })
         .WithStdioServerTransport()
-        .WithToolsFromAssembly();
+        .WithToolsFromAssembly()
+        .WithResourcesFromAssembly();
     return builder.Build();
 }
 
