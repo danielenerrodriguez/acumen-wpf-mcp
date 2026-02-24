@@ -55,8 +55,8 @@ update_instructions:
       - "Use save_as aliases in find steps and reference them in subsequent click/type steps"
       - "Extract variable values (file paths, search terms) as parameters with defaults"
       - "Keep total cumulative wait under 12-15 seconds to avoid MCP tool timeout"
-      - "Prefer inlined steps over nested sub-macros to avoid cumulative timeout issues"
-      - "Include blind dialog dismissal steps (e.g., Left,Enter for overwrite, Tab,Enter for Mentor) even when dialogs may not appear — harmless if no dialog is present"
+      - "NEVER use action: macro (sub-macro calls) — they will always exceed the MCP client timeout (~15-20s). Always inline the sub-macro steps directly into the parent macro YAML instead."
+      - "Include blind dialog dismissal steps (e.g., Left,Enter for overwrite, Tab,Enter for Mentor) even when dialogs may not appear — harmless if no dialog is present. Note: Mentor dialogs only appear on S3 Risk tabs, not on other tabs."
       - "Prefer wait_for_enabled over static wait steps when waiting for import/processing to complete — use automation_id: uxRibbons with timeout: 30 to poll until tabs become enabled"
 
   # Inline annotation conventions for AI agents
@@ -1441,10 +1441,11 @@ automation_ids:
   # -- Deltek Mentor Suggestions Dialog --
   mentor_dialog:
     description: >
-      A modal "Deltek Mentor Suggestions" dialog that appears during certain
-      operations (e.g., running Risk Analysis, first tab activation). It blocks
-      all input to the main window. Multiple dialogs may fire in sequence —
-      always check for additional dialogs after dismissing one.
+      A modal "Deltek Mentor Suggestions" dialog that appears ONLY on S3 Risk
+      tabs — specifically when running Risk Analysis or activating the S3 Risk
+      tab for the first time. It does NOT appear on other tabs (S1, S2, S4, S5,
+      etc.). It blocks all input to the main window. Multiple dialogs may fire
+      in sequence — always check for additional dialogs after dismissing one.
     status: verified
     last_tested: "2026-02-24"
     window_class: "#32770"
@@ -1821,7 +1822,7 @@ navigation_tips:
   - tip: "DO NOT use the import-file macro — it is broken. The Fuse application menu has no 'Import' item. Use import-xer macro instead (imports via ribbon: Alt,S,O,A for P6 files)."
   - tip: "The Publish menu item for Excel export is named 'To Microsoft Excel®' (with ® symbol), not 'To Excel'."
   - tip: "wpf_screenshot only captures the main application window — modal file dialogs and OS dialogs are NOT captured. Trust keytip sequences and use appropriate dialog interaction method."
-  - tip: "MCP TOOL TIMEOUT: There is a ~15-20 second timeout on MCP tool invocations. Macros with total wait time >12s will fail silently. Keep individual wait steps to 2-3 seconds max. Avoid deeply nested macros — flatten into inline steps instead."
+  - tip: "MCP TOOL TIMEOUT: There is a ~15-20 second timeout on MCP tool invocations. Macros with total wait time >12s will fail silently. Keep individual wait steps to 2-3 seconds max. NEVER use action: macro (sub-macro calls) — they will always exceed the timeout. Always inline steps directly."
   - tip: "SAVE PROMPT: File > New, File > Open, and File > Close will trigger a save prompt dialog if the workbook has unsaved changes. The dialog has Yes/No/Cancel buttons. Use wpf_find(automation_id=CommandButton_7) to click 'No' to discard."
   - tip: "Window title format is '<WorkbookName> - Deltek Acumen' after a workbook is opened"
   - tip: "For send_keys, use comma-separated keys for sequential presses (e.g., 'Alt,F,C') and + for simultaneous (e.g., 'Ctrl+A')"

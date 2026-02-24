@@ -210,7 +210,7 @@ This is useful for navigating deep into the control tree where a simple `wpf_fin
 
 ## Macros
 
-Macros are reusable, YAML-defined step sequences that automate common UI workflows. They support parameters, timeouts, retry logic for find operations, and nested macro calls.
+Macros are reusable, YAML-defined step sequences that automate common UI workflows. They support parameters, timeouts, and retry logic for find operations.
 
 ### Folder Structure
 
@@ -268,10 +268,6 @@ steps:
     ref: importMenuItem             # Click a saved element
   - action: type
     text: "{{filePath}}"            # Parameter substitution
-  - action: macro
-    macro_name: acumen-fuse/open-file-menu  # Nested macro call
-    params:
-      someParam: "{{filePath}}"     # Pass params to nested macro
 ```
 
 ### Supported Actions
@@ -296,7 +292,7 @@ steps:
 | `properties` | Get element properties | `ref` |
 | `launch` | Launch an application | `exe_path`, `arguments`, `working_directory`, `if_not_running`, `timeout` |
 | `wait_for_window` | Wait for window to be ready | `title_contains`, `timeout`, `retry_interval` |
-| `macro` | Execute a nested macro | `macro_name`, `params` |
+| `macro` | Execute a nested macro (not recommended — will exceed MCP client timeout) | `macro_name`, `params` |
 
 ### Parameter Substitution
 

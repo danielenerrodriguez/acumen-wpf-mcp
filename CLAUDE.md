@@ -125,14 +125,12 @@ steps:
     keys: "Ctrl+S"
   - action: wait
     seconds: 2
-  - action: macro
-    macro_name: subfolder/other-macro
-    params:
-      key: value
 ```
 
 ### Step Types
-`launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys` (alias), `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `macro`
+`launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys` (alias), `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`
+
+> **Note:** `macro` (sub-macro) step type exists in the engine but should NOT be used — it will always exceed the MCP client timeout. Inline the sub-macro steps instead.
 
 ### Macros Path Resolution
 `Constants.ResolveMacrosPath()`: explicit `--macros-path` arg > `WPFMCP_MACROS_PATH` env var > `macros/` next to exe
@@ -242,7 +240,8 @@ AI agents can save workflows they've performed as reusable macro YAML files usin
 
 ## Discoveries & Gotchas
 
-- **MCP Tool Timeout (~15-20s)**: Keep macros fast. Reduce `wait` steps to 2-3s max. Total cumulative wait across nested macros must stay under ~12-15s.
+- **MCP Tool Timeout (~15-20s)**: The MCP client (OpenCode) has a hard ~15-20s timeout on tool call responses. This cannot be configured. Keep macros fast. Reduce `wait` steps to 2-3s max.
+- **Do NOT use sub-macros (`action: macro`)**: Nested macro calls via the `macro` step type will always exceed the MCP client timeout because the parent macro's execution time includes the full sub-macro duration. Always **inline** the steps from sub-macros directly into the parent macro YAML instead of using `action: macro`. The `macro` step type exists in the engine but is not usable in practice due to this timeout constraint.
 - **File dialogs**: Two types — standard Win32 (`AutomationId="1148"`, `wpf_file_dialog` works) and DirectUI Save (`AutomationId="FileNameControlHost"`, must use `wpf_find` + `wpf_type` + `Enter`).
 - **`wpf_screenshot` only captures main app window** — modal OS dialogs are NOT visible.
 - **Sample file gotcha**: `Initial  Plan.xer` has a double space in the filename.

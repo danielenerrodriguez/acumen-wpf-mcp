@@ -1,6 +1,6 @@
-name: Import XER and Run Analysis
-description: Complete workflow - imports a P6 XER file and runs Fuse diagnostics analysis
-timeout: 60
+name: import-xer-logic-fs
+description: Imports a P6 XER file into Acumen Fuse, switches to the S2 Logic tab, and selects the Finish to Start relationship type
+timeout: 120
 parameters:
   - name: filePath
     description: Full path to the XER file to import
@@ -12,7 +12,7 @@ parameters:
     default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
 
 steps:
-  # 1. Ensure Fuse is running (inlined from acumen-fuse/launch)
+  # -- Inlined from acumen-fuse/launch --
   - action: launch
     exe_path: '{{exePath}}'
     if_not_running: true
@@ -22,36 +22,35 @@ steps:
     timeout: 90
     retry_interval: 2
 
-  # 2. Open file dialog via keytips (S1 Projects > Oracle Primavera > All types)
+  # -- Inlined from acumen-fuse/import-xer --
   - action: focus
   - action: send_keys
     keys: Alt,S,O,A
-
-  # 3. Navigate the file dialog to the XER file
   - action: file_dialog
     text: '{{filePath}}'
-    timeout: 10
-
-  # 4. Wait for file to load, then import all
+    timeout: 15
   - action: wait
-    seconds: 1
+    seconds: 2
   - action: focus
   - action: send_keys
     keys: Alt,S,R,I
-
-  # 5. Wait for import to complete (tabs become enabled), then switch to Diagnostics tab and run analysis
   - action: wait_for_enabled
     automation_id: uxRibbons
     timeout: 30
-  - action: find
-    automation_id: uxRibbons
-    timeout: 5
-    save_as: diagnosticsTab
-  - action: click
-    ref: diagnosticsTab
-  - action: send_keys
-    keys: F9
 
-  # 6. Brief wait for analysis to complete
-  - action: wait
-    seconds: 2
+  # -- Inlined from acumen-fuse/switch-to-tab (uxLogic) --
+  - action: focus
+  - action: find
+    automation_id: uxLogic
+    timeout: 5
+    save_as: logicTab
+  - action: click
+    ref: logicTab
+
+  # -- Select Finish to Start relationship type --
+  - action: find
+    name: Finish to Start
+    control_type: RadioButton
+    save_as: fsBtn
+  - action: click
+    ref: fsBtn
