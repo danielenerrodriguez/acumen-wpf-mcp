@@ -59,7 +59,8 @@ The machine has .NET 10 preview SDK installed; we target `net9.0-windows`.
 
 ### NuGet
 - Local `nuget.config` with `<clear />` needed to avoid Infragistics NuGet source errors
-- `ModelContextProtocol` NuGet version: `0.6.0-preview.1`
+- `ModelContextProtocol` NuGet version: `0.9.0-preview.2`
+- Server instructions (`options.ServerInstructions`) inject macro list + full knowledge base YAML at MCP handshake
 
 ### Publish / Runtime
 - `publish/` folder must include `runtimes/` subdirectory — `System.Text.Encodings.Web` v10.0.0.0 assembly is needed at runtime

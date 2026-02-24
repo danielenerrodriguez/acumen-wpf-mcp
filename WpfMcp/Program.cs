@@ -44,7 +44,7 @@ if (args.Contains("--mcp-connect"))
 // --mcp: standard stdio MCP server (non-elevated, direct mode — for testing only)
 if (args.Contains("--mcp"))
 {
-    await BuildMcpHost(args).RunAsync();
+    await BuildMcpHost(args, macrosPath).RunAsync();
     return;
 }
 
@@ -119,7 +119,7 @@ async Task RunMcpConnectAsync(string[] cliArgs)
 
     Console.Error.WriteLine("[WPF MCP] MCP server ready (proxied mode).");
 
-    using var app = BuildMcpHost(cliArgs);
+    using var app = BuildMcpHost(cliArgs, macrosPath);
     await app.RunAsync();
 
     proxy.Dispose();
@@ -128,7 +128,7 @@ async Task RunMcpConnectAsync(string[] cliArgs)
 // =====================================================================
 // Shared MCP host builder
 // =====================================================================
-static IHost BuildMcpHost(string[] hostArgs)
+static IHost BuildMcpHost(string[] hostArgs, string? macrosPathOverride = null)
 {
     var builder = Host.CreateApplicationBuilder(hostArgs);
     builder.Logging.ClearProviders();
@@ -144,11 +144,64 @@ static IHost BuildMcpHost(string[] hostArgs)
                 Name = Constants.ServerName,
                 Version = Constants.ServerVersion
             };
+            options.ServerInstructions = BuildServerInstructions(macrosPathOverride);
         })
         .WithStdioServerTransport()
         .WithToolsFromAssembly()
         .WithResourcesFromAssembly();
     return builder.Build();
+}
+
+// =====================================================================
+// Build MCP server instructions from macros + knowledge bases
+// =====================================================================
+static string BuildServerInstructions(string? macrosPathOverride)
+{
+    try
+    {
+        using var engine = new MacroEngine(macrosPathOverride, enableWatcher: false);
+        var sb = new System.Text.StringBuilder();
+
+        // Macro list
+        var macros = engine.List();
+        if (macros.Count > 0)
+        {
+            sb.AppendLine("# Available Macros");
+            sb.AppendLine();
+            foreach (var m in macros)
+            {
+                sb.Append($"- **{m.Name}**: {m.Description}");
+                if (m.Parameters.Count > 0)
+                {
+                    var paramList = string.Join(", ", m.Parameters.Select(p =>
+                        p.Required ? $"{p.Name} (required)" : $"{p.Name}={p.Default ?? "optional"}"));
+                    sb.Append($"  [{paramList}]");
+                }
+                sb.AppendLine();
+            }
+            sb.AppendLine();
+        }
+
+        // Full knowledge base content
+        var knowledgeBases = engine.KnowledgeBases;
+        if (knowledgeBases.Count > 0)
+        {
+            foreach (var kb in knowledgeBases)
+            {
+                sb.AppendLine($"# Knowledge Base: {kb.ProductName}");
+                sb.AppendLine();
+                sb.AppendLine(kb.FullContent);
+                sb.AppendLine();
+            }
+        }
+
+        var result = sb.ToString().TrimEnd();
+        return result.Length > 0 ? result : "No macros or knowledge bases loaded.";
+    }
+    catch (Exception ex)
+    {
+        return $"Failed to load macros/knowledge bases: {ex.Message}";
+    }
 }
 
 // =====================================================================
