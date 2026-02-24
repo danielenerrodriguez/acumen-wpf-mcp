@@ -35,7 +35,7 @@ cmd.exe /c "taskkill /IM WpfMcp.exe /F 2>nul"
 # Build
 cmd.exe /c "cd /d C:\WpfMcp && dotnet build WpfMcp.slnx"
 
-# Test (126 tests)
+# Test (111 tests)
 cmd.exe /c "cd /d C:\WpfMcp && dotnet test WpfMcp.Tests"
 
 # Release build + local publish
@@ -80,7 +80,7 @@ private static string? GetStringArg(JsonElement args, string name) =>
 ```
 
 ### YamlDotNet Configuration
-Always use `UnderscoredNamingConvention` and `IgnoreUnmatchedProperties`. Use `[YamlMember(Alias = "...")]` attributes on POCOs.
+Always use `UnderscoredNamingConvention` and `IgnoreUnmatchedProperties`. Use `[YamlMember(Alias = "...")]` attributes on POCOs. Shared deserializer/serializer instances live in `YamlHelpers.cs` — never create inline instances.
 
 ### ControlType Lookup
 Uses reflection-based static dictionary on `ControlType`'s public fields.
@@ -90,6 +90,7 @@ Uses reflection-based static dictionary on `ControlType`'s public fields.
 
 ### xUnit Test Isolation
 - Pipe tests must use unique pipe names per test (GUID suffix) since xUnit runs in parallel
+- `WpfToolsTests` and `ProxyResponseFormattingTests` share the static `WpfTools.Proxy` — both use `[Collection("WpfTools")]` to prevent parallel execution
 - MacroEngine tests use `enableWatcher: false` constructor param to avoid filesystem race conditions
 - FileSystemWatcher tests need ~1500ms delay for debounce (500ms) + processing
 
@@ -193,7 +194,7 @@ data_formats: { ... }           # Supported import/export formats
 | File | Purpose |
 |------|---------|
 | `WpfMcp/Program.cs` | Entry point: mode routing (`--server`, `--mcp-connect`, `--mcp`, drag-drop, CLI) |
-| `WpfMcp/Constants.cs` | Shared constants, `ResolveMacrosPath()` |
+| `WpfMcp/Constants.cs` | Shared constants, `ResolveMacrosPath()`, `Commands` nested class for proxy command names |
 | `WpfMcp/Tools.cs` | 16 MCP tool definitions |
 | `WpfMcp/UiaEngine.cs` | Core UI Automation engine (STA thread, SendInput, launch, wait) |
 | `WpfMcp/UiaProxy.cs` | Proxy client/server over named pipe |
@@ -201,7 +202,9 @@ data_formats: { ... }           # Supported import/export formats
 | `WpfMcp/MacroEngine.cs` | Load/validate/execute/save macros, FileSystemWatcher, knowledge base loading |
 | `WpfMcp/MacroSerializer.cs` | YAML serialization (`ToYaml`, `SaveToFile`) |
 | `WpfMcp/CliMode.cs` | Interactive CLI for manual testing |
-| `WpfMcp/ElementCache.cs` | Thread-safe element reference cache (e1, e2, ...) |
+| `WpfMcp/ElementCache.cs` | Thread-safe LRU element reference cache (e1, e2, ..., max 500) |
+| `WpfMcp/JsonHelpers.cs` | Shared JSON array parsing utilities (`ParseJsonArray`, `ConvertJsonElement`) |
+| `WpfMcp/YamlHelpers.cs` | Shared YAML deserializer/serializer singleton instances |
 | `WpfMcp/Resources.cs` | MCP resources — `knowledge://{productName}` endpoint |
 
 ## Macro Saving (`wpf_save_macro`)
@@ -219,7 +222,7 @@ AI agents can save workflows they've performed as reusable macro YAML files usin
 ### Key Design Decisions
 - Steps passed as JSON string in, written as clean YAML out
 - Product folder auto-derived from attached process matching knowledge base `application.process_name`
-- Validation against 20 known action types with per-action required field checks
+- Validation against 21 known action types with per-action required field checks
 - `force` parameter (bool, default false) for overwrite protection
 - `SaveMacroResult` record returns `(Ok, FilePath, MacroName, Message)`
 
@@ -233,8 +236,9 @@ AI agents can save workflows they've performed as reusable macro YAML files usin
 ### Files Modified
 - `MacroDefinition.cs` — `SaveMacroResult` record
 - `MacroEngine.cs` — `SaveMacro()`, `GetProductFolder()`, `ValidateSteps()`, `MacrosPath` property
-- `Tools.cs` — `wpf_save_macro` MCP tool + `ParseStepsJson()` / `ConvertJsonElement()` helpers
-- `UiaProxy.cs` — `saveMacro` case in `ExecuteCommand()` + `ParseJsonArray()` / `ConvertJsonElement()` helpers
+- `Tools.cs` — `wpf_save_macro` MCP tool (uses `JsonHelpers.ParseJsonArray`)
+- `UiaProxy.cs` — `saveMacro` case in `ExecuteCommand()` (uses `JsonHelpers.ParseJsonArray`)
+- `JsonHelpers.cs` — shared `ParseJsonArray()` / `ConvertJsonElement()` utilities
 - `UiaEngine.cs` — `ProcessName` property
 - `_knowledge.yaml` — `saving_workflows` section under `update_instructions`
 

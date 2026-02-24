@@ -53,9 +53,9 @@ The `--mcp-connect` process auto-launches the elevated server if it isn't alread
 │  WpfMcp.exe --mcp-connect              (non-elevated process)   │
 │                                                                 │
 │  Program.cs         Mode routing, auto-launches elevated server │
-│  Tools.cs           19 MCP tool definitions (incl. macros+rec)  │
+│  Tools.cs           16 MCP tool definitions                     │
 │  UiaProxyClient     Sends JSON requests over named pipe         │
-│  ElementCache       Thread-safe ref cache (e1, e2, ...)         │
+│  ElementCache       Thread-safe LRU ref cache (e1, e2, max 500) │
 │  Constants          Shared config (pipe name, timeouts, etc.)   │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ named pipe (WpfMcp_UIA)
@@ -183,9 +183,6 @@ Runs a standard MCP stdio server without elevation. Only works if the target app
 | `wpf_macro` | Execute a named macro with optional parameters |
 | `wpf_macro_list` | List all available macros, parameters, and knowledge base summaries |
 | `wpf_save_macro` | Save a workflow as a reusable macro YAML file (auto-derives product folder) |
-| `wpf_record_start` | Start recording user interactions as a macro |
-| `wpf_record_stop` | Stop recording and save the macro YAML file |
-| `wpf_record_status` | Check recording state, action count, and duration |
 
 ### Element References
 
@@ -292,6 +289,7 @@ steps:
 | `properties` | Get element properties | `ref` |
 | `launch` | Launch an application | `exe_path`, `arguments`, `working_directory`, `if_not_running`, `timeout` |
 | `wait_for_window` | Wait for window to be ready | `title_contains`, `timeout`, `retry_interval` |
+| `wait_for_enabled` | Wait for element to become enabled/disabled | `automation_id`, `name`, `ref`, `enabled`, `timeout`, `retry_interval` |
 | `macro` | Execute a nested macro (not recommended — will exceed MCP client timeout) | `macro_name`, `params` |
 
 ### Parameter Substitution
@@ -366,7 +364,7 @@ The `wpf_save_macro` tool lets AI agents save workflows they've just performed a
 1. The agent performs a workflow using individual MCP tools (`wpf_find`, `wpf_click`, `wpf_send_keys`, etc.)
 2. The agent calls `wpf_save_macro` with the steps as a JSON array
 3. The tool auto-derives the product folder by matching the attached process name against knowledge base `process_name` fields
-4. Steps are validated against 20 known action types with per-action required field checks
+4. Steps are validated against 21 known action types with per-action required field checks
 5. The macro is written as clean YAML to `{macrosPath}/{productFolder}/{name}.yaml`
 6. The FileSystemWatcher auto-reloads it immediately — it's available via `wpf_macro` right away
 
@@ -393,63 +391,9 @@ By default, saving fails if a macro with the same name already exists. Pass `for
 ### Validation
 
 Steps are validated before writing:
-- All action types must be known (20 supported actions)
+- All action types must be known (21 supported actions)
 - Required fields are checked per action type (e.g., `send_keys` requires `keys`, `find` requires at least one search property)
 - Clear error messages reference the step number and missing field
-
-## Macro Recording
-
-The macro recording feature captures user interactions with the target WPF application and generates YAML macro files automatically. This is useful for creating macro drafts that can then be reviewed and refined.
-
-### How It Works
-
-Recording uses **low-level Windows input hooks** (`WH_MOUSE_LL` and `WH_KEYBOARD_LL`) combined with UIA `AutomationElement.FromPoint()` to identify which element the user clicked:
-
-1. **Mouse clicks** are filtered to only the target application's window. Each click resolves the element at the cursor position and records its AutomationId, Name, ClassName, and ControlType.
-2. **Keyboard input** goes through a state machine that detects:
-   - **Typing**: Consecutive character keystrokes are coalesced into a single `type` step (300ms window)
-   - **Keyboard combos**: `Ctrl+S`, `Alt+Shift+N` (modifier keys held simultaneously)
-   - **Sequential keys**: `Alt,F` (Alt released alone, then F pressed within 500ms — for ribbon keytips)
-   - **Special keys**: `Enter`, `Tab`, `Escape`, F-keys, etc.
-3. **Wait detection**: Gaps longer than 1.5 seconds between actions produce `wait` steps, capped at 10 seconds.
-4. Each recorded click becomes a `find` + `click` step pair, using the best available element identifier (AutomationId > Name+ControlType > ClassName+ControlType).
-
-### Recording Workflow
-
-```
-1. Attach to the target app     →  wpf_attach  process_name="Fuse"
-2. Start recording               →  wpf_record_start  name="acumen-fuse/my-workflow"
-3. Interact with the app         →  (click buttons, type text, use keyboard shortcuts)
-4. Stop recording                →  wpf_record_stop
-5. Review the generated YAML     →  AI reviews and edits the macro before use
-6. Run the macro                 →  wpf_macro  name="acumen-fuse/my-workflow"
-```
-
-### CLI Commands
-
-```
-record-start <name>   Start recording (e.g., record-start acumen-fuse/my-workflow)
-record-stop           Stop recording and save the YAML file
-record-status         Show recording state, action count, and duration
-```
-
-### Output
-
-The recorded macro is saved to the macros folder (next to the exe) using the name as a relative path:
-
-- `record-start acumen-fuse/my-workflow` → `macros/acumen-fuse/my-workflow.yaml`
-- `record-start quick-test` → `macros/quick-test.yaml`
-
-Subdirectories are created automatically. The file watcher picks up the new file immediately.
-
-The `wpf_record_stop` tool also returns the generated YAML in the response, so the AI agent can review and suggest edits before the macro is used in production.
-
-### Important Notes
-
-- Recording runs on the **elevated server process** (hooks require the same privilege level as the target)
-- Only interactions with the **attached target process** are captured (mouse clicks filtered by window ownership, keyboard filtered by foreground window check)
-- Mouse **moves** are ignored — only clicks are recorded
-- The recorder must be started and stopped through the proxy (`--mcp-connect` mode) or CLI mode — not direct MCP mode
 
 ## Knowledge Bases
 
@@ -539,15 +483,16 @@ C:\WpfMcp\
   WpfMcp/
     WpfMcp.csproj                       Main project (.NET 9, WPF)
     Program.cs                          Entry point, mode routing, auto-launch logic
-    Constants.cs                        Shared constants (pipe name, timeouts, JSON options)
-    ElementCache.cs                     Thread-safe element reference cache (e1, e2, ...)
-    Tools.cs                            19 MCP tool definitions (16 core + 3 recording)
+    Constants.cs                        Shared constants (pipe name, timeouts, JSON options, Commands)
+    ElementCache.cs                     Thread-safe LRU element reference cache (e1, e2, ..., max 500)
+    Tools.cs                            16 MCP tool definitions
     UiaEngine.cs                        Core UI Automation engine (STA thread, SendInput)
     UiaProxy.cs                         Proxy client/server for named pipe communication
     MacroDefinition.cs                  YAML-deserialized POCOs for macros + KnowledgeBase + SaveMacroResult records
     MacroEngine.cs                      Load, validate, execute, save macros; knowledge base loading
-    MacroSerializer.cs                  YAML serialization and BuildFromRecordedActions
-    InputRecorder.cs                    Low-level hooks, keyboard state machine, recording
+    MacroSerializer.cs                  YAML serialization (`ToYaml`, `SaveToFile`)
+    JsonHelpers.cs                      Shared JSON array parsing utilities
+    YamlHelpers.cs                      Shared YAML deserializer/serializer instances
     Resources.cs                        MCP resources (knowledge://{productName} endpoint)
     CliMode.cs                          Interactive CLI for manual testing
   publish/
@@ -566,10 +511,13 @@ C:\WpfMcp\
     WpfMcp.exe                          Build output (gitignored)
     *.dll                               Build output (gitignored)
   WpfMcp.Tests/
-    WpfMcp.Tests.csproj                 xUnit test project (126 tests)
-    MacroEngineTests.cs                 59 tests for macro loading, validation, execution, saving
-    MacroSerializerTests.cs             16 tests for YAML serialization and action building
-    InputRecorderTests.cs               13 tests for recorder state and wait computation
+    WpfMcp.Tests.csproj                 xUnit test project (111 tests)
+    MacroEngineTests.cs                 73 tests for macro loading, validation, execution, saving
+    MacroSerializerTests.cs             6 tests for YAML serialization round-trips
+    WpfToolsTests.cs                    9 tests for MCP tool input validation
+    ProxyResponseFormattingTests.cs     9 tests for proxy response formatting
+    UiaProxyProtocolTests.cs            7 tests for named pipe protocol
+    UiaProxyClientTests.cs              3 tests for proxy client edge cases
 ```
 
 ## Troubleshooting
