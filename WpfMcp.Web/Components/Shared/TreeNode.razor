@@ -1,7 +1,7 @@
 @inject IAppState State
 
 <div>
-    <div class="tree-node flex items-center gap-1 py-0.5 px-1 cursor-pointer rounded @(IsSelected ? "selected" : "")"
+    <div class="tree-node flex items-center gap-1 py-0.5 px-1 cursor-pointer rounded @NodeCssClass"
          style="padding-left: @(Depth * 16 + 4)px"
          @onclick="Select">
 
@@ -40,7 +40,7 @@
     {
         @foreach (var child in _children)
         {
-            <TreeNode Node="child" Depth="Depth + 1" SelectedRefKey="@SelectedRefKey" OnSelect="OnSelect" />
+            <TreeNode Node="child" Depth="Depth + 1" SelectedRefKey="@SelectedRefKey" HighlightRuntimeId="@HighlightRuntimeId" OnSelect="OnSelect" />
         }
     }
 </div>
@@ -49,12 +49,19 @@
     [Parameter, EditorRequired] public ElementInfo Node { get; set; } = default!;
     [Parameter] public int Depth { get; set; }
     [Parameter] public string? SelectedRefKey { get; set; }
+    [Parameter] public string? HighlightRuntimeId { get; set; }
     [Parameter] public EventCallback<string> OnSelect { get; set; }
 
     private bool _expanded;
     private List<ElementInfo>? _children;
 
     private bool IsSelected => SelectedRefKey == Node.RefKey;
+    private bool IsHighlighted => !string.IsNullOrEmpty(HighlightRuntimeId)
+        && !string.IsNullOrEmpty(Node.RuntimeId)
+        && HighlightRuntimeId == Node.RuntimeId
+        && !IsSelected;
+
+    private string NodeCssClass => IsSelected ? "selected" : IsHighlighted ? "watched" : "";
 
     private async Task ToggleExpand()
     {

@@ -83,7 +83,8 @@ public record ElementInfo(
     string AutomationId,
     string ClassName,
     string FrameworkId,
-    bool HasChildren);
+    bool HasChildren,
+    string RuntimeId = "");
 
 public record ActionResult(bool Success, string Message);
 
@@ -103,6 +104,7 @@ public record WatchEntry(
     string Name,
     string? RefKey,
     Dictionary<string, string> Properties,
+    string? RuntimeId = null,
     string? ChangedProperty = null,
     string? OldValue = null,
     string? NewValue = null,

@@ -32,6 +32,7 @@ internal sealed class AppState : IAppState
     private string? _lastFocusedRuntimeId;
     private string? _lastHoverRuntimeId;
     private string? _watchSelectedRef;
+    private string? _watchSelectedRuntimeId;
     private Dictionary<string, string>? _watchSelectedProps;
 
     public bool IsWatching => _currentSession?.IsActive == true;
@@ -363,6 +364,7 @@ internal sealed class AppState : IAppState
         _lastFocusedRuntimeId = null;
         _lastHoverRuntimeId = null;
         _watchSelectedRef = null;
+        _watchSelectedRuntimeId = null;
         _watchSelectedProps = null;
 
         _watchTimer?.Dispose();
@@ -392,6 +394,7 @@ internal sealed class AppState : IAppState
             var entry = new WatchEntry(
                 DateTime.Now, WatchEntryKind.Keypress,
                 ct, aid, name, refKey, props,
+                RuntimeId: _watchSelectedRuntimeId,
                 KeyName: keyName, KeyCombo: keyCombo);
             RecordWatchEntry(entry);
             Log(Web.LogLevel.Info, $"Key: {keyCombo}", refKey);
@@ -453,11 +456,12 @@ internal sealed class AppState : IAppState
                     var entry = new WatchEntry(
                         DateTime.Now, WatchEntryKind.Focus,
                         focusInfo.ControlType, focusInfo.AutomationId, focusInfo.Name,
-                        focusInfo.RefKey, focusProps);
+                        focusInfo.RefKey, focusProps, RuntimeId: rid);
                     RecordWatchEntry(entry);
                     LogWatchEvent("Focus", focusInfo, focusProps);
 
                     _watchSelectedRef = focusInfo.RefKey;
+                    _watchSelectedRuntimeId = rid;
                     _watchSelectedProps = focusProps;
                 }
             }
@@ -478,13 +482,14 @@ internal sealed class AppState : IAppState
                     var entry = new WatchEntry(
                         DateTime.Now, WatchEntryKind.Hover,
                         hoverInfo.ControlType, hoverInfo.AutomationId, hoverInfo.Name,
-                        hoverInfo.RefKey, hoverProps);
+                        hoverInfo.RefKey, hoverProps, RuntimeId: rid);
                     RecordWatchEntry(entry);
                     LogWatchEvent("Hover", hoverInfo, hoverProps);
 
                     if (!focusChanged)
                     {
                         _watchSelectedRef = hoverInfo.RefKey;
+                        _watchSelectedRuntimeId = rid;
                         _watchSelectedProps = hoverProps;
                     }
                 }
@@ -508,7 +513,8 @@ internal sealed class AppState : IAppState
                                     DateTime.Now, WatchEntryKind.PropertyChange,
                                     info.ControlType, info.AutomationId, info.Name,
                                     _watchSelectedRef, fresh,
-                                    kv.Key, old ?? "(new)", kv.Value);
+                                    RuntimeId: _watchSelectedRuntimeId,
+                                    ChangedProperty: kv.Key, OldValue: old ?? "(new)", NewValue: kv.Value);
                                 RecordWatchEntry(propEntry);
                                 Log(Web.LogLevel.Info,
                                     $"{kv.Key}: \"{old ?? "(new)"}\" → \"{kv.Value}\"",
@@ -584,7 +590,8 @@ internal sealed class AppState : IAppState
             }
             catch { hasChildren = false; }
 
-            return new ElementInfo(key, ct, c.Name ?? "", c.AutomationId ?? "", c.ClassName ?? "", c.FrameworkId ?? "", hasChildren);
+            var rid = GetRuntimeId(el);
+            return new ElementInfo(key, ct, c.Name ?? "", c.AutomationId ?? "", c.ClassName ?? "", c.FrameworkId ?? "", hasChildren, rid);
         }
         catch
         {
