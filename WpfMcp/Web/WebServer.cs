@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.IO;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -15,6 +17,7 @@ namespace WpfMcp;
 internal static class WebServer
 {
     private static WebApplication? _app;
+    private static ClientTracker? _tracker;
 
     /// <summary>
     /// Start the Blazor Server dashboard on a background thread.
@@ -23,6 +26,8 @@ internal static class WebServer
     public static async Task StartAsync(IAppState appState, int port, CancellationToken ct = default)
     {
         var ready = new TaskCompletionSource();
+        var tracker = new ClientTracker();
+        _tracker = tracker;
 
         _ = Task.Run(async () =>
         {
@@ -55,6 +60,9 @@ internal static class WebServer
                 // Register IAppState as a singleton so Blazor components can inject it
                 builder.Services.AddSingleton(appState);
 
+                // Track active Blazor circuits to know if a web client is connected
+                builder.Services.AddSingleton<CircuitHandler>(tracker);
+
                 var app = builder.Build();
 
                 app.UseStaticFiles();
@@ -83,6 +91,21 @@ internal static class WebServer
 
         // Wait for the server to actually start listening
         await ready.Task;
+
+        // Auto-launch browser after 3s if no web client reconnected
+        var url = $"http://localhost:{port}";
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(3000);
+            if (tracker.Count == 0)
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                }
+                catch { /* best effort */ }
+            }
+        });
     }
 
     /// <summary>Gracefully stop the web server.</summary>
@@ -92,6 +115,25 @@ internal static class WebServer
         {
             await _app.StopAsync();
             _app = null;
+        }
+    }
+
+    /// <summary>Tracks active Blazor Server circuits (connected browser tabs).</summary>
+    private class ClientTracker : CircuitHandler
+    {
+        private int _count;
+        public int Count => _count;
+
+        public override Task OnCircuitOpenedAsync(Circuit circuit, CancellationToken ct)
+        {
+            Interlocked.Increment(ref _count);
+            return Task.CompletedTask;
+        }
+
+        public override Task OnCircuitClosedAsync(Circuit circuit, CancellationToken ct)
+        {
+            Interlocked.Decrement(ref _count);
+            return Task.CompletedTask;
         }
     }
 }
