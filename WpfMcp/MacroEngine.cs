@@ -608,9 +608,10 @@ public class MacroEngine : IDisposable
         Dictionary<string, string>? parameters = null,
         UiaEngine? engine = null,
         ElementCache? cache = null,
-        CancellationToken cancellation = default)
+        CancellationToken cancellation = default,
+        Action<string>? onLog = null)
     {
-        return await ExecuteInternalAsync(macro, displayName, parameters, engine, cache, cancellation);
+        return await ExecuteInternalAsync(macro, displayName, parameters, engine, cache, cancellation, onLog);
     }
 
     /// <summary>
@@ -622,12 +623,87 @@ public class MacroEngine : IDisposable
         Dictionary<string, string>? parameters = null,
         UiaEngine? engine = null,
         ElementCache? cache = null,
-        CancellationToken cancellation = default)
+        CancellationToken cancellation = default,
+        Action<string>? onLog = null)
     {
         if (!_macros.TryGetValue(macroName, out var macro))
             return new MacroResult(false, 0, 0, $"Macro '{macroName}' not found");
 
-        return await ExecuteInternalAsync(macro, macroName, parameters, engine, cache, cancellation);
+        return await ExecuteInternalAsync(macro, macroName, parameters, engine, cache, cancellation, onLog);
+    }
+
+    /// <summary>Build a human-readable summary of a macro step for logging.</summary>
+    private static string FormatStepSummary(MacroStep step, Dictionary<string, string> parameters)
+    {
+        var action = step.Action.ToLowerInvariant();
+        var parts = new List<string>();
+
+        // Include the most relevant fields per action type
+        switch (action)
+        {
+            case "find":
+                if (step.AutomationId != null) parts.Add($"automation_id={SubstituteParams(step.AutomationId, parameters)}");
+                if (step.Name != null) parts.Add($"name={SubstituteParams(step.Name, parameters)}");
+                if (step.ClassName != null) parts.Add($"class_name={SubstituteParams(step.ClassName, parameters)}");
+                if (step.ControlType != null) parts.Add($"control_type={SubstituteParams(step.ControlType, parameters)}");
+                if (step.SaveAs != null) parts.Add($"save_as={step.SaveAs}");
+                break;
+            case "find_by_path":
+                if (step.Path != null) parts.Add($"path=[{step.Path.Count} segments]");
+                if (step.SaveAs != null) parts.Add($"save_as={step.SaveAs}");
+                break;
+            case "click" or "right_click" or "properties" or "get_value":
+                if (step.Ref != null) parts.Add($"ref={step.Ref}");
+                break;
+            case "type":
+                if (step.Text != null) parts.Add($"text={SubstituteParams(step.Text, parameters)}");
+                break;
+            case "set_value":
+                if (step.Ref != null) parts.Add($"ref={step.Ref}");
+                var val = step.Value ?? step.Text;
+                if (val != null) parts.Add($"value={SubstituteParams(val, parameters)}");
+                break;
+            case "send_keys" or "keys":
+                if (step.Keys != null) parts.Add($"keys={SubstituteParams(step.Keys, parameters)}");
+                break;
+            case "wait":
+                if (step.Seconds.HasValue) parts.Add($"seconds={step.Seconds.Value}");
+                break;
+            case "attach":
+                if (step.ProcessName != null) parts.Add($"process={SubstituteParams(step.ProcessName, parameters)}");
+                if (step.Pid.HasValue) parts.Add($"pid={step.Pid.Value}");
+                break;
+            case "launch":
+                if (step.ExePath != null) parts.Add($"exe={SubstituteParams(step.ExePath, parameters)}");
+                if (step.IfNotRunning == true) parts.Add("if_not_running");
+                break;
+            case "wait_for_window":
+                if (step.TitleContains != null) parts.Add($"title_contains={SubstituteParams(step.TitleContains, parameters)}");
+                break;
+            case "wait_for_enabled":
+                if (step.Ref != null) parts.Add($"ref={step.Ref}");
+                if (step.AutomationId != null) parts.Add($"automation_id={SubstituteParams(step.AutomationId, parameters)}");
+                break;
+            case "verify":
+                if (step.Ref != null) parts.Add($"ref={step.Ref}");
+                if (step.Property != null) parts.Add($"property={step.Property}");
+                if (step.Expected != null) parts.Add($"expected={SubstituteParams(step.Expected, parameters)}");
+                break;
+            case "snapshot":
+                if (step.MaxDepth.HasValue) parts.Add($"depth={step.MaxDepth.Value}");
+                break;
+            case "file_dialog":
+                if (step.Text != null) parts.Add($"path={SubstituteParams(step.Text, parameters)}");
+                break;
+            case "children":
+                if (step.Ref != null) parts.Add($"ref={step.Ref}");
+                break;
+            case "macro":
+                if (step.MacroName != null) parts.Add($"macro={step.MacroName}");
+                break;
+        }
+
+        return parts.Count > 0 ? $"{action} ({string.Join(", ", parts)})" : action;
     }
 
     private async Task<MacroResult> ExecuteInternalAsync(
@@ -636,7 +712,8 @@ public class MacroEngine : IDisposable
         Dictionary<string, string>? parameters = null,
         UiaEngine? engine = null,
         ElementCache? cache = null,
-        CancellationToken cancellation = default)
+        CancellationToken cancellation = default,
+        Action<string>? onLog = null)
     {
         engine ??= UiaEngine.Instance;
         cache ??= new ElementCache();
@@ -681,29 +758,40 @@ public class MacroEngine : IDisposable
                         i, step.Action, "Process is no longer attached");
             }
 
+            var stepSummary = FormatStepSummary(step, parameters);
+            onLog?.Invoke($"[Macro] Step {i + 1}/{macro.Steps.Count}: {stepSummary}");
+
             try
             {
                 var stepResult = await ExecuteStepAsync(
                     step, i, parameters, aliases, engine, cache, macroCts.Token);
 
                 if (!stepResult.Success)
+                {
+                    onLog?.Invoke($"[Macro] Step {i + 1}/{macro.Steps.Count}: FAILED \u2014 {stepResult.Error ?? stepResult.Message}");
                     return new MacroResult(false, i, macro.Steps.Count,
                         stepResult.Message, i, step.Action, stepResult.Error);
+                }
+
+                onLog?.Invoke($"[Macro] Step {i + 1}/{macro.Steps.Count}: OK \u2014 {stepResult.Message}");
             }
             catch (OperationCanceledException)
             {
+                onLog?.Invoke($"[Macro] Step {i + 1}/{macro.Steps.Count}: TIMEOUT");
                 return new MacroResult(false, i, macro.Steps.Count,
                     $"Macro '{macroName}' timed out at step {i + 1} ({step.Action})",
                     i, step.Action, "Timeout");
             }
             catch (Exception ex)
             {
+                onLog?.Invoke($"[Macro] Step {i + 1}/{macro.Steps.Count}: ERROR \u2014 {ex.Message}");
                 return new MacroResult(false, i, macro.Steps.Count,
                     $"Step {i + 1} ({step.Action}) failed: {ex.Message}",
                     i, step.Action, ex.Message);
             }
         }
 
+        onLog?.Invoke($"[Macro] '{macroName}' completed ({macro.Steps.Count} steps)");
         return new MacroResult(true, macro.Steps.Count, macro.Steps.Count,
             $"Macro '{macroName}' completed ({macro.Steps.Count} steps)");
     }

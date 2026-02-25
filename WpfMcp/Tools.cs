@@ -475,7 +475,8 @@ public static class WpfTools
         }
 
         var engine = _macroEngine.Value;
-        var result = await engine.ExecuteAsync(name, parsedParams);
+        var result = await engine.ExecuteAsync(name, parsedParams,
+            onLog: msg => Console.Error.WriteLine(msg));
         return JsonSerializer.Serialize(result, Constants.IndentedJson);
     }
 

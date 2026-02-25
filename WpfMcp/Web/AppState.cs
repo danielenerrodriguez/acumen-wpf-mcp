@@ -336,7 +336,8 @@ internal sealed class AppState : IAppState
         Log(Web.LogLevel.Info, $"Running macro '{name}'...");
         try
         {
-            var result = await _macroEngine.Value.ExecuteAsync(name, parameters, _engine, _cache);
+            var result = await _macroEngine.Value.ExecuteAsync(name, parameters, _engine, _cache,
+                onLog: msg => Log(Web.LogLevel.Info, msg));
             if (result.Success)
                 Log(Web.LogLevel.Success, $"Macro '{name}' completed ({result.StepsExecuted}/{result.TotalSteps} steps)");
             else

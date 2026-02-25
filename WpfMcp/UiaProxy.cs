@@ -492,7 +492,8 @@ public static class UiaProxyServer
                         }
 
                         var macroResult = _macroEngine.Value.ExecuteAsync(
-                            macroName, parsedParams, engine, _cache).GetAwaiter().GetResult();
+                            macroName, parsedParams, engine, _cache,
+                            onLog: msg => Console.Error.WriteLine(msg)).GetAwaiter().GetResult();
                         return JsonSerializer.Serialize(new { ok = macroResult.Success, result = macroResult });
                     }
                     case Constants.Commands.ExecuteMacroYaml:
@@ -531,7 +532,8 @@ public static class UiaProxyServer
 
                         var displayName = macroDef.Name ?? "inline-macro";
                         var execResult = _macroEngine.Value.ExecuteDefinitionAsync(
-                            macroDef, displayName, execParams, engine, _cache).GetAwaiter().GetResult();
+                            macroDef, displayName, execParams, engine, _cache,
+                            onLog: msg => Console.Error.WriteLine(msg)).GetAwaiter().GetResult();
                         return JsonSerializer.Serialize(new { ok = execResult.Success, result = execResult });
                     }
                     case Constants.Commands.Launch:
