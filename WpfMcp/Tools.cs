@@ -623,6 +623,108 @@ public static class WpfTools
         return $"Error: {result.Message}";
     }
 
+    [McpServerTool, Description("Start a watch session that records focus changes, hover changes, and property changes in the attached WPF application. Use this to observe what a user is doing, then replay or optimize their workflow. Only one session can be active at a time.")]
+    public static async Task<string> wpf_watch_start()
+    {
+        if (Proxy != null)
+        {
+            var resp = await Proxy.CallAsync(Constants.Commands.WatchStart, new Dictionary<string, object?>());
+            if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
+            {
+                var sessionId = resp.TryGetProperty("sessionId", out var sid) ? sid.GetString() : "";
+                return $"OK: Watch started (session {sessionId}). Focus, hover, and property changes are now being recorded.\nCall wpf_watch_stop to end the session and retrieve the recorded entries.";
+            }
+            return $"Error: {resp.GetProperty("error").GetString()}";
+        }
+        return "Error: Watch mode requires the elevated server (proxy mode)";
+    }
+
+    [McpServerTool, Description("Stop the current watch session and return all recorded entries. Each entry includes timestamps, element details (ControlType, AutomationId, Name), property values, and change diffs. Use this data to understand user workflows, create macros, or optimize interactions.")]
+    public static async Task<string> wpf_watch_stop()
+    {
+        if (Proxy != null)
+        {
+            var resp = await Proxy.CallAsync(Constants.Commands.WatchStop, new Dictionary<string, object?>());
+            if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
+                return FormatWatchSession(resp);
+            return $"Error: {resp.GetProperty("error").GetString()}";
+        }
+        return "Error: Watch mode requires the elevated server (proxy mode)";
+    }
+
+    [McpServerTool, Description("Get the current or last watch session's entries. Returns the full session log including all focus, hover, and property change events with timestamps and element details.")]
+    public static async Task<string> wpf_watch_status()
+    {
+        if (Proxy != null)
+        {
+            var resp = await Proxy.CallAsync(Constants.Commands.WatchStatus, new Dictionary<string, object?>());
+            if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
+                return FormatWatchSession(resp);
+            return $"Error: {resp.GetProperty("error").GetString()}";
+        }
+        return "Error: Watch mode requires the elevated server (proxy mode)";
+    }
+
+    private static string FormatWatchSession(JsonElement resp)
+    {
+        var sessionId = resp.TryGetProperty("sessionId", out var sid) ? sid.GetString() : "?";
+        var isActive = resp.TryGetProperty("isActive", out var ia) && ia.GetBoolean();
+        var entryCount = resp.TryGetProperty("entryCount", out var ec) ? ec.GetInt32() : 0;
+
+        var startTime = resp.TryGetProperty("startTime", out var st)
+            ? DateTime.Parse(st.GetString()!).ToString("HH:mm:ss") : "?";
+        var stopTime = resp.TryGetProperty("stopTime", out var et) && et.ValueKind == JsonValueKind.String
+            ? DateTime.Parse(et.GetString()!).ToString("HH:mm:ss") : (isActive ? "active" : "?");
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Session: {sessionId} | Started: {startTime} | Stopped: {stopTime} | Entries: {entryCount}");
+        sb.AppendLine();
+
+        if (resp.TryGetProperty("entries", out var entries))
+        {
+            foreach (var e in entries.EnumerateArray())
+            {
+                var time = DateTime.Parse(e.GetProperty("time").GetString()!).ToString("HH:mm:ss.fff");
+                var kind = e.GetProperty("kind").GetString();
+                var ct = e.TryGetProperty("controlType", out var ctv) ? ctv.GetString() : "";
+                var aid = e.TryGetProperty("automationId", out var aidv) ? aidv.GetString() : "";
+                var name = e.TryGetProperty("name", out var nv) ? nv.GetString() : "";
+
+                var elementDesc = !string.IsNullOrEmpty(aid) ? $"[{ct}] #{aid}"
+                    : !string.IsNullOrEmpty(name) ? $"[{ct}] \"{name}\""
+                    : $"[{ct}]";
+
+                if (kind == "PropertyChange")
+                {
+                    var prop = e.TryGetProperty("changedProperty", out var cpv) ? cpv.GetString() : "?";
+                    var oldVal = e.TryGetProperty("oldValue", out var ov) ? ov.GetString() : "";
+                    var newVal = e.TryGetProperty("newValue", out var nwv) ? nwv.GetString() : "";
+                    sb.AppendLine($"{time} [PropChange] {elementDesc}  {prop}: \"{oldVal}\" → \"{newVal}\"");
+                }
+                else
+                {
+                    // Focus or Hover — include key property values
+                    var extras = new List<string>();
+                    if (e.TryGetProperty("properties", out var props))
+                    {
+                        if (props.TryGetProperty("Value", out var val) && val.GetString() is string v && v.Length > 0)
+                            extras.Add($"Value=\"{(v.Length > 40 ? v[..40] + "..." : v)}\"");
+                        if (props.TryGetProperty("ToggleState", out var ts))
+                            extras.Add($"Toggle={ts.GetString()}");
+                        if (props.TryGetProperty("IsSelected", out var sel) && sel.GetString() == "True")
+                            extras.Add("Selected");
+                        if (props.TryGetProperty("ExpandCollapseState", out var ecs) && ecs.GetString() != "LeafNode")
+                            extras.Add(ecs.GetString()!);
+                    }
+                    var suffix = extras.Count > 0 ? $"  ({string.Join(", ", extras)})" : "";
+                    sb.AppendLine($"{time} [{kind}]  {elementDesc}{suffix}");
+                }
+            }
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
     // Helper: format simple ok/error response from proxy
     private static string FormatResponse(JsonElement resp)
     {

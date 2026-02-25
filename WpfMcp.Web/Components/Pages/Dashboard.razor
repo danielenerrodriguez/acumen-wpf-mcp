@@ -19,7 +19,7 @@
             @* Actions *@
             <div class="w-80 overflow-hidden shrink-0">
                 <ActionsPanel SelectedRefKey="@_selectedRef"
-                              Watching="@_watching"
+                              Watching="@State.IsWatching"
                               OnWatchToggled="ToggleWatch"
                               OnElementSelected="HandleElementSelected" />
             </div>
@@ -41,17 +41,12 @@
     private string? _selectedRef;
     private Dictionary<string, string>? _selectedProperties;
     private HashSet<string> _changedKeys = new();
-    private Timer? _watchTimer;
     private ElementTree? _elementTree;
-    private bool _watching;
-    private string? _lastFocusedRuntimeId;
-    private string? _lastHoverRuntimeId;
 
     protected override void OnInitialized()
     {
-        // 500ms timer — only does work when _watching is true
-        _watchTimer = new Timer(WatchTick, null, 500, 500);
         State.OnAttachChanged += HandleAttachChanged;
+        State.OnWatchEntry += HandleWatchEntry;
     }
 
     private void HandleElementSelected(string? refKey)
@@ -64,99 +59,42 @@
 
     private void ToggleWatch(bool watching)
     {
-        _watching = watching;
-        if (_watching)
-        {
-            _lastFocusedRuntimeId = null;
-            _lastHoverRuntimeId = null;
-        }
+        if (watching)
+            State.StartWatch();
+        else
+            State.StopWatch();
         StateHasChanged();
     }
 
-    private void WatchTick(object? _)
+    private void HandleWatchEntry(WatchEntry entry)
     {
-        if (!_watching) return;
-
-        try
+        InvokeAsync(() =>
         {
-            // --- Focus tracking ---
-            var focus = State.GetFocusedElement();
-            bool focusChanged = false;
-
-            if (focus != null && !string.IsNullOrEmpty(focus.RuntimeId) && focus.RuntimeId != _lastFocusedRuntimeId)
+            if (entry.Kind == WatchEntryKind.Focus || entry.Kind == WatchEntryKind.Hover)
             {
-                _lastFocusedRuntimeId = focus.RuntimeId;
-                focusChanged = true;
-                State.LogFocusChange(focus.Element, focus.Properties);
-
-                // Auto-select the focused element and use the properties we already fetched
-                _selectedRef = focus.Element.RefKey;
-                _selectedProperties = focus.Properties;
+                // Auto-select the element and show its properties
+                _selectedRef = entry.RefKey;
+                _selectedProperties = entry.Properties;
                 _changedKeys.Clear();
             }
-
-            // --- Hover tracking (element under mouse cursor) ---
-            var hover = State.GetHoverElement();
-            bool hoverChanged = false;
-
-            if (hover != null && !string.IsNullOrEmpty(hover.RuntimeId) && hover.RuntimeId != _lastHoverRuntimeId)
+            else if (entry.Kind == WatchEntryKind.PropertyChange && entry.RefKey == _selectedRef)
             {
-                _lastHoverRuntimeId = hover.RuntimeId;
-                hoverChanged = true;
-                State.LogHoverChange(hover.Element, hover.Properties);
+                // Highlight the changed property
+                _selectedProperties = entry.Properties;
+                _changedKeys = new HashSet<string> { entry.ChangedProperty! };
+                StateHasChanged();
 
-                // Auto-select the hovered element (only if focus didn't already change this tick)
-                if (!focusChanged)
+                // Clear highlight after 1.5s
+                _ = Task.Delay(1500).ContinueWith(_ =>
                 {
-                    _selectedRef = hover.Element.RefKey;
-                    _selectedProperties = hover.Properties;
-                    _changedKeys.Clear();
-                }
+                    _changedKeys = new();
+                    InvokeAsync(StateHasChanged);
+                });
+                return;
             }
 
-            // --- Property diff on currently selected element (when neither focus nor hover changed) ---
-            if (!focusChanged && !hoverChanged && _selectedRef != null && _selectedProperties != null)
-            {
-                var fresh = State.GetProperties(_selectedRef);
-                if (fresh.Count > 0)
-                {
-                    var changed = new HashSet<string>();
-                    foreach (var kv in fresh)
-                    {
-                        if (!_selectedProperties.TryGetValue(kv.Key, out var old) || old != kv.Value)
-                            changed.Add(kv.Key);
-                    }
-
-                    // Filter out noisy properties that change constantly
-                    changed.Remove("BoundingRectangle");
-
-                    if (changed.Count > 0)
-                    {
-                        foreach (var key in changed)
-                        {
-                            var oldVal = _selectedProperties.TryGetValue(key, out var o) ? o : "(new)";
-                            State.LogPropertyChange(_selectedRef, key, oldVal, fresh[key]);
-                        }
-
-                        _selectedProperties = fresh;
-                        _changedKeys = changed;
-
-                        InvokeAsync(StateHasChanged);
-
-                        _ = Task.Delay(1500).ContinueWith(_ =>
-                        {
-                            _changedKeys = new();
-                            InvokeAsync(StateHasChanged);
-                        });
-                        return;
-                    }
-                }
-            }
-
-            if (focusChanged || hoverChanged)
-                InvokeAsync(StateHasChanged);
-        }
-        catch { /* element may have gone stale */ }
+            StateHasChanged();
+        });
     }
 
     private void HandleAttachChanged()
@@ -170,7 +108,7 @@
 
     public void Dispose()
     {
-        _watchTimer?.Dispose();
         State.OnAttachChanged -= HandleAttachChanged;
+        State.OnWatchEntry -= HandleWatchEntry;
     }
 }

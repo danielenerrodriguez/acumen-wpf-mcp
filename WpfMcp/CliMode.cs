@@ -40,6 +40,9 @@ public static class CliMode
         Console.WriteLine("  run <path.yaml> [k=v ...]  - Run a YAML macro file directly (or drag file here)");
         Console.WriteLine("  export <name>              - Export a macro as a Windows shortcut (.lnk)");
         Console.WriteLine("  export-all                 - Export all macros as Windows shortcuts");
+        Console.WriteLine("  watch                      - Start a watch session (records focus/hover/property changes)");
+        Console.WriteLine("  watch stop                 - Stop the watch session and print entries");
+        Console.WriteLine("  watch status               - Print current/last watch session entries");
         Console.WriteLine("  quit                       - Exit");
         Console.WriteLine();
 
@@ -47,6 +50,8 @@ public static class CliMode
         var cache = new ElementCache();
         var macroEngine = new MacroEngine(macrosPath);
         var resolvedMacrosPath = Constants.ResolveMacrosPath(macrosPath);
+        var commandLock = new SemaphoreSlim(1, 1);
+        var appState = new AppState(engine, cache, new Lazy<MacroEngine>(() => macroEngine), commandLock);
 
         while (true)
         {
@@ -362,6 +367,43 @@ public static class CliMode
                         break;
                     }
 
+                    case "watch":
+                    {
+                        var sub = arg?.Trim().ToLowerInvariant();
+                        if (sub == "stop")
+                        {
+                            var session = appState.StopWatch();
+                            if (session == null)
+                            {
+                                Console.WriteLine("No watch session active.");
+                                break;
+                            }
+                            PrintWatchSession(session);
+                        }
+                        else if (sub == "status" || sub == "log")
+                        {
+                            var session = appState.GetWatchSession();
+                            if (session == null)
+                            {
+                                Console.WriteLine("No watch session found.");
+                                break;
+                            }
+                            PrintWatchSession(session);
+                        }
+                        else
+                        {
+                            var session = appState.StartWatch();
+                            if (session == null)
+                            {
+                                Console.WriteLine("Watch session already active. Use 'watch stop' to stop it.");
+                                break;
+                            }
+                            Console.WriteLine($"Watch started (session {session.Id}). Focus, hover, and property changes are being recorded.");
+                            Console.WriteLine("Use 'watch stop' to stop and view entries, or 'watch status' to check progress.");
+                        }
+                        break;
+                    }
+
                     default:
                         Console.WriteLine($"Unknown command: {cmd}. Type 'quit' to exit.");
                         break;
@@ -370,6 +412,40 @@ public static class CliMode
             catch (Exception ex)
             {
                 Console.WriteLine($"Exception: {ex.Message}");
+            }
+        }
+    }
+
+    private static void PrintWatchSession(WpfMcp.Web.WatchSession session)
+    {
+        var status = session.IsActive ? "active" : session.StopTime?.ToString("HH:mm:ss") ?? "?";
+        Console.WriteLine($"Session: {session.Id} | Started: {session.StartTime:HH:mm:ss} | Stopped: {status} | Entries: {session.Entries.Count}");
+        Console.WriteLine();
+
+        foreach (var e in session.Entries)
+        {
+            var elementDesc = !string.IsNullOrEmpty(e.AutomationId) ? $"[{e.ControlType}] #{e.AutomationId}"
+                : !string.IsNullOrEmpty(e.Name) ? $"[{e.ControlType}] \"{e.Name}\""
+                : $"[{e.ControlType}]";
+
+            if (e.Kind == WpfMcp.Web.WatchEntryKind.PropertyChange)
+            {
+                Console.WriteLine($"  {e.Time:HH:mm:ss.fff} [PropChange] {elementDesc}  {e.ChangedProperty}: \"{e.OldValue}\" → \"{e.NewValue}\"");
+            }
+            else
+            {
+                var extras = new List<string>();
+                if (e.Properties.TryGetValue("Value", out var val) && !string.IsNullOrEmpty(val))
+                    extras.Add($"Value=\"{(val.Length > 40 ? val[..40] + "..." : val)}\"");
+                if (e.Properties.TryGetValue("ToggleState", out var ts))
+                    extras.Add($"Toggle={ts}");
+                if (e.Properties.TryGetValue("IsSelected", out var sel) && sel == "True")
+                    extras.Add("Selected");
+                if (e.Properties.TryGetValue("ExpandCollapseState", out var ecs) && ecs != "LeafNode")
+                    extras.Add(ecs);
+
+                var suffix = extras.Count > 0 ? $"  ({string.Join(", ", extras)})" : "";
+                Console.WriteLine($"  {e.Time:HH:mm:ss.fff} [{e.Kind}]  {elementDesc}{suffix}");
             }
         }
     }

@@ -39,21 +39,21 @@ public interface IAppState
     event Action<LogEntry>? OnLog;
     IReadOnlyList<LogEntry> RecentLogs { get; }
 
-    // --- Live monitoring ---
-    /// <summary>Get the currently focused element in the attached app, or null if focus is outside.</summary>
-    FocusResult? GetFocusedElement();
+    // --- Watch mode ---
+    /// <summary>Start a new watch session. Returns the session, or null if already watching.</summary>
+    WatchSession? StartWatch();
 
-    /// <summary>Get the element under the mouse cursor in the attached app, or null if cursor is outside.</summary>
-    FocusResult? GetHoverElement();
+    /// <summary>Stop the current watch session. Returns the completed session, or null if not watching.</summary>
+    WatchSession? StopWatch();
 
-    /// <summary>Log a property change detected by the polling timer.</summary>
-    void LogPropertyChange(string refKey, string property, string oldValue, string newValue);
+    /// <summary>Get the current (active) or last (completed) watch session.</summary>
+    WatchSession? GetWatchSession();
 
-    /// <summary>Log a focus change detected by the watch timer.</summary>
-    void LogFocusChange(ElementInfo element, Dictionary<string, string> properties);
+    /// <summary>Whether a watch session is currently active.</summary>
+    bool IsWatching { get; }
 
-    /// <summary>Log a hover change detected by the watch timer.</summary>
-    void LogHoverChange(ElementInfo element, Dictionary<string, string> properties);
+    /// <summary>Fires when a new watch entry is recorded.</summary>
+    event Action<WatchEntry>? OnWatchEntry;
 
     // --- Events ---
     /// <summary>Fires when attachment status changes (attach/detach).</summary>
@@ -75,8 +75,30 @@ public record ActionResult(bool Success, string Message);
 
 public record FindResult(ElementInfo Element, Dictionary<string, string> Properties);
 
-/// <summary>Result of GetFocusedElement with a stable identity for change detection.</summary>
-public record FocusResult(ElementInfo Element, Dictionary<string, string> Properties, string RuntimeId);
+// --- Watch session types ---
+
+public enum WatchEntryKind { Focus, Hover, PropertyChange }
+
+public record WatchEntry(
+    DateTime Time,
+    WatchEntryKind Kind,
+    string ControlType,
+    string AutomationId,
+    string Name,
+    string? RefKey,
+    Dictionary<string, string> Properties,
+    string? ChangedProperty = null,
+    string? OldValue = null,
+    string? NewValue = null);
+
+public class WatchSession
+{
+    public string Id { get; } = Guid.NewGuid().ToString("N")[..8];
+    public DateTime StartTime { get; } = DateTime.Now;
+    public DateTime? StopTime { get; set; }
+    public bool IsActive => StopTime == null;
+    public List<WatchEntry> Entries { get; } = new();
+}
 
 public record MacroSummary(
     string Name,

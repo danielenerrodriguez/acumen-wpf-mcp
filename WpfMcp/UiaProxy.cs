@@ -99,6 +99,7 @@ public static class UiaProxyServer
     private static readonly ElementCache _cache = new();
     private static readonly Lazy<MacroEngine> _macroEngine = new(() => new MacroEngine());
     private static readonly SemaphoreSlim _commandLock = new(1, 1);
+    private static AppState? _appState;
     private static string? _macrosPath;
     private static int _clientCount;
 
@@ -153,12 +154,12 @@ public static class UiaProxyServer
         string? dashboardUrl = null;
         try
         {
-            var appState = new AppState(
+            _appState = new AppState(
                 UiaEngine.Instance,
                 _cache,
                 _macroEngine,
                 _commandLock);
-            await WebServer.StartAsync(appState, Constants.WebPort, webCts.Token);
+            await WebServer.StartAsync(_appState, Constants.WebPort, webCts.Token);
             dashboardUrl = $"http://localhost:{Constants.WebPort}";
         }
         catch (Exception ex)
@@ -667,6 +668,39 @@ public static class UiaProxyServer
 
                         return JsonSerializer.Serialize(new { ok = true, results = resultList });
                     }
+                    case Constants.Commands.WatchStart:
+                    {
+                        if (_appState == null)
+                            return Json(false, "Server not initialized");
+                        var session = _appState.StartWatch();
+                        if (session == null)
+                            return Json(false, "Watch session already active");
+                        return JsonSerializer.Serialize(new
+                        {
+                            ok = true,
+                            sessionId = session.Id,
+                            startTime = session.StartTime.ToString("o"),
+                            message = $"Watch started (session {session.Id})"
+                        });
+                    }
+                    case Constants.Commands.WatchStop:
+                    {
+                        if (_appState == null)
+                            return Json(false, "Server not initialized");
+                        var session = _appState.StopWatch();
+                        if (session == null)
+                            return Json(false, "No watch session to stop");
+                        return SerializeWatchSession(session);
+                    }
+                    case Constants.Commands.WatchStatus:
+                    {
+                        if (_appState == null)
+                            return Json(false, "Server not initialized");
+                        var session = _appState.GetWatchSession();
+                        if (session == null)
+                            return Json(false, "No watch session found");
+                        return SerializeWatchSession(session);
+                    }
                     default:
                         return Json(false, $"Unknown method: {method}");
                 }
@@ -675,6 +709,34 @@ public static class UiaProxyServer
             {
                 return Json(false, ex.Message);
             }
+        });
+    }
+
+    static string SerializeWatchSession(WpfMcp.Web.WatchSession session)
+    {
+        var entries = session.Entries.Select(e => new
+        {
+            time = e.Time.ToString("o"),
+            kind = e.Kind.ToString(),
+            controlType = e.ControlType,
+            automationId = e.AutomationId,
+            name = e.Name,
+            refKey = e.RefKey,
+            properties = e.Properties,
+            changedProperty = e.ChangedProperty,
+            oldValue = e.OldValue,
+            newValue = e.NewValue
+        }).ToList();
+
+        return JsonSerializer.Serialize(new
+        {
+            ok = true,
+            sessionId = session.Id,
+            startTime = session.StartTime.ToString("o"),
+            stopTime = session.StopTime?.ToString("o"),
+            isActive = session.IsActive,
+            entryCount = session.Entries.Count,
+            entries
         });
     }
 

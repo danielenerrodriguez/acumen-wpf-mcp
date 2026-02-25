@@ -218,7 +218,7 @@ data_formats: { ... }           # Supported import/export formats
 |------|---------|
 | `WpfMcp/Program.cs` | Entry point: mode routing (`--server`, `--mcp-connect`, `--mcp`, `--export-all`, drag-drop, CLI) |
 | `WpfMcp/Constants.cs` | Shared constants, `ResolveMacrosPath()`, `ResolveShortcutsPath()`, `WebPort`, `Commands` nested class |
-| `WpfMcp/Tools.cs` | 17 MCP tool definitions |
+| `WpfMcp/Tools.cs` | 20 MCP tool definitions (including watch mode) |
 | `WpfMcp/UiaEngine.cs` | Core UI Automation engine (STA thread, SendInput, launch, wait, `ReadElementProperty()`) |
 | `WpfMcp/UiaProxy.cs` | Proxy client/server over named pipe + web dashboard startup |
 | `WpfMcp/MacroDefinition.cs` | YAML POCOs for macros + `KnowledgeBase` + `SaveMacroResult` + `ExportMacroResult` records |
@@ -312,45 +312,61 @@ Macros can be exported as Windows shortcut (.lnk) files that users can double-cl
 The web dashboard receives live updates via in-process C# events (not pipe push — the named pipe is request/response only):
 - **`OnLog` event**: New log entries trigger `StateHasChanged()` in `LogPanel`, with auto-scroll via JS interop (`scrollToBottom`)
 - **`OnAttachChanged` event**: Fires when a process is attached/detached — `MainLayout` refreshes status bar, `Dashboard` refreshes element tree
+- **`OnWatchEntry` event**: New watch entries trigger element auto-selection and property highlighting in Dashboard
 - **Status bar polling**: `MainLayout` polls `GetStatus()` every 3 seconds for process name + PID display
 
-### Focus Watcher (Watch Mode)
-Tracks which element has focus in the attached WPF application, logging changes and property diffs in real time.
+### Watch Mode (Server-Side Sessions)
 
-**How it works:**
-1. "Watch" toggle button in `ActionsPanel` header (purple when active)
-2. `Dashboard.razor` runs a 500ms `System.Threading.Timer` when watch is active
-3. Each tick calls `AppState.GetFocusedElement()` → `UiaEngine.GetFocusedElement()` → `AutomationElement.FocusedElement`
-4. Filters to attached process by PID (ignores desktop/other app focus)
-5. Uses `GetRuntimeId()` for stable identity comparison (not ref keys — `AutomationElement.FocusedElement` returns a new COM object each call)
-6. On focus change: logs element type, automationId/name, and key property values (Value, ToggleState, IsSelected, ExpandCollapseState)
-7. On same element: diffs property values, logs changes, highlights in `PropertiesPanel` with purple background via `ChangedKeys` set
+Watch mode records focus changes, hover changes, and property diffs in the attached WPF application. The watch timer runs **server-side in AppState** (not in the Dashboard), so it works from MCP tools, CLI, and web dashboard simultaneously.
 
-**Key types:**
-- `FocusResult` record in `IAppState.cs`: `(ElementInfo Element, Dictionary<string, string> Properties, string RuntimeId)`
-- `GetFocusedElement()` on `IAppState`/`AppState`: Returns `FocusResult?` with RuntimeId and full properties
-- `LogFocusChange()` on `IAppState`/`AppState`: Logs with key property values from the properties dictionary
+**Architecture:**
+1. `AppState` owns a 500ms `System.Threading.Timer` that polls `AutomationElement.FocusedElement` and `AutomationElement.FromPoint()` (via `GetCursorPos`)
+2. Each detected change creates a structured `WatchEntry` record, appended to the active `WatchSession`
+3. Entries also flow into the main log (for dashboard visibility) and fire `OnWatchEntry` event
+4. Dashboard subscribes to `OnWatchEntry` for live element selection and property highlighting
+5. Only the **last completed session** is retained in memory (no disk persistence)
 
-### Hover Watcher (Mouse Tracking)
-Tracks which element is under the mouse cursor in the attached WPF application, alongside the focus watcher.
+**Watch session lifecycle:**
+- `StartWatch()` → creates new `WatchSession`, starts timer, resets runtime IDs
+- `StopWatch()` → stops timer, timestamps session, moves to `_lastSession`
+- `GetWatchSession()` → returns current (active) or last (completed) session
 
-**How it works:**
-1. Runs in the same 500ms `WatchTick` timer as the focus watcher
-2. Each tick calls `AppState.GetHoverElement()` → `UiaEngine.GetElementAtCursor()` → `GetCursorPos` + `AutomationElement.FromPoint()`
-3. Filters to attached process by PID (ignores cursor over other apps/desktop)
-4. Uses `GetRuntimeId()` for stable identity comparison (same approach as focus watcher)
-5. On hover change: logs `"Hover → [ControlType] #AutomationId"` with key property values
-6. Auto-selects the hovered element in the properties panel (focus changes take priority if both change in the same tick)
+**Access points:**
+- **MCP tools**: `wpf_watch_start`, `wpf_watch_stop`, `wpf_watch_status`
+- **CLI commands**: `watch`, `watch stop`, `watch status`
+- **Web dashboard**: Watch toggle button in ActionsPanel (uses same server-side session)
 
-**Key methods:**
-- `GetCursorPos` P/Invoke + `AutomationElement.FromPoint()` in `UiaEngine.GetElementAtCursor()`
-- `GetHoverElement()` on `IAppState`/`AppState`: Returns `FocusResult?` (reuses same DTO)
-- `LogHoverChange()` on `IAppState`/`AppState`: Logs with `"Hover →"` prefix
+### WatchEntry Types
+- **`Focus`** — keyboard focus changed to a new element
+- **`Hover`** — mouse cursor moved over a new element
+- **`PropertyChange`** — a property value changed on the currently tracked element
 
-**Why polling, not UIA events:**
-The STA thread uses a custom `BlockingQueue`, not a Windows message pump. `Automation.AddAutomationFocusChangedEventHandler` requires a COM message pump to fire reliably. Polling `AutomationElement.FocusedElement` every 500ms is the pragmatic approach. Same reasoning applies to hover — no UIA hover event exists; `AutomationElement.FromPoint()` on a timer is the only approach.
+Each entry includes: `Time`, `Kind`, `ControlType`, `AutomationId`, `Name`, `RefKey`, `Properties` dict, and for PropertyChange: `ChangedProperty`, `OldValue`, `NewValue`.
 
-**BoundingRectangle filter:** This property changes constantly as elements scroll/resize — filtered out from property change diff logging to prevent log spam.
+### MCP Tool Output Format
+```
+Session: a1b2c3d4 | Started: 14:23:05 | Stopped: 14:25:12 | Entries: 47
+
+14:23:05.123 [Focus]  [TextBox] #NameField  (Value="hello")
+14:23:06.456 [Hover]  [Button] #SaveButton
+14:23:07.789 [PropChange] [TextBox] #NameField  Value: "hello" → "hello world"
+```
+
+### AI Agent Workflow
+1. Agent calls `wpf_watch_start` — session begins recording
+2. User interacts with the WPF application
+3. Agent calls `wpf_watch_stop` — receives full structured session log
+4. Agent analyzes entries to understand what the user did
+5. Agent can convert the session into a reusable macro via `wpf_save_macro`
+
+### Hover Watcher
+Uses `GetCursorPos` P/Invoke + `AutomationElement.FromPoint()` in `UiaEngine.GetElementAtCursor()`. Filters to attached process by PID. Focus changes take priority over hover for auto-selection when both change in the same tick.
+
+### Why Polling, Not UIA Events
+The STA thread uses a custom `BlockingQueue`, not a Windows message pump. `Automation.AddAutomationFocusChangedEventHandler` requires a COM message pump to fire reliably. Polling every 500ms is the pragmatic approach. Same reasoning for hover — no UIA hover event exists.
+
+### BoundingRectangle Filter
+This property changes constantly as elements scroll/resize — filtered out from property change diff logging to prevent log spam.
 
 ### LogPanel Auto-Scroll
 - JS interop: `window.scrollToBottom(id)` function in `App.razor` sets `el.scrollTop = el.scrollHeight`

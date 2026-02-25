@@ -19,6 +19,18 @@ internal sealed class AppState : IAppState
 
     public event Action<LogEntry>? OnLog;
     public event Action? OnAttachChanged;
+    public event Action<WatchEntry>? OnWatchEntry;
+
+    // Watch session state
+    private Timer? _watchTimer;
+    private WatchSession? _currentSession;
+    private WatchSession? _lastSession;
+    private string? _lastFocusedRuntimeId;
+    private string? _lastHoverRuntimeId;
+    private string? _watchSelectedRef;
+    private Dictionary<string, string>? _watchSelectedProps;
+
+    public bool IsWatching => _currentSession?.IsActive == true;
 
     public AppState(UiaEngine engine, ElementCache cache, Lazy<MacroEngine> macroEngine, SemaphoreSlim commandLock)
     {
@@ -281,87 +293,152 @@ internal sealed class AppState : IAppState
         }
     }
 
-    // --- Live monitoring ---
+    // --- Watch mode (server-side) ---
 
-    public FocusResult? GetFocusedElement()
+    public WatchSession? StartWatch()
     {
-        _lock.Wait();
+        if (IsWatching) return null;
+
+        _currentSession = new WatchSession();
+        _lastFocusedRuntimeId = null;
+        _lastHoverRuntimeId = null;
+        _watchSelectedRef = null;
+        _watchSelectedProps = null;
+
+        _watchTimer?.Dispose();
+        _watchTimer = new Timer(WatchTick, null, 500, 500);
+
+        Log(Web.LogLevel.Info, $"Watch started (session {_currentSession.Id})");
+        return _currentSession;
+    }
+
+    public WatchSession? StopWatch()
+    {
+        if (!IsWatching) return _lastSession;
+
+        _watchTimer?.Dispose();
+        _watchTimer = null;
+
+        var session = _currentSession!;
+        session.StopTime = DateTime.Now;
+        _lastSession = session;
+        _currentSession = null;
+
+        Log(Web.LogLevel.Info,
+            $"Watch stopped (session {session.Id}, {session.Entries.Count} entries, " +
+            $"{(session.StopTime.Value - session.StartTime).TotalSeconds:F1}s)");
+        return session;
+    }
+
+    public WatchSession? GetWatchSession() => _currentSession ?? _lastSession;
+
+    private void WatchTick(object? _)
+    {
+        if (!IsWatching) return;
+
         try
         {
-            var el = _engine.GetFocusedElement();
-            if (el == null) return null;
-
-            // Build a stable identity from RuntimeId
-            string runtimeId;
+            _lock.Wait();
             try
             {
-                var rid = el.GetRuntimeId();
-                runtimeId = string.Join(".", rid);
+                // --- Focus tracking ---
+                bool focusChanged = false;
+                ElementInfo? focusInfo = null;
+                Dictionary<string, string>? focusProps = null;
+
+                var focusEl = _engine.GetFocusedElement();
+                if (focusEl != null)
+                {
+                    var rid = GetRuntimeId(focusEl);
+                    if (!string.IsNullOrEmpty(rid) && rid != _lastFocusedRuntimeId)
+                    {
+                        _lastFocusedRuntimeId = rid;
+                        focusChanged = true;
+                        focusInfo = ToElementInfo(focusEl);
+                        focusProps = _engine.GetElementProperties(focusEl);
+
+                        var entry = new WatchEntry(
+                            DateTime.Now, WatchEntryKind.Focus,
+                            focusInfo.ControlType, focusInfo.AutomationId, focusInfo.Name,
+                            focusInfo.RefKey, focusProps);
+                        RecordWatchEntry(entry);
+                        LogWatchEvent("Focus", focusInfo, focusProps);
+
+                        _watchSelectedRef = focusInfo.RefKey;
+                        _watchSelectedProps = focusProps;
+                    }
+                }
+
+                // --- Hover tracking ---
+                bool hoverChanged = false;
+                var hoverEl = _engine.GetElementAtCursor();
+                if (hoverEl != null)
+                {
+                    var rid = GetRuntimeId(hoverEl);
+                    if (!string.IsNullOrEmpty(rid) && rid != _lastHoverRuntimeId)
+                    {
+                        _lastHoverRuntimeId = rid;
+                        hoverChanged = true;
+                        var hoverInfo = ToElementInfo(hoverEl);
+                        var hoverProps = _engine.GetElementProperties(hoverEl);
+
+                        var entry = new WatchEntry(
+                            DateTime.Now, WatchEntryKind.Hover,
+                            hoverInfo.ControlType, hoverInfo.AutomationId, hoverInfo.Name,
+                            hoverInfo.RefKey, hoverProps);
+                        RecordWatchEntry(entry);
+                        LogWatchEvent("Hover", hoverInfo, hoverProps);
+
+                        if (!focusChanged)
+                        {
+                            _watchSelectedRef = hoverInfo.RefKey;
+                            _watchSelectedProps = hoverProps;
+                        }
+                    }
+                }
+
+                // --- Property diff on selected element ---
+                if (!focusChanged && !hoverChanged && _watchSelectedRef != null && _watchSelectedProps != null)
+                {
+                    if (_cache.TryGet(_watchSelectedRef, out var selEl) && selEl != null)
+                    {
+                        var fresh = _engine.GetElementProperties(selEl);
+                        if (fresh.Count > 0)
+                        {
+                            foreach (var kv in fresh)
+                            {
+                                if (kv.Key == "BoundingRectangle") continue;
+                                if (!_watchSelectedProps.TryGetValue(kv.Key, out var old) || old != kv.Value)
+                                {
+                                    var info = ToElementInfo(selEl, _watchSelectedRef);
+                                    var propEntry = new WatchEntry(
+                                        DateTime.Now, WatchEntryKind.PropertyChange,
+                                        info.ControlType, info.AutomationId, info.Name,
+                                        _watchSelectedRef, fresh,
+                                        kv.Key, old ?? "(new)", kv.Value);
+                                    RecordWatchEntry(propEntry);
+                                    Log(Web.LogLevel.Info,
+                                        $"{kv.Key}: \"{old ?? "(new)"}\" → \"{kv.Value}\"",
+                                        _watchSelectedRef);
+                                }
+                            }
+                            _watchSelectedProps = fresh;
+                        }
+                    }
+                }
             }
-            catch { runtimeId = ""; }
-
-            var info = ToElementInfo(el);
-            var props = _engine.GetElementProperties(el);
-            return new FocusResult(info, props, runtimeId);
+            finally { _lock.Release(); }
         }
-        catch { return null; }
-        finally { _lock.Release(); }
+        catch { /* element may have gone stale */ }
     }
 
-    public FocusResult? GetHoverElement()
+    private void RecordWatchEntry(WatchEntry entry)
     {
-        _lock.Wait();
-        try
-        {
-            var el = _engine.GetElementAtCursor();
-            if (el == null) return null;
-
-            string runtimeId;
-            try
-            {
-                var rid = el.GetRuntimeId();
-                runtimeId = string.Join(".", rid);
-            }
-            catch { runtimeId = ""; }
-
-            var info = ToElementInfo(el);
-            var props = _engine.GetElementProperties(el);
-            return new FocusResult(info, props, runtimeId);
-        }
-        catch { return null; }
-        finally { _lock.Release(); }
+        _currentSession?.Entries.Add(entry);
+        OnWatchEntry?.Invoke(entry);
     }
 
-    public void LogPropertyChange(string refKey, string property, string oldValue, string newValue)
-    {
-        Log(Web.LogLevel.Info, $"{property}: \"{oldValue}\" → \"{newValue}\"", refKey);
-    }
-
-    public void LogFocusChange(ElementInfo element, Dictionary<string, string> properties)
-    {
-        // Build a concise description with the most useful property values
-        var desc = !string.IsNullOrEmpty(element.AutomationId)
-            ? $"[{element.ControlType}] #{element.AutomationId}"
-            : !string.IsNullOrEmpty(element.Name)
-                ? $"[{element.ControlType}] \"{element.Name}\""
-                : $"[{element.ControlType}]";
-
-        // Append key values if present
-        var extras = new List<string>();
-        if (properties.TryGetValue("Value", out var val) && !string.IsNullOrEmpty(val))
-            extras.Add($"Value=\"{Truncate(val, 40)}\"");
-        if (properties.TryGetValue("ToggleState", out var ts))
-            extras.Add($"Toggle={ts}");
-        if (properties.TryGetValue("IsSelected", out var sel) && sel == "True")
-            extras.Add("Selected");
-        if (properties.TryGetValue("ExpandCollapseState", out var ecs) && ecs != "LeafNode")
-            extras.Add(ecs);
-
-        var suffix = extras.Count > 0 ? $"  ({string.Join(", ", extras)})" : "";
-        Log(Web.LogLevel.Info, $"Focus → {desc}{suffix}", element.RefKey);
-    }
-
-    public void LogHoverChange(ElementInfo element, Dictionary<string, string> properties)
+    private void LogWatchEvent(string kind, ElementInfo element, Dictionary<string, string> properties)
     {
         var desc = !string.IsNullOrEmpty(element.AutomationId)
             ? $"[{element.ControlType}] #{element.AutomationId}"
@@ -380,7 +457,13 @@ internal sealed class AppState : IAppState
             extras.Add(ecs);
 
         var suffix = extras.Count > 0 ? $"  ({string.Join(", ", extras)})" : "";
-        Log(Web.LogLevel.Info, $"Hover → {desc}{suffix}", element.RefKey);
+        Log(Web.LogLevel.Info, $"{kind} → {desc}{suffix}", element.RefKey);
+    }
+
+    private static string GetRuntimeId(System.Windows.Automation.AutomationElement el)
+    {
+        try { return string.Join(".", el.GetRuntimeId()); }
+        catch { return ""; }
     }
 
     private static string Truncate(string s, int max) =>

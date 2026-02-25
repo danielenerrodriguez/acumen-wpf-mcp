@@ -106,5 +106,8 @@ public static class Constants
         public const string SaveMacro = "saveMacro";
         public const string ExportMacro = "exportMacro";
         public const string ExportAllMacros = "exportAllMacros";
+        public const string WatchStart = "watchStart";
+        public const string WatchStop = "watchStop";
+        public const string WatchStatus = "watchStatus";
     }
 }
