@@ -58,6 +58,8 @@ update_instructions:
       - "NEVER use action: macro (sub-macro calls) — they will always exceed the MCP client timeout (~15-20s). Always inline the sub-macro steps directly into the parent macro YAML instead."
       - "Include blind dialog dismissal steps (e.g., Left,Enter for overwrite, Tab,Enter for Mentor) even when dialogs may not appear — harmless if no dialog is present. Note: Mentor dialogs only appear on S3 Risk tabs, not on other tabs."
       - "Prefer wait_for_enabled over static wait steps when waiting for import/processing to complete — use automation_id: uxRibbons with timeout: 30 to poll until tabs become enabled"
+      - "IMPORT MACRO PATTERN: Use keytips for file dialog open (Alt,S,O,A) and Import All (Alt,S,R,I) — these are fast with no UI tree search. Use find+click for post-import navigation (tab switching, button clicks) — these are reliable. Always include wait: 2 before Import All keytips to let the file load into the project tree. The reference implementation is import-mpp-circular-logic.yaml."
+      - "AVOID using find+click for Import All — the find operation searches the full UI tree which is slow on Fuse's complex interface. Keytips (Alt,S,R,I) are faster and equally reliable when preceded by a wait: 2 and focus step."
 
   # Inline annotation conventions for AI agents
   annotations:
@@ -1724,52 +1726,71 @@ workflows:
   import_xer:
     description: "Import a Primavera P6 XER file"
     status: verified
-    last_tested: "2026-02-24"
+    last_tested: "2026-02-25"
     existing_macro: import-xer.yaml
     steps:
-      - "Ensure S1 // Projects tab is active"
-      - "Alt,S,O,A (Oracle Primavera > Add File, All types)"
-      - "File dialog: navigate to XER file"
-      - "Alt,S,R,I (Import > Import All)"
+      - "Focus main window"
+      - "Alt,S,O,A (Oracle Primavera > Add File, All types) — keytips, fast"
+      - "File dialog: navigate to XER file (wpf_file_dialog)"
+      - "Wait 2 seconds for file to load into project tree"
+      - "Focus main window"
+      - "Alt,S,R,I (Import > Import All) — keytips, fast"
       - "wait_for_enabled on uxRibbons (polls until tabs are enabled = import complete)"
+    notes: >
+      Uses keytips for both file dialog open and Import All (fast, no tree search).
+      The wait: 2 before Import All is critical — gives the app time to load the file
+      into the project tree before keytips fire. Pattern matches import-mpp-circular-logic.yaml.
     issues:
       - "wpf_screenshot does not capture the file dialog (separate OS window) — agent must trust the keytip sequence worked"
 
   import_xer_and_analyze:
     description: "Import XER file and run Fuse diagnostics — full end-to-end workflow"
     status: verified
-    last_tested: "2026-02-24"
+    last_tested: "2026-02-25"
     existing_macro: import-xer-and-analyze.yaml
     steps:
-      - "Run import_xer workflow (inline, not nested)"
-      - "wait_for_enabled on uxRibbons (replaces static wait)"
-      - "Run run_fuse_analysis workflow (inline, not nested)"
+      - "Run import_xer workflow steps (inline, keytips for file dialog + Import All)"
+      - "wait_for_enabled on uxRibbons (polls until import complete)"
+      - "find+click uxRibbons tab (switch to Diagnostics — reliable post-import)"
+      - "F9 (run Fuse analysis)"
     notes: >
-      Macro was rewritten from nested (calls import-xer + run-fuse-analysis) to
-      flat inline steps to avoid MCP tool invocation timeout. Now uses
-      wait_for_enabled instead of static waits for import completion detection.
+      Uses the standard import pattern: keytips for file dialog/Import All (fast),
+      find+click for post-import tab switching (reliable). wait_for_enabled detects
+      import completion adaptively. Pattern matches import-mpp-circular-logic.yaml.
 
   import_msp:
     description: "Import a Microsoft Project file"
     status: verified
-    last_tested: "2026-02-24"
+    last_tested: "2026-02-25"
     existing_macro: import-mpp-circular-logic.yaml
     steps:
-      - "Ensure S1 // Projects tab is active"
-      - "Click MicrosoftProjectMenuTool > Add File"
-      - "File dialog: navigate to MPP/XML file"
-      - "Alt,S,R,I (Import > Import All)"
+      - "Focus main window"
+      - "find+click uxProjects tab (ensure S1 is active)"
+      - "find+click MicrosoftProjectMenuTool (opens file dialog directly)"
+      - "File dialog: navigate to MPP/XML file (wpf_file_dialog)"
+      - "Wait 2 seconds for file to load into project tree"
+      - "Focus main window"
+      - "Alt,S,R,I (Import > Import All) — keytips, fast"
       - "wait_for_enabled on uxRibbons (polls until tabs are enabled = import complete)"
-    notes: "MSP import verified via import-mpp-circular-logic macro. Uses wait_for_enabled for reliable completion detection."
+    notes: >
+      REFERENCE IMPLEMENTATION for import macros. Uses find+click to open the MSP
+      file dialog (MicrosoftProjectMenuTool opens dialog directly, unlike OraclePrimaveraMenuTool
+      which is a dropdown). Uses keytips for Import All (fast). Post-import navigation
+      uses find+click (reliable). All other import macros should follow this pattern.
 
   import_excel:
     description: "Import from Microsoft Excel"
     status: predicted
     steps:
-      - "Ensure S1 // Projects tab is active"
-      - "Click GetMicrosoftExcelFileButton > Add File"
-      - "File dialog: navigate to XLSX file"
-      - "Import: click ImportAllMenuTool"
+      - "Focus main window"
+      - "find+click uxProjects tab (ensure S1 is active)"
+      - "find+click GetMicrosoftExcelFileButton (opens file dialog)"
+      - "File dialog: navigate to XLSX file (wpf_file_dialog)"
+      - "Wait 2 seconds for file to load into project tree"
+      - "Focus main window"
+      - "Alt,S,R,I (Import > Import All) — keytips, fast"
+      - "wait_for_enabled on uxRibbons (polls until tabs are enabled = import complete)"
+    notes: "Predicted — follows the standard import pattern from import-mpp-circular-logic.yaml."
 
   run_fuse_analysis:
     description: "Run the Fuse diagnostics analysis"
@@ -1910,6 +1931,7 @@ workflows:
 navigation_tips:
   - tip: "Use keytips (Alt + letter sequences) for fastest navigation. Verified sequences are in the keytips.verified_sequences section."
   - tip: "Tabs can be clicked directly using wpf_find with automation_id (e.g., 'uxProjects', 'uxRibbons', 'RiskTab')"
+  - tip: "IMPORT MACRO PATTERN: Keytips for file dialog open + Import All (fast, no tree search). find+click for post-import tab switching and button clicks (reliable). Always wait: 2 before Import All keytips to let the file load. Reference implementation: import-mpp-circular-logic.yaml. Avoid using find+click for Import All — the find is slow on Fuse's complex UI tree."
   - tip: "Menu tools are split buttons - clicking the top half triggers the default action, clicking the bottom arrow opens the submenu"
   - tip: "Many tabs (Diagnostics, Logic, Risk, Dashboard) are disabled (IsEnabled=False) until a project is imported. Tab switching via keytips or click will appear to succeed but has no visible effect without data. Use wait_for_enabled on uxRibbons to detect when import completes."
   - tip: "The Projects sidebar (XamOutlookBar) shows the workbook hierarchy. Use uxTreeView to find project nodes."
@@ -1918,7 +1940,7 @@ navigation_tips:
   - tip: "The application menu (file menu) is accessed via uxApplicationMenu or keytip Alt,F"
   - tip: "IMPORTANT: There are TWO types of file dialogs. Open/Import dialogs use standard Win32 with AutomationId '1148' (wpf_file_dialog works). Save/Export dialogs (Save As workbook, Export to Excel) use DirectUI with AutomationId 'FileNameControlHost' (wpf_file_dialog does NOT work — use wpf_find + wpf_type + Enter instead)."
   - tip: "FILE DIALOG ERROR DETECTION: After a file dialog macro, if IsEnabled=False on the filename field (1148 or FileNameControlHost), an error dialog is blocking. Find the child #32770 window, read AutomationId=65535 for the error text, click AutomationId=2 (OK) to dismiss, then Escape to cancel."
-  - tip: "DO NOT use the import-file macro — it is broken. The Fuse application menu has no 'Import' item. Use import-xer macro instead (imports via ribbon: Alt,S,O,A for P6 files)."
+  - tip: "The Fuse application menu has no 'Import' item. Use import-xer macro instead (imports via ribbon keytips: Alt,S,O,A for P6 files)."
   - tip: "The Publish menu item for Excel export is named 'To Microsoft Excel®' (with ® symbol), not 'To Excel'."
   - tip: "wpf_screenshot only captures the main application window — modal file dialogs and OS dialogs are NOT captured. Trust keytip sequences and use appropriate dialog interaction method."
   - tip: "MCP TOOL TIMEOUT: There is a ~15-20 second timeout on MCP tool invocations. Macros with total wait time >12s will fail silently. Keep individual wait steps to 2-3 seconds max. NEVER use action: macro (sub-macro calls) — they will always exceed the timeout. Always inline steps directly."

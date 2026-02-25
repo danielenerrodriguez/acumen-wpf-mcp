@@ -1,6 +1,6 @@
 name: Import XER File
 description: Opens an XER file in Acumen Fuse using ribbon keytips, then runs the import
-timeout: 120
+timeout: 90
 parameters:
   - name: filePath
     description: Full path to the XER file to import
@@ -12,7 +12,7 @@ parameters:
     default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
 
 steps:
-  # 1. Ensure Fuse is running and ready (inlined from acumen-fuse/launch)
+  # 1. Ensure Fuse is running and ready
   - action: launch
     exe_path: '{{exePath}}'
     if_not_running: true
@@ -22,7 +22,7 @@ steps:
     timeout: 90
     retry_interval: 2
 
-  # 2. Focus the main Fuse window, then open file dialog via keytips
+  # 2. Open file dialog via keytips (S1 Projects > Oracle Primavera > All types)
   - action: focus
   - action: send_keys
     keys: Alt,S,O,A
@@ -32,16 +32,14 @@ steps:
     text: '{{filePath}}'
     timeout: 15
 
-  # 4. Wait for file to load into the workbook
+  # 4. Wait for file to load, then Import All via keytips
   - action: wait
     seconds: 2
-
-  # 5. Focus the main window, then run import via keytips
   - action: focus
   - action: send_keys
     keys: Alt,S,R,I
 
-  # 6. Wait for import to complete (tabs become enabled)
+  # 5. Wait for import to complete (tabs become enabled)
   - action: wait_for_enabled
     automation_id: uxRibbons
     timeout: 30

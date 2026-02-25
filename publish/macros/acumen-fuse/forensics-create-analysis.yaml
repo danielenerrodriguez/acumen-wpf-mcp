@@ -57,7 +57,9 @@ steps:
   - action: wait
     seconds: 0.5
 
-  # 5. Import All and wait for completion
+  # 5. Wait for files to load, then Import All via keytips
+  - action: wait
+    seconds: 2
   - action: focus
   - action: send_keys
     keys: Alt,S,R,I

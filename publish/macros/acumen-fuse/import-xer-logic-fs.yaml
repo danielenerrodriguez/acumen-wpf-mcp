@@ -1,6 +1,6 @@
 name: import-xer-logic-fs
 description: Imports a P6 XER file into Acumen Fuse, switches to the S2 Logic tab, and selects the Finish to Start relationship type
-timeout: 120
+timeout: 90
 parameters:
   - name: filePath
     description: Full path to the XER file to import

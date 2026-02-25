@@ -1,0 +1,144 @@
+name: forensics-filter-demo
+description: >
+  Demo macro for PBI 2555880 - Adds filter to Forensics. Imports 5 sample XER files,
+  switches to Logic tab, activates Logic Trace mode, selects activity 0610 (Certified),
+  runs Trace Backward, saves the trace as a SmartGantt filter, then switches to
+  Forensics tab and opens the Create Analysis wizard. Assumes a clean workbook —
+  run close-workbook macro first if needed.
+timeout: 300
+parameters:
+- name: exePath
+  description: Path to Fuse.exe
+  required: false
+  default: C:\Program Files\Deltek\Acumen 8.12\Fuse.exe
+- name: samplesDir
+  description: Path to the Samples directory
+  required: false
+  default: C:\Program Files\Deltek\Acumen 8.12\Samples
+steps:
+  # 1. Ensure Fuse is running and ready
+  - action: launch
+    exe_path: '{{exePath}}'
+    if_not_running: true
+    timeout: 60
+  - action: wait_for_window
+    title_contains: ' - Deltek Acumen'
+    timeout: 90
+    retry_interval: 2
+
+  # 2. Open multi-select file dialog and import all 5 sample XER files
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,O,M
+  - action: wait
+    seconds: 1
+  # Navigate to Samples folder
+  - action: find
+    name: 'File name:'
+    automation_id: '1148'
+    control_type: Edit
+    save_as: fileNameBox
+  - action: set_value
+    ref: fileNameBox
+    value: '{{samplesDir}}'
+  - action: find
+    name: Open
+    automation_id: '1'
+    control_type: Button
+    save_as: openBtn
+  - action: click
+    ref: openBtn
+  - action: wait
+    seconds: 1
+  # Type all 5 filenames in quotes for multi-select
+  - action: find
+    name: 'File name:'
+    automation_id: '1148'
+    control_type: Edit
+    save_as: fileNameBox2
+  - action: set_value
+    ref: fileNameBox2
+    value: '"Initial  Plan.xer" "1 Month Update.xer" "6 Month Update.xer" "1 Year Update.xer" "Current Schedule.xer"'
+  - action: find
+    name: Open
+    automation_id: '1'
+    control_type: Button
+    save_as: openBtn2
+  - action: click
+    ref: openBtn2
+  - action: wait
+    seconds: 2
+
+  # 3. Wait for files to load, then Import All via keytips
+  - action: wait
+    seconds: 2
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,R,I
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 60
+
+  # 4. Switch to S2 // Logic tab via keytips
+  - action: focus
+  - action: wait
+    seconds: 1
+  - action: send_keys
+    keys: Alt,OemQuestion
+  - action: wait
+    seconds: 1
+
+  # 5. Click Logic Trace toggle button to activate trace mode
+  - action: find
+    automation_id: LogicTraceMenuTool
+    save_as: logicTraceMenu
+  - action: click
+    ref: logicTraceMenu
+  - action: wait
+    seconds: 1
+
+  # 6. Select activity 0610 (Certified) in the grid
+  - action: find
+    name: '0610: Certified'
+    control_type: TreeItem
+    save_as: activity0610
+  - action: click
+    ref: activity0610
+  - action: wait
+    seconds: 0.5
+
+  # 7. Trace Backward via keytip (Alt, /, R)
+  - action: send_keys
+    keys: Alt,OemQuestion,R
+  - action: wait
+    seconds: 1
+
+  # 8. Save filter via keytip (Alt, /, S)
+  - action: send_keys
+    keys: Alt,OemQuestion,S
+  - action: wait
+    seconds: 0.5
+
+  # 9. Accept the default filter name in the InputBox dialog (press Enter)
+  - action: send_keys
+    keys: Enter
+  - action: wait
+    seconds: 0.5
+
+  # 10. Switch to Forensics tab and open Create Analysis wizard
+  - action: find
+    automation_id: UxEnhancedForensicsTabItem
+    timeout: 5
+    save_as: forensicsTab
+  - action: click
+    ref: forensicsTab
+  - action: wait
+    seconds: 0.5
+  - action: find
+    name: Create Analysis
+    control_type: Button
+    save_as: createBtn
+  - action: click
+    ref: createBtn
+  - action: wait
+    seconds: 2
