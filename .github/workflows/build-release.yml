@@ -41,6 +41,29 @@ jobs:
       - name: Publish
         run: dotnet publish WpfMcp/WpfMcp.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist
 
+      - name: Sign executable
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push' && env.SIGNING_CERTIFICATE != ''
+        env:
+          SIGNING_CERTIFICATE: ${{ secrets.SIGNING_CERTIFICATE }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          # Decode certificate from base64 secret
+          $certBytes = [Convert]::FromBase64String($env:SIGNING_CERTIFICATE)
+          $certPath = Join-Path $env:RUNNER_TEMP "code_signing.pfx"
+          [IO.File]::WriteAllBytes($certPath, $certBytes)
+
+          # Find signtool.exe from Windows SDK
+          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" |
+            Where-Object { $_.FullName -match "x64" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          # Sign the exe with SHA-256 and timestamp
+          & $signtool sign /f $certPath /p $env:SIGNING_CERTIFICATE_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "WPF MCP Server" dist\WpfMcp.exe
+
+          # Clean up
+          Remove-Item $certPath -Force
+
       - name: Create release zip
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         run: Compress-Archive -Path dist\WpfMcp.exe, publish\macros, publish\setup.cmd -DestinationPath dist\WpfMcp.zip

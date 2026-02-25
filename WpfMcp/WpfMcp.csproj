@@ -7,6 +7,17 @@
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+
+    <!-- Assembly metadata (shows in file properties and UAC dialogs) -->
+    <Product>WPF MCP Server</Product>
+    <AssemblyTitle>WPF MCP Server</AssemblyTitle>
+    <Description>MCP server for automating WPF applications via UI Automation</Description>
+    <Company>DLTKEngineering</Company>
+    <Authors>DLTKEngineering</Authors>
+    <Copyright>Copyright (c) DLTKEngineering 2025-2026</Copyright>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
   </PropertyGroup>
 
   <ItemGroup>
