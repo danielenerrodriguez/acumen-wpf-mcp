@@ -450,7 +450,8 @@ internal sealed class AppState : IAppState
         _watchTimer = null;
         await _engine.StopKeyboardHookAsync();
 
-        var session = _currentSession!;
+        var session = _currentSession;
+        if (session == null) return _lastSession;
         session.StopTime = DateTime.Now;
         _lastSession = session;
         _currentSession = null;
