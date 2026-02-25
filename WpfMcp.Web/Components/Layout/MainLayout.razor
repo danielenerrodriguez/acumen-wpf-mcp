@@ -1,13 +1,14 @@
 @inherits LayoutComponentBase
 @implements IDisposable
 @inject IAppState State
+@inject IJSRuntime JS
 
 <div class="flex flex-col h-screen">
-    @* Header bar — dark navy like Deltek's top nav *@
-    <header class="flex items-center justify-between px-5 py-2.5 bg-deltek shrink-0 shadow-md">
+    @* Header bar — Deltek blue in light, purple in dark *@
+    <header class="flex items-center justify-between px-5 py-2.5 bg-deltek dark:bg-accent shrink-0 shadow-md">
         <div class="flex items-center gap-3">
             <span class="text-white font-bold text-sm tracking-wide">WPF MCP</span>
-            <span class="text-blue-300 text-xs font-medium">Dashboard</span>
+            <span class="text-blue-300 dark:text-purple-300 text-xs font-medium">Dashboard</span>
         </div>
         <div class="flex items-center gap-3 text-xs">
             @if (State.IsAttached)
@@ -25,6 +26,11 @@
                     <span class="text-white/50">Not attached</span>
                 </span>
             }
+            <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode">
+                @* Sun icon for dark mode (click to go light), Moon for light mode (click to go dark) *@
+                <span id="theme-icon-light" style="display:none;">&#9788;</span>
+                <span id="theme-icon-dark">&#9790;</span>
+            </button>
         </div>
     </header>
 
@@ -33,6 +39,28 @@
         @Body
     </div>
 </div>
+
+<script suppress-error="BL9992">
+    // Keep icon in sync with current theme
+    (function updateIcon() {
+        var isDark = document.documentElement.classList.contains('dark');
+        var light = document.getElementById('theme-icon-light');
+        var dark = document.getElementById('theme-icon-dark');
+        if (light) light.style.display = isDark ? 'inline' : 'none';
+        if (dark) dark.style.display = isDark ? 'none' : 'inline';
+    })();
+
+    // Patch toggleTheme to also update the icon
+    var _origToggle = window.toggleTheme;
+    window.toggleTheme = function() {
+        var result = _origToggle();
+        var light = document.getElementById('theme-icon-light');
+        var dark = document.getElementById('theme-icon-dark');
+        if (light) light.style.display = result ? 'inline' : 'none';
+        if (dark) dark.style.display = result ? 'none' : 'inline';
+        return result;
+    };
+</script>
 
 @code {
     private Timer? _statusTimer;

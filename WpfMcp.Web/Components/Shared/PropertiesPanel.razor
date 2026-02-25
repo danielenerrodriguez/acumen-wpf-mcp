@@ -1,15 +1,15 @@
 <div class="flex flex-col h-full">
     <div class="panel-header flex items-center justify-between px-3 py-2 shrink-0">
-        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Properties</span>
+        <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Properties</span>
         @if (RefKey != null)
         {
-            <span class="text-xs text-deltek font-medium bg-deltek-bg px-2 py-0.5 rounded">@RefKey</span>
+            <span class="text-xs text-deltek dark:text-accent-light font-medium bg-deltek-bg dark:bg-accent-bg px-2 py-0.5 rounded">@RefKey</span>
         }
     </div>
     <div class="flex-1 overflow-auto">
         @if (Properties == null || Properties.Count == 0)
         {
-            <p class="text-gray-400 text-xs p-3">Select an element to view properties.</p>
+            <p class="text-gray-400 dark:text-gray-500 text-xs p-3">Select an element to view properties.</p>
         }
         else
         {
@@ -18,18 +18,18 @@
                     @foreach (var kv in Properties)
                     {
                         var isChanged = ChangedKeys.Contains(kv.Key);
-                        <tr class="border-b border-gray-100 hover:bg-gray-50 @(isChanged ? "bg-blue-50" : "")">
-                            <td class="px-3 py-1.5 text-gray-500 font-medium whitespace-nowrap">
+                        <tr class="border-b border-gray-100 dark:border-dm-border hover:bg-gray-50 dark:hover:bg-dm-lighter @(isChanged ? "bg-blue-50 dark:bg-accent/10" : "")">
+                            <td class="px-3 py-1.5 text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">
                                 @if (isChanged)
                                 {
-                                    <span class="text-deltek font-semibold">@kv.Key</span>
+                                    <span class="text-deltek dark:text-accent-light font-semibold">@kv.Key</span>
                                 }
                                 else
                                 {
                                     @kv.Key
                                 }
                             </td>
-                            <td class="px-3 py-1.5 @(isChanged ? "text-deltek font-bold" : GetValueColor(kv.Key)) font-mono break-all">
+                            <td class="px-3 py-1.5 @(isChanged ? "text-deltek dark:text-accent-light font-bold" : GetValueColor(kv.Key)) font-mono break-all">
                                 @kv.Value
                             </td>
                         </tr>
@@ -48,14 +48,14 @@
     /// <summary>Highlight enriched pattern values with distinct colors.</summary>
     private static string GetValueColor(string key) => key switch
     {
-        "Value" => "text-emerald-600",
-        "ToggleState" => "text-blue-600",
-        "IsSelected" => "text-blue-600",
-        "ExpandCollapseState" => "text-blue-600",
-        "RangeValue" or "RangeMinimum" or "RangeMaximum" => "text-cyan-600",
-        "SelectedItems" => "text-cyan-600",
-        "IsEnabled" => "text-amber-600",
-        "IsOffscreen" => "text-amber-600",
-        _ => "text-gray-700"
+        "Value" => "text-emerald-600 dark:text-green-400",
+        "ToggleState" => "text-blue-600 dark:text-blue-400",
+        "IsSelected" => "text-blue-600 dark:text-blue-400",
+        "ExpandCollapseState" => "text-blue-600 dark:text-blue-400",
+        "RangeValue" or "RangeMinimum" or "RangeMaximum" => "text-cyan-600 dark:text-cyan-400",
+        "SelectedItems" => "text-cyan-600 dark:text-cyan-400",
+        "IsEnabled" => "text-amber-600 dark:text-yellow-400",
+        "IsOffscreen" => "text-amber-600 dark:text-yellow-400",
+        _ => "text-gray-700 dark:text-gray-300"
     };
 }

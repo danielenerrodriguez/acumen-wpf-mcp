@@ -3,17 +3,17 @@
 
 <div class="flex flex-col h-full">
     <div class="panel-header flex items-center justify-between px-3 py-2 shrink-0">
-        <span class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Macros</span>
+        <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Macros</span>
         <button @onclick="RefreshMacros" class="btn-secondary text-xs">
             Refresh
         </button>
     </div>
     <div class="flex-1 flex overflow-hidden text-xs">
         @* Macro list *@
-        <div class="w-48 border-r border-surface-dark overflow-auto shrink-0 bg-surface-light">
+        <div class="w-48 border-r border-surface-dark dark:border-dm-border overflow-auto shrink-0 bg-surface-light dark:bg-dm-light">
             @if (_macros == null || _macros.Count == 0)
             {
-                <p class="text-gray-400 p-2">No macros found.</p>
+                <p class="text-gray-400 dark:text-gray-500 p-2">No macros found.</p>
             }
             else
             {
@@ -24,7 +24,7 @@
                     <button @onclick="() => SelectMacro(m)"
                             @ondblclick="() => OpenInEditor(m)"
                             title="Double-click to open in editor"
-                            class="w-full text-left px-3 py-1.5 transition-all truncate @(isNew ? "text-emerald-700 bg-emerald-50 animate-pulse font-medium" : isSelected ? "bg-deltek-bg text-deltek font-medium border-l-2 border-deltek" : "text-gray-600 hover:bg-gray-100")">
+                            class="w-full text-left px-3 py-1.5 transition-all truncate @(isNew ? "text-emerald-700 dark:text-green-400 bg-emerald-50 dark:bg-green-900/20 animate-pulse font-medium" : isSelected ? "bg-deltek-bg dark:bg-accent-bg text-deltek dark:text-accent-light font-medium border-l-2 border-deltek dark:border-accent" : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dm-lighter")">
                         @m.DisplayName
                     </button>
                 }
@@ -35,14 +35,14 @@
         <div class="flex-1 overflow-auto p-3">
             @if (_selected == null)
             {
-                <p class="text-gray-400">Select a macro to run.</p>
+                <p class="text-gray-400 dark:text-gray-500">Select a macro to run.</p>
             }
             else
             {
                 <div class="space-y-2">
                     <div>
-                        <span class="text-deltek font-semibold">@_selected.DisplayName</span>
-                        <p class="text-gray-500 mt-0.5">@_selected.Description</p>
+                        <span class="text-deltek dark:text-accent-light font-semibold">@_selected.DisplayName</span>
+                        <p class="text-gray-500 dark:text-gray-400 mt-0.5">@_selected.Description</p>
                     </div>
 
                     @if (_selected.Parameters.Count > 0)
@@ -51,7 +51,7 @@
                             @foreach (var p in _selected.Parameters)
                             {
                                 <div class="flex items-center gap-2">
-                                    <label class="text-gray-500 w-28 shrink-0 truncate font-medium" title="@p.Description">
+                                    <label class="text-gray-500 dark:text-gray-400 w-28 shrink-0 truncate font-medium" title="@p.Description">
                                         @p.Name@(p.Required ? "*" : "")
                                     </label>
                                     <input @bind="_paramValues[p.Name]" @bind:event="oninput"

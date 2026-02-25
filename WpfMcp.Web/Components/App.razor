@@ -8,9 +8,20 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+        // Apply theme immediately to prevent flash of wrong theme
+        (function() {
+            var stored = localStorage.getItem('theme');
+            var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (stored === 'dark' || (!stored && prefersDark)) {
+                document.documentElement.classList.add('dark');
+            }
+        })();
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     fontFamily: {
@@ -20,89 +31,100 @@
                         navy: { DEFAULT: '#0A1628', light: '#0F1D32', lighter: '#162340', 600: '#1E3A5F' },
                         deltek: { DEFAULT: '#0066FF', light: '#3B82F6', lighter: '#60A5FA', dark: '#0052CC', bg: '#EBF4FF' },
                         surface: { DEFAULT: '#E8EBF0', light: '#E8EBF0', medium: '#DDE1E8', dark: '#D1D5DB' },
+                        dm: { DEFAULT: '#1e1e2e', light: '#252538', lighter: '#2d2d44', border: '#3d3d5c', muted: '#4a4a6a' },
+                        accent: { DEFAULT: '#7c3aed', light: '#a78bfa', bg: 'rgba(124, 58, 237, 0.15)' },
                     }
                 }
             }
         }
     </script>
     <style>
-        /* Scrollbar styling */
+        /* ===== Scrollbar ===== */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #E8EBF0; }
         ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+        .dark ::-webkit-scrollbar-track { background: #1e1e2e; }
+        .dark ::-webkit-scrollbar-thumb { background: #4a4a6a; }
+        .dark ::-webkit-scrollbar-thumb:hover { background: #6a6a8a; }
 
-        /* Tree node hover */
+        /* ===== Tree nodes ===== */
         .tree-node:hover { background: #F1F5F9; }
         .tree-node.selected { background: #EBF4FF; border-left: 2px solid #0066FF; }
+        .dark .tree-node:hover { background: rgba(124, 58, 237, 0.1); }
+        .dark .tree-node.selected { background: rgba(124, 58, 237, 0.2); border-left: 2px solid #7c3aed; }
 
-        /* Prevent body scroll */
+        /* ===== Layout ===== */
         html, body { height: 100%; overflow: hidden; }
 
-        /* Panel headers */
-        .panel-header {
-            background: #E8EBF0;
-            border-bottom: 1px solid #D1D5DB;
-        }
+        /* ===== Panel headers ===== */
+        .panel-header { background: #E8EBF0; border-bottom: 1px solid #D1D5DB; }
+        .dark .panel-header { background: #2d2d44; border-bottom: 1px solid #3d3d5c; }
 
-        /* Form inputs */
+        /* ===== Form inputs ===== */
         .input-field {
-            background: #FFFFFF;
-            border: 1px solid #D1D5DB;
-            border-radius: 0.375rem;
-            padding: 0.25rem 0.5rem;
-            color: #1F2937;
-            font-size: 0.75rem;
-            outline: none;
-            transition: border-color 0.15s, box-shadow 0.15s;
+            background: #FFFFFF; border: 1px solid #D1D5DB; border-radius: 0.375rem;
+            padding: 0.25rem 0.5rem; color: #1F2937; font-size: 0.75rem;
+            outline: none; transition: border-color 0.15s, box-shadow 0.15s;
         }
-        .input-field:focus {
-            border-color: #0066FF;
-            box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.15);
-        }
+        .input-field:focus { border-color: #0066FF; box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.15); }
         .input-field::placeholder { color: #9CA3AF; }
         .input-field:disabled { opacity: 0.5; }
+        .dark .input-field { background: #1e1e2e; border-color: #4a4a6a; color: #e5e7eb; }
+        .dark .input-field:focus { border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.2); }
+        .dark .input-field::placeholder { color: #6b7280; }
 
-        /* Action buttons */
+        /* ===== Primary buttons ===== */
         .btn-primary {
-            background: #0066FF;
-            color: white;
-            border-radius: 0.375rem;
-            padding: 0.25rem 0.75rem;
-            font-size: 0.75rem;
-            font-weight: 500;
-            transition: background 0.15s;
+            background: #0066FF; color: white; border-radius: 0.375rem;
+            padding: 0.25rem 0.75rem; font-size: 0.75rem; font-weight: 500; transition: background 0.15s;
         }
         .btn-primary:hover { background: #0052CC; }
         .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .dark .btn-primary { background: #7c3aed; }
+        .dark .btn-primary:hover { background: #6d28d9; }
 
+        /* ===== Secondary buttons ===== */
         .btn-secondary {
-            background: #F1F5F9;
-            color: #374151;
-            border: 1px solid #D1D5DB;
-            border-radius: 0.375rem;
-            padding: 0.25rem 0.5rem;
-            font-size: 0.75rem;
-            font-weight: 500;
-            transition: all 0.15s;
+            background: #F1F5F9; color: #374151; border: 1px solid #D1D5DB;
+            border-radius: 0.375rem; padding: 0.25rem 0.5rem;
+            font-size: 0.75rem; font-weight: 500; transition: all 0.15s;
         }
         .btn-secondary:hover { background: #E2E8F0; border-color: #0066FF; color: #0066FF; }
+        .dark .btn-secondary { background: #2d2d44; color: #d1d5db; border-color: #4a4a6a; }
+        .dark .btn-secondary:hover { background: #3d3d5c; border-color: #7c3aed; color: #a78bfa; }
 
-        /* Subtle card shadow */
-        .panel-card {
-            background: white;
-            border: 1px solid #E5E7EB;
+        /* ===== Panel card ===== */
+        .panel-card { background: white; border: 1px solid #E5E7EB; }
+        .dark .panel-card { background: #252538; border-color: #3d3d5c; }
+
+        /* ===== Theme toggle button ===== */
+        .theme-toggle {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 1.75rem; height: 1.75rem; border-radius: 0.375rem;
+            background: rgba(255,255,255,0.15); color: white; cursor: pointer;
+            border: none; transition: background 0.15s; font-size: 0.875rem;
         }
+        .theme-toggle:hover { background: rgba(255,255,255,0.25); }
     </style>
     <HeadOutlet @rendermode="RenderMode.InteractiveServer" />
 </head>
-<body class="bg-surface-light text-gray-800 h-full font-sans">
+<body class="bg-surface-light dark:bg-dm text-gray-800 dark:text-gray-200 h-full font-sans">
     <Routes @rendermode="RenderMode.InteractiveServer" />
     <script src="_framework/blazor.web.js"></script>
     <script>
-        window.scrollToBottom = (id) => {
-            const el = document.getElementById(id);
+        window.scrollToBottom = function(id) {
+            var el = document.getElementById(id);
             if (el) el.scrollTop = el.scrollHeight;
+        };
+        window.toggleTheme = function() {
+            var html = document.documentElement;
+            var isDark = html.classList.toggle('dark');
+            localStorage.setItem('theme', isDark ? 'dark' : 'light');
+            return isDark;
+        };
+        window.isDarkMode = function() {
+            return document.documentElement.classList.contains('dark');
         };
     </script>
 </body>
