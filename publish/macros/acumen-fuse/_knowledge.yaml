@@ -1,7 +1,7 @@
 # Acumen Fuse Knowledge Base
 # For use by AI agents navigating Deltek Acumen Fuse via WPF MCP tools
 # Version: 8.12.0 x64
-# Last updated: 2026-02-24 (verified Risk Analysis workflow, fixed Mentor dialog variants, added overwrite dialog handling)
+# Last updated: 2026-02-25 (verified Forensics Create Analysis wizard, added forensics-create-analysis macro, documented wizard steps and automation IDs)
 
 kind: knowledge-base
 
@@ -922,19 +922,40 @@ ribbon:
     send_keys: "Alt,O"
     automation_id: UxEnhancedForensicsTabItem
     enabled_when: always
+    status: verified
+    last_tested: "2026-02-25"
+    notes: >
+      The Forensics tab is always enabled (even without data). The main view (EnhancedForensicsView,
+      AutomationId=uxForensicsView) has a left panel with an Analysis label and a ListBox
+      (AutomationId=uxProjectsList) showing completed analyses, and a right panel with a
+      DataGrid showing comparison results. After running an analysis, category tabs appear
+      in the results area (Projects, Activities, Fields, Relationships, etc.).
+      Currently there is NO filter selection in the Create Analysis wizard — PBI 2555880
+      will add this capability.
     groups:
       - name: "Create Analysis"
-        tools: [{name: "Create"}, {name: "Remove Current"}]
-      - name: "Forensic Checks"
-        notes: "Dynamic buttons from NonFieldAnalysisButtons"
-      - name: "General Fields"
-        notes: "Dynamic buttons from GeneralFieldButtons"
-      - name: "Input Fields"
-        notes: "Dynamic buttons from InputFieldButtons"
-      - name: "Output Fields"
-        notes: "Dynamic buttons from OutputFieldButtons"
-      - name: "SmartGantt"
-        tools: [{name: "Filter"}]
+        tools:
+          - name: "Create Analysis"
+            type: button
+            class_name: ButtonTool
+            notes: "Opens the Create Analysis wizard (modal Window). Always enabled."
+            status: verified
+            last_tested: "2026-02-25"
+          - name: "Remove"
+            type: button
+            class_name: ButtonTool
+            notes: "Removes the currently selected analysis"
+      - name: "SmartGantt™"
+        tools:
+          - name: "Filter"
+            type: button
+            class_name: ButtonTool
+            notes: >
+              Creates an Activity Grid filter from current forensics results (post-analysis export).
+              Only enabled for Activity and ActivityField analysis types. This does NOT filter
+              what goes INTO the analysis — it exports results as a filter for the activity grid.
+            status: verified
+            last_tested: "2026-02-25"
       - name: "Publish"
         tools:
           - name: "Publish"
@@ -1239,6 +1260,39 @@ automation_ids:
     - id: RiskCurrencySymbol
       type: ComboBox
       tab: RiskTab
+
+  # -- Forensics --
+  forensics:
+    - id: uxForensicsView
+      type: Custom
+      class_name: EnhancedForensicsView
+      notes: "Main Forensics content view. Contains analysis list (left) and results grid (right)."
+      status: verified
+      last_tested: "2026-02-25"
+    - id: uxProjectsList
+      type: List
+      class_name: ListBox
+      notes: "Left panel list showing completed forensic analyses. Each item shows base + comparison project names."
+      status: verified
+      last_tested: "2026-02-25"
+    - id: Options
+      type: List
+      class_name: ListBox
+      notes: "Create Analysis wizard step 1 — list of projects to select as base"
+      status: verified
+      last_tested: "2026-02-25"
+    - id: Snapshots
+      type: List
+      class_name: ListBox
+      notes: "Create Analysis wizard step 2 — list of projects to check as comparison snapshots"
+      status: verified
+      last_tested: "2026-02-25"
+    - id: Fields
+      type: List
+      class_name: ListBox
+      notes: "Create Analysis wizard step 4 — list of fields to check for comparison"
+      status: verified
+      last_tested: "2026-02-25"
 
   # -- Content Areas --
   content:
@@ -1590,11 +1644,12 @@ workflows:
   new_workbook:
     description: "Create a new empty workbook"
     status: verified
-    last_tested: "2026-02-24"
+    last_tested: "2026-02-25"
     existing_macro: new-workbook.yaml
     steps:
       - "Alt,F,N (File > New)"
-      - "Handle save prompt if existing workbook is open"
+      - "wait 1s for save prompt"
+      - "wpf_find(name='No', control_type=Button) then wpf_click to discard changes"
     result: "New workbook 'Workbook1 (0)' appears in Projects pane"
 
   open_workbook:
@@ -1659,11 +1714,12 @@ workflows:
   close_workbook:
     description: "Close the current workbook without saving"
     status: verified
-    last_tested: "2026-02-24"
+    last_tested: "2026-02-25"
     existing_macro: close-workbook.yaml
     steps:
       - "Alt,F,C (File > Close)"
-      - "Right,Enter (select 'No' on save prompt to discard)"
+      - "wait 1s for save prompt to appear"
+      - "wpf_find(name='No', control_type=Button) then wpf_click to discard changes"
 
   import_xer:
     description: "Import a Primavera P6 XER file"
@@ -1733,16 +1789,59 @@ workflows:
       Wait step reduced from 10s to 3s to avoid MCP timeout.
 
   run_forensic_analysis:
-    description: "Run a forensic comparison between projects"
-    status: predicted
-    prerequisites: "Minimum 2 projects must be imported"
+    description: "Import two projects and run a forensic comparison between them"
+    status: verified
+    last_tested: "2026-02-25"
+    existing_macro: forensics-create-analysis.yaml
+    prerequisites: "None — the macro creates a new workbook first, discarding unsaved changes automatically."
     steps:
+      - "Create new workbook: Alt,F,N then Tab,Tab,Tab,Enter to dismiss save prompt (harmless if no prompt)"
+      - "Import both XER files via Alt,S,O,A (add file) — do NOT import between adds"
+      - "Import All via Alt,S,R,I (single import for all added files)"
+      - "Wait for import to complete (wait_for_enabled on uxRibbons)"
       - "Switch to Forensics tab (click UxEnhancedForensicsTabItem)"
-      - "Click Create Analysis (starts wizard)"
-      - "Select base project, click Next"
-      - "Select comparison project(s), click Next"
-      - "Map subprojects if needed, click Next"
-      - "Select fields to compare, click Finish"
+      - "Click 'Create Analysis' button (ButtonTool in 'Create Analysis' RibbonGroup)"
+      - "Step 1 - Base Project Selection: Select project from ListBox (AutomationId=Options), click Next"
+      - "Step 2 - Snapshot Selection: Check comparison project(s) in ListBox (AutomationId=Snapshots), click Next"
+      - "Step 3 - Subproject Mapping (conditional): If subprojects exist, map them or check 'Ignore Subproject Structure', click Next"
+      - "Step 4 - Field Selection: Check fields to compare in ListBox (AutomationId=Fields), click Finish"
+      - "Analysis runs and populates the EnhancedForensicsView with results"
+    notes: >
+      The wizard is a modal Window titled 'Create Analysis'. It has 4 steps (3 if no subprojects).
+      Navigation: Back/Next/Finish/Cancel buttons. Finish only appears on the last step (Field Selection).
+      Multiple XER files can be added before running a single Import All — this is more efficient.
+      The sample XER files (Initial Plan.xer, Current Schedule.xer) contain subprojects, so the
+      subproject mapping step will appear. Check 'Ignore Subproject Structure' to skip mapping.
+    wizard_dialog:
+      title: "Create Analysis"
+      class_name: Window
+      header_text: "Forensic Analysis Wizard"
+      steps:
+        step1_base_project:
+          description: "Select the base project for comparison"
+          prompt: "Please select the project that you want to use as a base for comparison during the Forensic Analysis"
+          list_automation_id: Options
+          list_items: ListItem (one per imported project)
+          buttons: [Next, Cancel]
+        step2_snapshots:
+          description: "Select comparison snapshots"
+          prompt: "Please check the projects that you want to compare against the base project"
+          list_automation_id: Snapshots
+          list_items: "ListItem with CheckBox child (AutomationId matches project name)"
+          buttons: [Back, Next, Cancel]
+        step3_subproject_mapping:
+          description: "Map subprojects across snapshots (conditional — only shown when subprojects exist)"
+          prompt: "You have selected projects that contain subprojects..."
+          view_class: SubProjectMappingTemplateView
+          ignore_checkbox: "Ignore Subproject Structure (Compare using Activity IDs)"
+          buttons: [Back, Next, Cancel]
+        step4_field_selection:
+          description: "Select fields to compare"
+          prompt: "Please check the fields that you want to compare in Forensic Analysis"
+          list_automation_id: Fields
+          list_items: "ListItem with CheckBox child (field names like Activity Status, Start, Finish, etc.)"
+          extra_buttons: [Select All, Deselect All]
+          buttons: [Back, Finish, Cancel]
 
   export_to_excel:
     description: "Export diagnostics results to Excel"
@@ -1823,7 +1922,7 @@ navigation_tips:
   - tip: "The Publish menu item for Excel export is named 'To Microsoft Excel®' (with ® symbol), not 'To Excel'."
   - tip: "wpf_screenshot only captures the main application window — modal file dialogs and OS dialogs are NOT captured. Trust keytip sequences and use appropriate dialog interaction method."
   - tip: "MCP TOOL TIMEOUT: There is a ~15-20 second timeout on MCP tool invocations. Macros with total wait time >12s will fail silently. Keep individual wait steps to 2-3 seconds max. NEVER use action: macro (sub-macro calls) — they will always exceed the timeout. Always inline steps directly."
-  - tip: "SAVE PROMPT: File > New, File > Open, and File > Close will trigger a save prompt dialog if the workbook has unsaved changes. The dialog has Yes/No/Cancel buttons. Use wpf_find(automation_id=CommandButton_7) to click 'No' to discard."
+  - tip: "SAVE PROMPT: File > New, File > Open, and File > Close will trigger a save prompt dialog if the workbook has unsaved changes. The dialog has Yes/No/Cancel WPF buttons (no AutomationId). To discard: use wpf_find(name='No', control_type=Button) then wpf_click. In macros where the dialog may or may not appear, use Tab,Tab,Tab,Enter (focus starts on a non-button element, 3 Tabs reach 'No', Enter confirms). Do NOT use Right,Enter or Tab,Enter — they hit 'Yes' (Save) which opens a Save As file dialog."
   - tip: "Window title format is '<WorkbookName> - Deltek Acumen' after a workbook is opened"
   - tip: "For send_keys, use comma-separated keys for sequential presses (e.g., 'Alt,F,C') and + for simultaneous (e.g., 'Ctrl+A')"
   - tip: "IMPORT COMPLETION DETECTION: After triggering Import All, use wait_for_enabled with automation_id: uxRibbons (or any non-S1 tab like uxLogic, RiskTab, uxDashboards) to detect import completion. These tabs are IsEnabled=False when no data is loaded and become IsEnabled=True once import finishes. This is more reliable than static wait steps and adapts to file size. Example macro step: action: wait_for_enabled, automation_id: uxRibbons, timeout: 30"

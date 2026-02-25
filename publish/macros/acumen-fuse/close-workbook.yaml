@@ -21,5 +21,13 @@ steps:
   - action: focus
   - action: send_keys
     keys: Alt,F,C
-  - action: send_keys
-    keys: Right,Enter
+
+  # Wait for save prompt, then click "No" to discard changes
+  - action: wait
+    seconds: 1
+  - action: find
+    name: "No"
+    control_type: Button
+    save_as: noBtn
+  - action: click
+    ref: noBtn

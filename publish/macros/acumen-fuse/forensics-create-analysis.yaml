@@ -1,0 +1,144 @@
+name: forensics-create-analysis
+description: Creates a new workbook (discarding unsaved changes), imports two XER files, switches to Forensics tab, and runs the Create Analysis wizard to compare them. Selects the first file as the base project and the second as the comparison snapshot. Ignores subproject structure.
+timeout: 180
+parameters:
+- name: filePath1
+  description: Full path to the first (base) XER file
+  required: false
+  default: C:\Program Files\Deltek\Acumen 8.12\Samples\Initial  Plan.xer
+- name: filePath2
+  description: Full path to the second (comparison) XER file
+  required: false
+  default: C:\Program Files\Deltek\Acumen 8.12\Samples\Current Schedule.xer
+- name: exePath
+  description: Path to Fuse.exe
+  required: false
+  default: C:\Program Files\Deltek\Acumen 8.12\Fuse.exe
+steps:
+  # 1. Ensure Fuse is running and ready
+  - action: launch
+    exe_path: '{{exePath}}'
+    if_not_running: true
+    timeout: 60
+  - action: wait_for_window
+    title_contains: ' - Deltek Acumen'
+    timeout: 90
+    retry_interval: 2
+
+  # 2. Create a new workbook (discards unsaved changes)
+  - action: focus
+  - action: send_keys
+    keys: Alt,F,N
+  - action: wait
+    seconds: 1
+  # If save prompt appears, Tab 3x to reach "No" button, then Enter
+  - action: send_keys
+    keys: Tab,Tab,Tab,Enter
+  - action: wait
+    seconds: 1
+
+  # 3. Add first XER file (no import yet)
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,O,A
+  - action: file_dialog
+    text: '{{filePath1}}'
+    timeout: 15
+  - action: wait
+    seconds: 0.5
+
+  # 4. Add second XER file (no import yet)
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,O,A
+  - action: file_dialog
+    text: '{{filePath2}}'
+    timeout: 15
+  - action: wait
+    seconds: 0.5
+
+  # 5. Import All and wait for completion
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,R,I
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 60
+
+  # 6. Switch to Forensics tab
+  - action: find
+    automation_id: UxEnhancedForensicsTabItem
+    timeout: 5
+    save_as: forensicsTab
+  - action: click
+    ref: forensicsTab
+  - action: wait
+    seconds: 1
+
+  # 7. Open Create Analysis wizard
+  - action: find
+    name: Create Analysis
+    control_type: Button
+    save_as: createBtn
+  - action: click
+    ref: createBtn
+  - action: wait
+    seconds: 1
+
+  # 8. Step 1: Select base project, click Next
+  - action: find
+    control_type: ListItem
+    name: Initial  Plan
+    save_as: baseProject
+  - action: click
+    ref: baseProject
+  - action: find
+    name: Next
+    control_type: Button
+    save_as: nextBtn
+  - action: click
+    ref: nextBtn
+  - action: wait
+    seconds: 1
+
+  # 9. Step 2: Check comparison snapshot, click Next
+  - action: find
+    automation_id: Current Schedule
+    control_type: CheckBox
+    save_as: snapshotCheck
+  - action: click
+    ref: snapshotCheck
+  - action: find
+    name: Next
+    control_type: Button
+    save_as: nextBtn2
+  - action: click
+    ref: nextBtn2
+  - action: wait
+    seconds: 1
+
+  # 10. Step 3: Ignore subproject structure, click Next
+  - action: find
+    name: Ignore Subproject Structure (Compare using Activity IDs)
+    control_type: CheckBox
+    save_as: ignoreSubprojects
+  - action: click
+    ref: ignoreSubprojects
+  - action: find
+    name: Next
+    control_type: Button
+    save_as: nextBtn3
+  - action: click
+    ref: nextBtn3
+  - action: wait
+    seconds: 1
+
+  # 11. Step 4: Click Finish to run analysis
+  - action: find
+    name: Finish
+    control_type: Button
+    save_as: finishBtn
+  - action: click
+    ref: finishBtn
+  - action: wait
+    seconds: 5

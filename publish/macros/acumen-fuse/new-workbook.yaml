@@ -23,8 +23,12 @@ steps:
     keys: Alt,F,N
 
   # If a workbook is already open, a save prompt appears.
-  # Press Right (to select "No") then Enter to discard changes.
+  # Click "No" to discard changes.
   - action: wait
     seconds: 1
-  - action: send_keys
-    keys: Right,Enter
+  - action: find
+    name: "No"
+    control_type: Button
+    save_as: noBtn
+  - action: click
+    ref: noBtn
