@@ -18,6 +18,7 @@ internal sealed class AppState : IAppState
     private readonly object _logLock = new();
 
     public event Action<LogEntry>? OnLog;
+    public event Action? OnAttachChanged;
 
     public AppState(UiaEngine engine, ElementCache cache, Lazy<MacroEngine> macroEngine, SemaphoreSlim commandLock)
     {
@@ -40,9 +41,9 @@ internal sealed class AppState : IAppState
 
     // --- Logging ---
 
-    private void Log(Web.LogLevel level, string message)
+    private void Log(Web.LogLevel level, string message, string? refKey = null)
     {
-        var entry = new LogEntry(DateTime.Now, level, message);
+        var entry = new LogEntry(DateTime.Now, level, message, refKey);
         lock (_logLock)
         {
             _recentLogs.Add(entry);
@@ -110,6 +111,7 @@ internal sealed class AppState : IAppState
         {
             var r = _engine.Attach(processName);
             Log(r.success ? Web.LogLevel.Success : Web.LogLevel.Error, $"Attach: {r.message}");
+            if (r.success) OnAttachChanged?.Invoke();
             return new(r.success, r.message);
         }
         finally { _lock.Release(); }
@@ -121,9 +123,9 @@ internal sealed class AppState : IAppState
         try
         {
             if (!_cache.TryGet(refKey, out var el))
-                return LogAndReturn(false, $"Unknown ref '{refKey}'");
+                return LogAndReturn(false, $"Unknown ref '{refKey}'", refKey);
             var r = _engine.ClickElement(el!);
-            return LogAndReturn(r.success, $"Click [{refKey}]: {r.message}");
+            return LogAndReturn(r.success, $"Click [{refKey}]: {r.message}", refKey);
         }
         finally { _lock.Release(); }
     }
@@ -134,9 +136,9 @@ internal sealed class AppState : IAppState
         try
         {
             if (!_cache.TryGet(refKey, out var el))
-                return LogAndReturn(false, $"Unknown ref '{refKey}'");
+                return LogAndReturn(false, $"Unknown ref '{refKey}'", refKey);
             var r = _engine.RightClickElement(el!);
-            return LogAndReturn(r.success, $"RightClick [{refKey}]: {r.message}");
+            return LogAndReturn(r.success, $"RightClick [{refKey}]: {r.message}", refKey);
         }
         finally { _lock.Release(); }
     }
@@ -180,9 +182,9 @@ internal sealed class AppState : IAppState
         try
         {
             if (!_cache.TryGet(refKey, out var el))
-                return LogAndReturn(false, $"Unknown ref '{refKey}'");
+                return LogAndReturn(false, $"Unknown ref '{refKey}'", refKey);
             var r = _engine.SetElementValue(el!, value);
-            return LogAndReturn(r.success, $"SetValue [{refKey}]: {r.message}");
+            return LogAndReturn(r.success, $"SetValue [{refKey}]: {r.message}", refKey);
         }
         finally { _lock.Release(); }
     }
@@ -193,9 +195,9 @@ internal sealed class AppState : IAppState
         try
         {
             if (!_cache.TryGet(refKey, out var el))
-                return LogAndReturn(false, $"Unknown ref '{refKey}'");
+                return LogAndReturn(false, $"Unknown ref '{refKey}'", refKey);
             var r = _engine.GetElementValue(el!);
-            return LogAndReturn(r.success, $"GetValue [{refKey}]: {r.message}");
+            return LogAndReturn(r.success, $"GetValue [{refKey}]: {r.message}", refKey);
         }
         finally { _lock.Release(); }
     }
@@ -213,12 +215,12 @@ internal sealed class AppState : IAppState
 
             if (string.Equals(r.value, expected, StringComparison.OrdinalIgnoreCase))
             {
-                Log(Web.LogLevel.Success, $"Verify PASS: [{refKey}] {property} = \"{r.value}\"");
+                Log(Web.LogLevel.Success, $"Verify PASS: [{refKey}] {property} = \"{r.value}\"", refKey);
                 return new(true, $"PASS: {property} = \"{r.value}\"");
             }
             else
             {
-                Log(Web.LogLevel.Error, $"Verify FAIL: [{refKey}] expected {property} = \"{expected}\" but got \"{r.value}\"");
+                Log(Web.LogLevel.Error, $"Verify FAIL: [{refKey}] expected {property} = \"{expected}\" but got \"{r.value}\"", refKey);
                 return new(false, $"FAIL: expected {property} = \"{expected}\" but got \"{r.value}\"");
             }
         }
@@ -242,7 +244,7 @@ internal sealed class AppState : IAppState
             var refKey = _cache.Add(r.element);
             var props = _engine.GetElementProperties(r.element);
             var info = ToElementInfo(r.element, refKey);
-            Log(Web.LogLevel.Success, $"Find [{refKey}]: {r.message}");
+            Log(Web.LogLevel.Success, $"Find [{refKey}]: {r.message}", refKey);
             return new FindResult(info, props);
         }
         finally { _lock.Release(); }
@@ -279,11 +281,70 @@ internal sealed class AppState : IAppState
         }
     }
 
+    // --- Live monitoring ---
+
+    public FocusResult? GetFocusedElement()
+    {
+        _lock.Wait();
+        try
+        {
+            var el = _engine.GetFocusedElement();
+            if (el == null) return null;
+
+            // Build a stable identity from RuntimeId
+            string runtimeId;
+            try
+            {
+                var rid = el.GetRuntimeId();
+                runtimeId = string.Join(".", rid);
+            }
+            catch { runtimeId = ""; }
+
+            var info = ToElementInfo(el);
+            var props = _engine.GetElementProperties(el);
+            return new FocusResult(info, props, runtimeId);
+        }
+        catch { return null; }
+        finally { _lock.Release(); }
+    }
+
+    public void LogPropertyChange(string refKey, string property, string oldValue, string newValue)
+    {
+        Log(Web.LogLevel.Info, $"{property}: \"{oldValue}\" → \"{newValue}\"", refKey);
+    }
+
+    public void LogFocusChange(ElementInfo element, Dictionary<string, string> properties)
+    {
+        // Build a concise description with the most useful property values
+        var desc = !string.IsNullOrEmpty(element.AutomationId)
+            ? $"[{element.ControlType}] #{element.AutomationId}"
+            : !string.IsNullOrEmpty(element.Name)
+                ? $"[{element.ControlType}] \"{element.Name}\""
+                : $"[{element.ControlType}]";
+
+        // Append key values if present
+        var extras = new List<string>();
+        if (properties.TryGetValue("Value", out var val) && !string.IsNullOrEmpty(val))
+            extras.Add($"Value=\"{Truncate(val, 40)}\"");
+        if (properties.TryGetValue("ToggleState", out var ts))
+            extras.Add($"Toggle={ts}");
+        if (properties.TryGetValue("IsSelected", out var sel) && sel == "True")
+            extras.Add("Selected");
+        if (properties.TryGetValue("ExpandCollapseState", out var ecs) && ecs != "LeafNode")
+            extras.Add(ecs);
+
+        var suffix = extras.Count > 0 ? $"  ({string.Join(", ", extras)})" : "";
+        Log(Web.LogLevel.Info, $"Focus → {desc}{suffix}", element.RefKey);
+    }
+
+    private static string Truncate(string s, int max) =>
+        s.Length <= max ? s : s[..max] + "...";
+
     // --- Helpers ---
 
-    private ActionResult LogAndReturn(bool success, string message)
+    private ActionResult LogAndReturn(bool success, string message, string? refKey = null)
     {
-        Log(success ? Web.LogLevel.Success : Web.LogLevel.Error, message);
+        Log(success ? Web.LogLevel.Success : Web.LogLevel.Error, message, refKey);
         return new(success, message);
     }
 

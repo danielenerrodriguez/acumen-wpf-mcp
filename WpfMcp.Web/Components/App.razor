@@ -38,5 +38,11 @@
 <body class="bg-surface text-gray-200 h-full">
     <Routes @rendermode="RenderMode.InteractiveServer" />
     <script src="_framework/blazor.web.js"></script>
+    <script>
+        window.scrollToBottom = (id) => {
+            const el = document.getElementById(id);
+            if (el) el.scrollTop = el.scrollHeight;
+        };
+    </script>
 </body>
 </html>

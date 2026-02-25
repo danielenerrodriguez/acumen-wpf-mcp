@@ -306,6 +306,42 @@ Macros can be exported as Windows shortcut (.lnk) files that users can double-cl
 - `Program.cs` — `--export-all`, `--shortcuts-path` CLI flags
 - `publish/setup.cmd` — Post-extraction script included in release zip
 
+## Live Updates & Focus Watcher
+
+### Event-Driven Updates
+The web dashboard receives live updates via in-process C# events (not pipe push — the named pipe is request/response only):
+- **`OnLog` event**: New log entries trigger `StateHasChanged()` in `LogPanel`, with auto-scroll via JS interop (`scrollToBottom`)
+- **`OnAttachChanged` event**: Fires when a process is attached/detached — `MainLayout` refreshes status bar, `Dashboard` refreshes element tree
+- **Status bar polling**: `MainLayout` polls `GetStatus()` every 3 seconds for process name + PID display
+
+### Focus Watcher (Watch Mode)
+Tracks which element has focus in the attached WPF application, logging changes and property diffs in real time.
+
+**How it works:**
+1. "Watch" toggle button in `ActionsPanel` header (purple when active)
+2. `Dashboard.razor` runs a 500ms `System.Threading.Timer` when watch is active
+3. Each tick calls `AppState.GetFocusedElement()` → `UiaEngine.GetFocusedElement()` → `AutomationElement.FocusedElement`
+4. Filters to attached process by PID (ignores desktop/other app focus)
+5. Uses `GetRuntimeId()` for stable identity comparison (not ref keys — `AutomationElement.FocusedElement` returns a new COM object each call)
+6. On focus change: logs element type, automationId/name, and key property values (Value, ToggleState, IsSelected, ExpandCollapseState)
+7. On same element: diffs property values, logs changes, highlights in `PropertiesPanel` with purple background via `ChangedKeys` set
+
+**Key types:**
+- `FocusResult` record in `IAppState.cs`: `(string? RefKey, Dictionary<string, string> Properties, string RuntimeId)`
+- `GetFocusedElement()` on `IAppState`/`AppState`: Returns `FocusResult?` with RuntimeId and full properties
+- `LogFocusChange()` on `IAppState`/`AppState`: Logs with key property values from the properties dictionary
+
+**Why polling, not UIA events:**
+The STA thread uses a custom `BlockingQueue`, not a Windows message pump. `Automation.AddAutomationFocusChangedEventHandler` requires a COM message pump to fire reliably. Polling `AutomationElement.FocusedElement` every 500ms is the pragmatic approach.
+
+**BoundingRectangle filter:** This property changes constantly as elements scroll/resize — filtered out from property change diff logging to prevent log spam.
+
+### LogPanel Auto-Scroll
+- JS interop: `window.scrollToBottom(id)` function in `App.razor` sets `el.scrollTop = el.scrollHeight`
+- `LogPanel.razor` injects `IJSRuntime`, sets `_shouldScroll = true` on new log entries
+- `OnAfterRenderAsync` calls `scrollToBottom("log-scroll")` when `_shouldScroll` is set, then resets the flag
+- Catches `ObjectDisposedException` for circuit disconnect safety
+
 ## Discoveries & Gotchas
 
 - **MCP Tool Timeout (~15-20s)**: The MCP client (OpenCode) has a hard ~15-20s timeout on tool call responses. This cannot be configured. Keep macros fast. Reduce `wait` steps to 2-3s max.

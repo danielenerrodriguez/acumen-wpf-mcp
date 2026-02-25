@@ -38,6 +38,20 @@ public interface IAppState
     // --- Log ---
     event Action<LogEntry>? OnLog;
     IReadOnlyList<LogEntry> RecentLogs { get; }
+
+    // --- Live monitoring ---
+    /// <summary>Get the currently focused element in the attached app, or null if focus is outside.</summary>
+    FocusResult? GetFocusedElement();
+
+    /// <summary>Log a property change detected by the polling timer.</summary>
+    void LogPropertyChange(string refKey, string property, string oldValue, string newValue);
+
+    /// <summary>Log a focus change detected by the watch timer.</summary>
+    void LogFocusChange(ElementInfo element, Dictionary<string, string> properties);
+
+    // --- Events ---
+    /// <summary>Fires when attachment status changes (attach/detach).</summary>
+    event Action? OnAttachChanged;
 }
 
 // --- DTOs ---
@@ -54,6 +68,9 @@ public record ElementInfo(
 public record ActionResult(bool Success, string Message);
 
 public record FindResult(ElementInfo Element, Dictionary<string, string> Properties);
+
+/// <summary>Result of GetFocusedElement with a stable identity for change detection.</summary>
+public record FocusResult(ElementInfo Element, Dictionary<string, string> Properties, string RuntimeId);
 
 public record MacroSummary(
     string Name,
@@ -74,6 +91,6 @@ public record MacroRunResult(
     int TotalSteps,
     string? Error = null);
 
-public record LogEntry(DateTime Time, LogLevel Level, string Message);
+public record LogEntry(DateTime Time, LogLevel Level, string Message, string? RefKey = null);
 
 public enum LogLevel { Info, Success, Warning, Error }

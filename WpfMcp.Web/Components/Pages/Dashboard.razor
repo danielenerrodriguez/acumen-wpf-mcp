@@ -1,10 +1,11 @@
 @page "/"
+@implements IDisposable
 @inject IAppState State
 
 <div class="flex h-full">
     @* Left panel: Element Tree *@
     <div class="w-80 flex flex-col border-r border-gray-700 shrink-0">
-        <ElementTree SelectedRefKey="@_selectedRef" OnElementSelected="HandleElementSelected" />
+        <ElementTree @ref="_elementTree" SelectedRefKey="@_selectedRef" OnElementSelected="HandleElementSelected" />
     </div>
 
     @* Right panel *@
@@ -13,11 +14,14 @@
         <div class="flex border-b border-gray-700" style="height: 45%;">
             @* Properties *@
             <div class="flex-1 overflow-hidden border-r border-gray-700">
-                <PropertiesPanel RefKey="@_selectedRef" Properties="@_selectedProperties" />
+                <PropertiesPanel RefKey="@_selectedRef" Properties="@_selectedProperties" ChangedKeys="@_changedKeys" />
             </div>
             @* Actions *@
             <div class="w-80 overflow-hidden shrink-0">
-                <ActionsPanel SelectedRefKey="@_selectedRef" />
+                <ActionsPanel SelectedRefKey="@_selectedRef"
+                              Watching="@_watching"
+                              OnWatchToggled="ToggleWatch"
+                              OnElementSelected="HandleElementSelected" />
             </div>
         </div>
 
@@ -28,7 +32,7 @@
 
         @* Bottom: Log *@
         <div class="flex-1 overflow-hidden">
-            <LogPanel />
+            <LogPanel OnNavigateToElement="HandleElementSelected" />
         </div>
     </div>
 </div>
@@ -36,11 +40,114 @@
 @code {
     private string? _selectedRef;
     private Dictionary<string, string>? _selectedProperties;
+    private HashSet<string> _changedKeys = new();
+    private Timer? _watchTimer;
+    private ElementTree? _elementTree;
+    private bool _watching;
+    private string? _lastFocusedRuntimeId;
+
+    protected override void OnInitialized()
+    {
+        // 500ms timer — only does work when _watching is true
+        _watchTimer = new Timer(WatchTick, null, 500, 500);
+        State.OnAttachChanged += HandleAttachChanged;
+    }
 
     private void HandleElementSelected(string? refKey)
     {
         _selectedRef = refKey;
+        _changedKeys.Clear();
         _selectedProperties = refKey != null ? State.GetProperties(refKey) : null;
         StateHasChanged();
+    }
+
+    private void ToggleWatch(bool watching)
+    {
+        _watching = watching;
+        if (_watching)
+            _lastFocusedRuntimeId = null;
+        StateHasChanged();
+    }
+
+    private void WatchTick(object? _)
+    {
+        if (!_watching) return;
+
+        try
+        {
+            // --- Focus tracking ---
+            var focus = State.GetFocusedElement();
+            bool focusChanged = false;
+
+            if (focus != null && !string.IsNullOrEmpty(focus.RuntimeId) && focus.RuntimeId != _lastFocusedRuntimeId)
+            {
+                _lastFocusedRuntimeId = focus.RuntimeId;
+                focusChanged = true;
+                State.LogFocusChange(focus.Element, focus.Properties);
+
+                // Auto-select the focused element and use the properties we already fetched
+                _selectedRef = focus.Element.RefKey;
+                _selectedProperties = focus.Properties;
+                _changedKeys.Clear();
+            }
+
+            // --- Property diff on currently selected element (when focus didn't change) ---
+            if (!focusChanged && _selectedRef != null && _selectedProperties != null)
+            {
+                var fresh = State.GetProperties(_selectedRef);
+                if (fresh.Count > 0)
+                {
+                    var changed = new HashSet<string>();
+                    foreach (var kv in fresh)
+                    {
+                        if (!_selectedProperties.TryGetValue(kv.Key, out var old) || old != kv.Value)
+                            changed.Add(kv.Key);
+                    }
+
+                    // Filter out noisy properties that change constantly
+                    changed.Remove("BoundingRectangle");
+
+                    if (changed.Count > 0)
+                    {
+                        foreach (var key in changed)
+                        {
+                            var oldVal = _selectedProperties.TryGetValue(key, out var o) ? o : "(new)";
+                            State.LogPropertyChange(_selectedRef, key, oldVal, fresh[key]);
+                        }
+
+                        _selectedProperties = fresh;
+                        _changedKeys = changed;
+
+                        InvokeAsync(StateHasChanged);
+
+                        _ = Task.Delay(1500).ContinueWith(_ =>
+                        {
+                            _changedKeys = new();
+                            InvokeAsync(StateHasChanged);
+                        });
+                        return;
+                    }
+                }
+            }
+
+            if (focusChanged)
+                InvokeAsync(StateHasChanged);
+        }
+        catch { /* element may have gone stale */ }
+    }
+
+    private void HandleAttachChanged()
+    {
+        InvokeAsync(() =>
+        {
+            _elementTree?.Refresh();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        _watchTimer?.Dispose();
+        State.OnAttachChanged -= HandleAttachChanged;
     }
 }

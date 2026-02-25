@@ -17,9 +17,21 @@
                 <tbody>
                     @foreach (var kv in Properties)
                     {
-                        <tr class="border-b border-gray-800 hover:bg-surface-lighter">
-                            <td class="px-3 py-1.5 text-gray-400 font-medium whitespace-nowrap">@kv.Key</td>
-                            <td class="px-3 py-1.5 @GetValueColor(kv.Key) font-mono break-all">@kv.Value</td>
+                        var isChanged = ChangedKeys.Contains(kv.Key);
+                        <tr class="border-b border-gray-800 hover:bg-surface-lighter @(isChanged ? "bg-accent/10" : "")">
+                            <td class="px-3 py-1.5 text-gray-400 font-medium whitespace-nowrap">
+                                @if (isChanged)
+                                {
+                                    <span class="text-accent-light">@kv.Key</span>
+                                }
+                                else
+                                {
+                                    @kv.Key
+                                }
+                            </td>
+                            <td class="px-3 py-1.5 @(isChanged ? "text-accent-light font-bold" : GetValueColor(kv.Key)) font-mono break-all">
+                                @kv.Value
+                            </td>
                         </tr>
                     }
                 </tbody>
@@ -31,6 +43,7 @@
 @code {
     [Parameter] public string? RefKey { get; set; }
     [Parameter] public Dictionary<string, string>? Properties { get; set; }
+    [Parameter] public HashSet<string> ChangedKeys { get; set; } = new();
 
     /// <summary>Highlight enriched pattern values with distinct colors.</summary>
     private static string GetValueColor(string key) => key switch

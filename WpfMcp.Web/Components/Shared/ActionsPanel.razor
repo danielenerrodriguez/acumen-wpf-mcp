@@ -1,8 +1,13 @@
 @inject IAppState State
 
 <div class="flex flex-col h-full">
-    <div class="px-3 py-2 bg-surface-light border-b border-gray-700 shrink-0">
+    <div class="flex items-center justify-between px-3 py-2 bg-surface-light border-b border-gray-700 shrink-0">
         <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</span>
+        <button @onclick="ToggleWatch"
+                class="text-xs px-2 py-0.5 rounded transition @(Watching ? "bg-accent text-white" : "text-gray-400 hover:text-accent-light hover:bg-surface-lighter")"
+                title="@(Watching ? "Stop watching focus" : "Watch focused element in the attached app")">
+            @(Watching ? "Watching" : "Watch")
+        </button>
     </div>
     <div class="flex-1 overflow-auto p-3 space-y-3 text-xs">
 
@@ -106,8 +111,14 @@
 
 @code {
     [Parameter] public string? SelectedRefKey { get; set; }
+    [Parameter] public bool Watching { get; set; }
+    [Parameter] public EventCallback<bool> OnWatchToggled { get; set; }
+    [Parameter] public EventCallback<string?> OnElementSelected { get; set; }
 
     private string _attachProcess = "";
+
+    private async Task ToggleWatch() => await OnWatchToggled.InvokeAsync(!Watching);
+
     private string _keysText = "";
     private string _typeText = "";
     private string _setValue = "";
@@ -166,11 +177,14 @@
         State.Verify(SelectedRefKey, _verifyProperty, _verifyExpected.Trim());
     }
 
-    private void DoFind()
+    private async Task DoFind()
     {
         var aid = string.IsNullOrWhiteSpace(_findAutomationId) ? null : _findAutomationId.Trim();
         var name = string.IsNullOrWhiteSpace(_findName) ? null : _findName.Trim();
         if (aid == null && name == null) return;
-        State.Find(aid, name, null, null);
+        var result = State.Find(aid, name, null, null);
+        // Auto-select the found element
+        if (result != null)
+            await OnElementSelected.InvokeAsync(result.Element.RefKey);
     }
 }

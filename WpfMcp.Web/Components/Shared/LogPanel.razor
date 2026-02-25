@@ -1,5 +1,6 @@
 @implements IDisposable
 @inject IAppState State
+@inject IJSRuntime JS
 
 <div class="flex flex-col h-full">
     <div class="flex items-center justify-between px-3 py-2 bg-surface-light border-b border-gray-700 shrink-0">
@@ -13,6 +14,13 @@
         {
             <div class="flex gap-2">
                 <span class="text-gray-600 shrink-0">@entry.Time.ToString("HH:mm:ss")</span>
+                @if (entry.RefKey != null)
+                {
+                    <button @onclick="() => NavigateToElement(entry.RefKey)"
+                            class="text-accent-light hover:underline shrink-0" title="Select element @entry.RefKey">
+                        [@entry.RefKey]
+                    </button>
+                }
                 <span class="@GetLevelColor(entry.Level)">@entry.Message</span>
             </div>
         }
@@ -24,13 +32,26 @@
 </div>
 
 @code {
+    [Parameter] public EventCallback<string?> OnNavigateToElement { get; set; }
+
     private List<LogEntry> _logs = new();
+    private bool _shouldScroll;
 
     protected override void OnInitialized()
     {
-        // Load existing logs
         _logs = new(State.RecentLogs);
+        _shouldScroll = _logs.Count > 0;
         State.OnLog += HandleLog;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_shouldScroll)
+        {
+            _shouldScroll = false;
+            try { await JS.InvokeVoidAsync("scrollToBottom", "log-scroll"); }
+            catch (ObjectDisposedException) { }
+        }
     }
 
     private void HandleLog(LogEntry entry)
@@ -38,11 +59,16 @@
         InvokeAsync(() =>
         {
             _logs.Add(entry);
-            // Keep max 500 entries
             if (_logs.Count > 500)
                 _logs.RemoveRange(0, _logs.Count - 500);
+            _shouldScroll = true;
             StateHasChanged();
         });
+    }
+
+    private async Task NavigateToElement(string refKey)
+    {
+        await OnNavigateToElement.InvokeAsync(refKey);
     }
 
     private void Clear()

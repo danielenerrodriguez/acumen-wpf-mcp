@@ -1045,6 +1045,34 @@ public class UiaEngine
         catch (Exception ex) { return (false, null, $"ReadElementProperty failed: {ex.Message}"); }
     }
 
+    /// <summary>
+    /// Returns the currently focused element if it belongs to the attached process.
+    /// Returns null if not attached, focus is outside the app, or the element is inaccessible.
+    /// </summary>
+    public AutomationElement? GetFocusedElement()
+    {
+        if (!IsAttached) return null;
+        try
+        {
+            return RunOnSta<AutomationElement?>(() =>
+            {
+                var focused = AutomationElement.FocusedElement;
+                if (focused == null) return null;
+
+                // Only return elements belonging to the attached process
+                try
+                {
+                    if (focused.Current.ProcessId != _attachedProcess!.Id)
+                        return null;
+                }
+                catch { return null; }
+
+                return focused;
+            });
+        }
+        catch { return null; }
+    }
+
     public string FormatElement(AutomationElement e)
     {
         try
