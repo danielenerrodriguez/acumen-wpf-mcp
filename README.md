@@ -53,7 +53,7 @@ The `--mcp-connect` process auto-launches the elevated server if it isn't alread
 │  WpfMcp.exe --mcp-connect              (non-elevated process)   │
 │                                                                 │
 │  Program.cs         Mode routing, auto-launches elevated server │
-│  Tools.cs           16 MCP tool definitions                     │
+│  Tools.cs           17 MCP tool definitions                     │
 │  UiaProxyClient     Sends JSON requests over named pipe         │
 │  ElementCache       Thread-safe LRU ref cache (e1, e2, max 500) │
 │  Constants          Shared config (pipe name, timeouts, etc.)   │
@@ -121,12 +121,12 @@ A GitHub Actions workflow (`.github/workflows/build-release.yml`) runs on every 
 
 1. Builds and runs all tests on `windows-latest`
 2. Publishes a self-contained single-file exe (no .NET runtime required)
-3. Bundles `publish/macros/` alongside the exe
-4. Creates a GitHub Release with `WpfMcp.zip` (exe + macros) attached
+3. Bundles `publish/macros/` and `setup.cmd` alongside the exe
+4. Creates a GitHub Release with `WpfMcp.zip` (exe + macros + setup script) attached
 
 Pull requests to `master` trigger build and test only (no release).
 
-Extract the zip and keep `WpfMcp.exe` and the `macros/` folder in the same directory. The server discovers macros from the `macros/` folder next to the exe by default.
+Extract the zip and keep `WpfMcp.exe` and the `macros/` folder in the same directory. Run `setup.cmd` to generate Windows shortcuts for all macros — they'll appear in a `Shortcuts/` folder next to `macros/`. The server discovers macros from the `macros/` folder next to the exe by default.
 
 ## Usage Modes
 
@@ -163,6 +163,16 @@ WpfMcp.exe --mcp
 
 Runs a standard MCP stdio server without elevation. Only works if the target app doesn't require elevated UIA access.
 
+### Export Shortcuts
+
+```
+WpfMcp.exe --export-all [--shortcuts-path C:\path] [--force]
+```
+
+Exports all macros as Windows shortcut (.lnk) files. Users can double-click a shortcut to run the macro. The first run triggers a UAC prompt for the elevated server; subsequent runs connect to the existing server silently.
+
+A `setup.cmd` script is included in the release zip for convenience — run it after extraction to generate all shortcuts.
+
 ## MCP Tools Reference
 
 | Tool | Description |
@@ -183,6 +193,7 @@ Runs a standard MCP stdio server without elevation. Only works if the target app
 | `wpf_macro` | Execute a named macro with optional parameters |
 | `wpf_macro_list` | List all available macros, parameters, and knowledge base summaries |
 | `wpf_save_macro` | Save a workflow as a reusable macro YAML file (auto-derives product folder) |
+| `wpf_export_macro` | Export a macro (or all macros) as a double-clickable Windows shortcut (.lnk) |
 
 ### Element References
 
@@ -395,6 +406,71 @@ Steps are validated before writing:
 - Required fields are checked per action type (e.g., `send_keys` requires `keys`, `find` requires at least one search property)
 - Clear error messages reference the step number and missing field
 
+## Macro Export (Shortcuts)
+
+Macros can be exported as Windows shortcut (.lnk) files that users can double-click to run without needing an MCP client or AI agent.
+
+### How It Works
+
+The shortcut targets `WpfMcp.exe "C:\path\to\macro.yaml"`, reusing the existing drag-and-drop execution mode. This mode:
+
+1. Parses the YAML macro file
+2. Prompts for any required parameters that have no default value
+3. Connects to the elevated server (launching it with UAC if not already running)
+4. Executes the macro and displays the result
+
+Shortcuts are placed in a `Shortcuts/` folder as a sibling of the `macros/` folder, mirroring the macro directory structure:
+
+```
+publish/
+  macros/
+    acumen-fuse/
+      import-xer.yaml
+      export-to-excel.yaml
+  Shortcuts/
+    acumen-fuse/
+      import-xer.lnk
+      export-to-excel.lnk
+  setup.cmd
+  WpfMcp.exe
+```
+
+### Generating Shortcuts
+
+```bash
+# Export all macros
+WpfMcp.exe --export-all
+
+# Export a single macro (via MCP tool or CLI)
+wpf_export_macro name="acumen-fuse/import-xer"
+
+# CLI mode
+export acumen-fuse/import-xer
+export-all
+
+# Override output directory
+WpfMcp.exe --export-all --shortcuts-path C:\Users\me\Desktop\MacroShortcuts
+
+# Force overwrite existing shortcuts
+WpfMcp.exe --export-all --force
+```
+
+### Elevation
+
+Shortcuts do **not** have the "Run as administrator" flag. The client process runs non-elevated and handles elevation internally — it only triggers a UAC prompt if the elevated server isn't already running. This means:
+
+- First shortcut double-click: UAC prompt appears once
+- Subsequent runs: Connects to the existing elevated server silently
+- The elevated server has a 5-minute idle timeout, then shuts down until needed again
+
+### Path Resolution
+
+The shortcuts output folder is resolved in this priority:
+
+1. Explicit `--shortcuts-path` argument
+2. `WPFMCP_SHORTCUTS_PATH` environment variable
+3. `Shortcuts/` as a sibling of the macros folder (default)
+
 ## Knowledge Bases
 
 Knowledge bases are YAML files that give AI agents the context they need to navigate a specific WPF application without trial and error. Instead of blind exploration via snapshots, the agent starts with a structured map of automation IDs, keytip sequences, ribbon layout, workflows, and sample file paths.
@@ -485,11 +561,12 @@ C:\WpfMcp\
     Program.cs                          Entry point, mode routing, auto-launch logic
     Constants.cs                        Shared constants (pipe name, timeouts, JSON options, Commands)
     ElementCache.cs                     Thread-safe LRU element reference cache (e1, e2, ..., max 500)
-    Tools.cs                            16 MCP tool definitions
+    Tools.cs                            17 MCP tool definitions
     UiaEngine.cs                        Core UI Automation engine (STA thread, SendInput)
     UiaProxy.cs                         Proxy client/server for named pipe communication
-    MacroDefinition.cs                  YAML-deserialized POCOs for macros + KnowledgeBase + SaveMacroResult records
-    MacroEngine.cs                      Load, validate, execute, save macros; knowledge base loading
+    MacroDefinition.cs                  YAML-deserialized POCOs for macros + KnowledgeBase + SaveMacroResult + ExportMacroResult records
+    MacroEngine.cs                      Load, validate, execute, save, export macros; knowledge base loading
+    ShortcutCreator.cs                  COM-based Windows shortcut (.lnk) creation via WScript.Shell
     MacroSerializer.cs                  YAML serialization (`ToYaml`, `SaveToFile`)
     JsonHelpers.cs                      Shared JSON array parsing utilities
     YamlHelpers.cs                      Shared YAML deserializer/serializer instances
@@ -508,11 +585,17 @@ C:\WpfMcp\
         export-to-excel.yaml           Export data to Excel
         switch-to-tab.yaml            Switch ribbon tab by keytip
         ...                            (+ more macros)
+    Shortcuts/                          Generated .lnk shortcuts (gitignored, machine-specific)
+      acumen-fuse/
+        import-xer.lnk                Double-click to run import-xer macro
+        ...
+    setup.cmd                           Post-extraction script to generate shortcuts
     WpfMcp.exe                          Build output (gitignored)
     *.dll                               Build output (gitignored)
   WpfMcp.Tests/
-    WpfMcp.Tests.csproj                 xUnit test project (111 tests)
+    WpfMcp.Tests.csproj                 xUnit test project (125 tests)
     MacroEngineTests.cs                 73 tests for macro loading, validation, execution, saving
+    MacroExportTests.cs                 18 tests for shortcut export and ShortcutCreator
     MacroSerializerTests.cs             6 tests for YAML serialization round-trips
     WpfToolsTests.cs                    9 tests for MCP tool input validation
     ProxyResponseFormattingTests.cs     9 tests for proxy response formatting
