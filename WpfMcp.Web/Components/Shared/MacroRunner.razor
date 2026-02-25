@@ -1,3 +1,4 @@
+@implements IDisposable
 @inject IAppState State
 
 <div class="flex flex-col h-full">
@@ -18,8 +19,12 @@
             {
                 @foreach (var m in _macros)
                 {
+                    var isNew = _newMacroNames.Contains(m.Name);
+                    var isSelected = m == _selected;
                     <button @onclick="() => SelectMacro(m)"
-                            class="w-full text-left px-3 py-1.5 hover:bg-surface-lighter transition truncate @(m == _selected ? "bg-surface-lighter text-accent-light" : "text-gray-300")">
+                            @ondblclick="() => OpenInEditor(m)"
+                            title="Double-click to open in editor"
+                            class="w-full text-left px-3 py-1.5 hover:bg-surface-lighter transition-all truncate @(isNew ? "text-green-400 bg-green-900/20 animate-pulse" : isSelected ? "bg-surface-lighter text-accent-light" : "text-gray-300")">
                         @m.DisplayName
                     </button>
                 }
@@ -72,15 +77,50 @@
     private MacroSummary? _selected;
     private Dictionary<string, string> _paramValues = new();
     private bool _running;
+    private HashSet<string> _newMacroNames = new();
 
     protected override void OnInitialized()
     {
         RefreshMacros();
+        State.OnMacrosChanged += HandleMacrosChanged;
+    }
+
+    private void HandleMacrosChanged()
+    {
+        InvokeAsync(() =>
+        {
+            // Capture existing names before refresh to detect new entries
+            var oldNames = new HashSet<string>(_macros?.Select(m => m.Name) ?? Enumerable.Empty<string>());
+
+            try { _macros = State.ListMacros(); } catch { _macros = new(); }
+
+            _newMacroNames = new HashSet<string>(
+                (_macros?.Select(m => m.Name) ?? Enumerable.Empty<string>())
+                .Where(n => !oldNames.Contains(n)));
+
+            StateHasChanged();
+
+            // Clear new-macro highlight after 3 seconds
+            if (_newMacroNames.Count > 0)
+            {
+                _ = Task.Delay(3000).ContinueWith(_ => InvokeAsync(() =>
+                {
+                    _newMacroNames.Clear();
+                    StateHasChanged();
+                }));
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        State.OnMacrosChanged -= HandleMacrosChanged;
     }
 
     private void RefreshMacros()
     {
         try { _macros = State.ListMacros(); } catch { _macros = new(); }
+        _newMacroNames.Clear();
         StateHasChanged();
     }
 
@@ -92,6 +132,11 @@
         {
             _paramValues[p.Name] = p.Default ?? "";
         }
+    }
+
+    private void OpenInEditor(MacroSummary macro)
+    {
+        State.OpenMacroFile(macro.Name);
     }
 
     private async Task RunMacro()

@@ -3,6 +3,7 @@ namespace WpfMcp.Web;
 /// <summary>
 /// Interface for the web dashboard to interact with UIA engine, element cache,
 /// and macro engine. Implemented in the main WpfMcp project.
+/// Thread-safe via async semaphore to avoid blocking Blazor SignalR threads.
 /// </summary>
 public interface IAppState
 {
@@ -12,28 +13,35 @@ public interface IAppState
     int? ProcessId { get; }
 
     // --- Element tree ---
-    List<ElementInfo> GetRootChildren();
-    List<ElementInfo> GetChildren(string refKey);
-    Dictionary<string, string> GetProperties(string refKey);
-    string GetSnapshot(int maxDepth = 3);
+    Task<List<ElementInfo>> GetRootChildrenAsync();
+    Task<List<ElementInfo>> GetChildrenAsync(string refKey);
+    Task<Dictionary<string, string>> GetPropertiesAsync(string refKey);
+    Task<string> GetSnapshotAsync(int maxDepth = 3);
 
     // --- Actions ---
-    ActionResult Attach(string processName);
-    ActionResult Click(string refKey);
-    ActionResult RightClick(string refKey);
-    ActionResult Focus();
-    ActionResult SendKeys(string keys);
-    ActionResult TypeText(string text);
-    ActionResult SetValue(string refKey, string value);
-    ActionResult GetValue(string refKey);
-    ActionResult Verify(string refKey, string property, string expected);
+    Task<ActionResult> AttachAsync(string processName);
+    Task<ActionResult> ClickAsync(string refKey);
+    Task<ActionResult> RightClickAsync(string refKey);
+    Task<ActionResult> FocusAsync();
+    Task<ActionResult> SendKeysAsync(string keys);
+    Task<ActionResult> TypeTextAsync(string text);
+    Task<ActionResult> SetValueAsync(string refKey, string value);
+    Task<ActionResult> GetValueAsync(string refKey);
+    Task<ActionResult> VerifyAsync(string refKey, string property, string expected);
 
     // --- Find ---
-    FindResult? Find(string? automationId, string? name, string? className, string? controlType);
+    Task<FindResult?> FindAsync(string? automationId, string? name, string? className, string? controlType);
 
     // --- Macros ---
     List<MacroSummary> ListMacros();
     Task<MacroRunResult> RunMacroAsync(string name, Dictionary<string, string> parameters);
+
+    /// <summary>Open a macro YAML file in the user's default editor (VS Code, Notepad, etc.).</summary>
+    ActionResult OpenMacroFile(string macroName);
+
+    // --- Processes ---
+    /// <summary>List processes that have a visible main window.</summary>
+    List<ProcessInfo> ListWindowedProcesses();
 
     // --- Log ---
     event Action<LogEntry>? OnLog;
@@ -55,9 +63,15 @@ public interface IAppState
     /// <summary>Fires when a new watch entry is recorded.</summary>
     event Action<WatchEntry>? OnWatchEntry;
 
+    /// <summary>Fires when watch mode starts or stops (from any source: MCP, CLI, or dashboard).</summary>
+    event Action? OnWatchStateChanged;
+
     // --- Events ---
     /// <summary>Fires when attachment status changes (attach/detach).</summary>
     event Action? OnAttachChanged;
+
+    /// <summary>Fires when the macro list is reloaded (FileSystemWatcher detected changes).</summary>
+    event Action? OnMacrosChanged;
 }
 
 // --- DTOs ---
@@ -75,9 +89,11 @@ public record ActionResult(bool Success, string Message);
 
 public record FindResult(ElementInfo Element, Dictionary<string, string> Properties);
 
+public record ProcessInfo(int Pid, string Name, string Title);
+
 // --- Watch session types ---
 
-public enum WatchEntryKind { Focus, Hover, PropertyChange }
+public enum WatchEntryKind { Focus, Hover, PropertyChange, Keypress }
 
 public record WatchEntry(
     DateTime Time,
@@ -89,7 +105,9 @@ public record WatchEntry(
     Dictionary<string, string> Properties,
     string? ChangedProperty = null,
     string? OldValue = null,
-    string? NewValue = null);
+    string? NewValue = null,
+    string? KeyName = null,
+    string? KeyCombo = null);
 
 public class WatchSession
 {

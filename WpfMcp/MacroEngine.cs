@@ -25,6 +25,9 @@ public class MacroEngine : IDisposable
     private readonly object _reloadLock = new();
     private bool _disposed;
 
+    /// <summary>Fires after macros/knowledge bases are reloaded (from FileSystemWatcher or manual Reload call).</summary>
+    public event Action? OnReloaded;
+
     // Use shared deserializers from YamlHelpers to avoid duplicate configuration
 
     private static readonly Regex s_paramPattern = new(@"\{\{(\w+)\}\}", RegexOptions.Compiled);
@@ -114,6 +117,9 @@ public class MacroEngine : IDisposable
             if (parts.Count > 0)
                 Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss}] Reloaded: {string.Join(", ", parts)}");
         }
+
+        // Fire outside lock to prevent deadlocks with subscribers
+        OnReloaded?.Invoke();
     }
 
     /// <summary>Load a _knowledge.yaml file, parse it as a dictionary, and build a summary.</summary>
@@ -583,6 +589,15 @@ public class MacroEngine : IDisposable
     /// <summary>Get a macro definition by name.</summary>
     public MacroDefinition? Get(string name) =>
         _macros.TryGetValue(name, out var m) ? m : null;
+
+    /// <summary>Get the absolute file path of a macro by name, or null if not found.</summary>
+    public string? GetMacroFilePath(string name)
+    {
+        if (!_macros.ContainsKey(name)) return null;
+        var relativePath = name.Replace('/', Path.DirectorySeparatorChar) + ".yaml";
+        var fullPath = Path.Combine(_macrosPath, relativePath);
+        return File.Exists(fullPath) ? fullPath : null;
+    }
 
     /// <summary>
     /// Execute a macro definition directly (for drag-drop / run-file scenarios).

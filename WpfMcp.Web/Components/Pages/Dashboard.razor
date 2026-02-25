@@ -47,13 +47,14 @@
     {
         State.OnAttachChanged += HandleAttachChanged;
         State.OnWatchEntry += HandleWatchEntry;
+        State.OnWatchStateChanged += HandleWatchStateChanged;
     }
 
-    private void HandleElementSelected(string? refKey)
+    private async Task HandleElementSelected(string? refKey)
     {
         _selectedRef = refKey;
         _changedKeys.Clear();
-        _selectedProperties = refKey != null ? State.GetProperties(refKey) : null;
+        _selectedProperties = refKey != null ? await State.GetPropertiesAsync(refKey) : null;
         StateHasChanged();
     }
 
@@ -106,9 +107,15 @@
         });
     }
 
+    private void HandleWatchStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
     public void Dispose()
     {
         State.OnAttachChanged -= HandleAttachChanged;
         State.OnWatchEntry -= HandleWatchEntry;
+        State.OnWatchStateChanged -= HandleWatchStateChanged;
     }
 }

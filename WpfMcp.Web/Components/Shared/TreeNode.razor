@@ -56,14 +56,14 @@
 
     private bool IsSelected => SelectedRefKey == Node.RefKey;
 
-    private void ToggleExpand()
+    private async Task ToggleExpand()
     {
         _expanded = !_expanded;
         if (_expanded && _children == null)
         {
             try
             {
-                _children = State.GetChildren(Node.RefKey);
+                _children = await State.GetChildrenAsync(Node.RefKey);
             }
             catch
             {

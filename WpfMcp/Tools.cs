@@ -701,6 +701,12 @@ public static class WpfTools
                     var newVal = e.TryGetProperty("newValue", out var nwv) ? nwv.GetString() : "";
                     sb.AppendLine($"{time} [PropChange] {elementDesc}  {prop}: \"{oldVal}\" → \"{newVal}\"");
                 }
+                else if (kind == "Keypress")
+                {
+                    var keyCombo = e.TryGetProperty("keyCombo", out var kcv) ? kcv.GetString() : "?";
+                    var context = !string.IsNullOrEmpty(ct) ? $"  (on {elementDesc})" : "";
+                    sb.AppendLine($"{time} [Keypress]  {keyCombo}{context}");
+                }
                 else
                 {
                     // Focus or Hover — include key property values

@@ -432,6 +432,12 @@ public static class CliMode
             {
                 Console.WriteLine($"  {e.Time:HH:mm:ss.fff} [PropChange] {elementDesc}  {e.ChangedProperty}: \"{e.OldValue}\" → \"{e.NewValue}\"");
             }
+            else if (e.Kind == WpfMcp.Web.WatchEntryKind.Keypress)
+            {
+                var context = !string.IsNullOrEmpty(e.AutomationId) || !string.IsNullOrEmpty(e.Name) || !string.IsNullOrEmpty(e.ControlType)
+                    ? $"  (on {elementDesc})" : "";
+                Console.WriteLine($"  {e.Time:HH:mm:ss.fff} [Keypress]  {e.KeyCombo}{context}");
+            }
             else
             {
                 var extras = new List<string>();

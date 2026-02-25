@@ -725,7 +725,9 @@ public static class UiaProxyServer
             properties = e.Properties,
             changedProperty = e.ChangedProperty,
             oldValue = e.OldValue,
-            newValue = e.NewValue
+            newValue = e.NewValue,
+            keyName = e.KeyName,
+            keyCombo = e.KeyCombo
         }).ToList();
 
         return JsonSerializer.Serialize(new

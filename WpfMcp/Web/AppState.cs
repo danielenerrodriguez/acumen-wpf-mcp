@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows.Automation;
 using WpfMcp.Web;
 
@@ -6,7 +7,7 @@ namespace WpfMcp;
 /// <summary>
 /// Concrete implementation of <see cref="IAppState"/> that wraps
 /// UiaEngine, ElementCache, and MacroEngine for the web dashboard.
-/// Thread-safe via the shared command semaphore.
+/// Thread-safe via async semaphore to avoid blocking Blazor SignalR threads.
 /// </summary>
 internal sealed class AppState : IAppState
 {
@@ -20,6 +21,8 @@ internal sealed class AppState : IAppState
     public event Action<LogEntry>? OnLog;
     public event Action? OnAttachChanged;
     public event Action<WatchEntry>? OnWatchEntry;
+    public event Action? OnWatchStateChanged;
+    public event Action? OnMacrosChanged;
 
     // Watch session state
     private Timer? _watchTimer;
@@ -38,6 +41,10 @@ internal sealed class AppState : IAppState
         _cache = cache;
         _macroEngine = macroEngine;
         _lock = commandLock;
+
+        // Relay MacroEngine file-watcher reloads to the web dashboard
+        // Force the lazy to initialize so the watcher is running
+        _macroEngine.Value.OnReloaded += () => OnMacrosChanged?.Invoke();
     }
 
     // --- Status ---
@@ -67,9 +74,9 @@ internal sealed class AppState : IAppState
 
     // --- Element Tree ---
 
-    public List<ElementInfo> GetRootChildren()
+    public async Task<List<ElementInfo>> GetRootChildrenAsync()
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
             var children = _engine.GetChildElements(null);
@@ -78,9 +85,9 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
-    public List<ElementInfo> GetChildren(string refKey)
+    public async Task<List<ElementInfo>> GetChildrenAsync(string refKey)
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
             if (!_cache.TryGet(refKey, out var parent))
@@ -91,9 +98,9 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
-    public Dictionary<string, string> GetProperties(string refKey)
+    public async Task<Dictionary<string, string>> GetPropertiesAsync(string refKey)
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
             if (!_cache.TryGet(refKey, out var el))
@@ -103,9 +110,9 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
-    public string GetSnapshot(int maxDepth = 3)
+    public async Task<string> GetSnapshotAsync(int maxDepth = 3)
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
             var r = _engine.GetSnapshot(maxDepth);
@@ -116,9 +123,9 @@ internal sealed class AppState : IAppState
 
     // --- Actions ---
 
-    public ActionResult Attach(string processName)
+    public async Task<ActionResult> AttachAsync(string processName)
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
             var r = _engine.Attach(processName);
@@ -129,9 +136,9 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
-    public ActionResult Click(string refKey)
+    public async Task<ActionResult> ClickAsync(string refKey)
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
             if (!_cache.TryGet(refKey, out var el))
@@ -142,9 +149,9 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
-    public ActionResult RightClick(string refKey)
+    public async Task<ActionResult> RightClickAsync(string refKey)
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
             if (!_cache.TryGet(refKey, out var el))
@@ -155,9 +162,9 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
-    public ActionResult Focus()
+    public async Task<ActionResult> FocusAsync()
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
             var r = _engine.FocusWindow();
@@ -166,31 +173,36 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
-    public ActionResult SendKeys(string keys)
+    public async Task<ActionResult> SendKeysAsync(string keys)
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
+            // Focus the target app first — when called from the web dashboard,
+            // the browser window has foreground focus and SendInput would send to it.
+            _engine.FocusWindow();
             var r = _engine.SendKeyboardShortcut(keys);
             return LogAndReturn(r.success, $"Keys '{keys}': {r.message}");
         }
         finally { _lock.Release(); }
     }
 
-    public ActionResult TypeText(string text)
+    public async Task<ActionResult> TypeTextAsync(string text)
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
+            // Focus the target app first — same reason as SendKeysAsync.
+            _engine.FocusWindow();
             var r = _engine.TypeText(text);
             return LogAndReturn(r.success, $"Type: {r.message}");
         }
         finally { _lock.Release(); }
     }
 
-    public ActionResult SetValue(string refKey, string value)
+    public async Task<ActionResult> SetValueAsync(string refKey, string value)
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
             if (!_cache.TryGet(refKey, out var el))
@@ -201,9 +213,9 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
-    public ActionResult GetValue(string refKey)
+    public async Task<ActionResult> GetValueAsync(string refKey)
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
             if (!_cache.TryGet(refKey, out var el))
@@ -214,9 +226,9 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
-    public ActionResult Verify(string refKey, string property, string expected)
+    public async Task<ActionResult> VerifyAsync(string refKey, string property, string expected)
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
             if (!_cache.TryGet(refKey, out var el))
@@ -241,9 +253,9 @@ internal sealed class AppState : IAppState
 
     // --- Find ---
 
-    public FindResult? Find(string? automationId, string? name, string? className, string? controlType)
+    public async Task<FindResult?> FindAsync(string? automationId, string? name, string? className, string? controlType)
     {
-        _lock.Wait();
+        await _lock.WaitAsync();
         try
         {
             var r = _engine.FindElement(automationId, name, className, controlType);
@@ -262,6 +274,32 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
+    // --- Processes ---
+
+    public List<ProcessInfo> ListWindowedProcesses()
+    {
+        // No lock needed — Process.GetProcesses() is independent of UIA
+        try
+        {
+            return Process.GetProcesses()
+                .Where(p =>
+                {
+                    try { return p.MainWindowHandle != IntPtr.Zero && !string.IsNullOrEmpty(p.MainWindowTitle); }
+                    catch { return false; }
+                })
+                .Select(p =>
+                {
+                    try { return new ProcessInfo(p.Id, p.ProcessName, p.MainWindowTitle); }
+                    catch { return null; }
+                })
+                .Where(p => p != null)
+                .Cast<ProcessInfo>()
+                .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch { return new(); }
+    }
+
     // --- Macros ---
 
     public List<MacroSummary> ListMacros()
@@ -271,6 +309,26 @@ internal sealed class AppState : IAppState
             m.Name, m.DisplayName, m.Description,
             m.Parameters.Select(p => new MacroParamSummary(p.Name, p.Description, p.Required, p.Default)).ToList()
         )).ToList();
+    }
+
+    public ActionResult OpenMacroFile(string macroName)
+    {
+        var filePath = _macroEngine.Value.GetMacroFilePath(macroName);
+        if (filePath == null)
+            return LogAndReturn(false, $"Macro '{macroName}' not found or file missing");
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(filePath)
+            {
+                UseShellExecute = true
+            });
+            return LogAndReturn(true, $"Opened {filePath}");
+        }
+        catch (Exception ex)
+        {
+            return LogAndReturn(false, $"Failed to open '{filePath}': {ex.Message}");
+        }
     }
 
     public async Task<MacroRunResult> RunMacroAsync(string name, Dictionary<string, string> parameters)
@@ -308,7 +366,37 @@ internal sealed class AppState : IAppState
         _watchTimer?.Dispose();
         _watchTimer = new Timer(WatchTick, null, 500, 500);
 
+        // Start keyboard hook to capture keypresses directed at the attached process
+        _engine.StartKeyboardHook((keyName, keyCombo) =>
+        {
+            if (!IsWatching) return;
+
+            // Get info about the currently focused element for context
+            var ct = ""; var aid = ""; var name = ""; string? refKey = null;
+            var props = new Dictionary<string, string>();
+            try
+            {
+                if (_watchSelectedRef != null && _cache.TryGet(_watchSelectedRef, out var el) && el != null)
+                {
+                    var c = el.Current;
+                    ct = c.ControlType.ProgrammaticName.Replace("ControlType.", "");
+                    aid = c.AutomationId ?? "";
+                    name = c.Name ?? "";
+                    refKey = _watchSelectedRef;
+                }
+            }
+            catch { /* element may have gone stale */ }
+
+            var entry = new WatchEntry(
+                DateTime.Now, WatchEntryKind.Keypress,
+                ct, aid, name, refKey, props,
+                KeyName: keyName, KeyCombo: keyCombo);
+            RecordWatchEntry(entry);
+            Log(Web.LogLevel.Info, $"Key: {keyCombo}", refKey);
+        });
+
         Log(Web.LogLevel.Info, $"Watch started (session {_currentSession.Id})");
+        OnWatchStateChanged?.Invoke();
         return _currentSession;
     }
 
@@ -318,6 +406,7 @@ internal sealed class AppState : IAppState
 
         _watchTimer?.Dispose();
         _watchTimer = null;
+        _engine.StopKeyboardHook();
 
         var session = _currentSession!;
         session.StopTime = DateTime.Now;
@@ -327,6 +416,7 @@ internal sealed class AppState : IAppState
         Log(Web.LogLevel.Info,
             $"Watch stopped (session {session.Id}, {session.Entries.Count} entries, " +
             $"{(session.StopTime.Value - session.StartTime).TotalSeconds:F1}s)");
+        OnWatchStateChanged?.Invoke();
         return session;
     }
 
@@ -336,100 +426,100 @@ internal sealed class AppState : IAppState
     {
         if (!IsWatching) return;
 
+        // Skip this tick if the lock is already held (e.g., by a dashboard action).
+        // The timer fires every 500ms, so missing a tick is acceptable.
+        if (!_lock.Wait(0)) return;
+
         try
         {
-            _lock.Wait();
-            try
+            // --- Focus tracking ---
+            bool focusChanged = false;
+            ElementInfo? focusInfo = null;
+            Dictionary<string, string>? focusProps = null;
+
+            var focusEl = _engine.GetFocusedElement();
+            if (focusEl != null)
             {
-                // --- Focus tracking ---
-                bool focusChanged = false;
-                ElementInfo? focusInfo = null;
-                Dictionary<string, string>? focusProps = null;
-
-                var focusEl = _engine.GetFocusedElement();
-                if (focusEl != null)
+                var rid = GetRuntimeId(focusEl);
+                if (!string.IsNullOrEmpty(rid) && rid != _lastFocusedRuntimeId)
                 {
-                    var rid = GetRuntimeId(focusEl);
-                    if (!string.IsNullOrEmpty(rid) && rid != _lastFocusedRuntimeId)
-                    {
-                        _lastFocusedRuntimeId = rid;
-                        focusChanged = true;
-                        focusInfo = ToElementInfo(focusEl);
-                        focusProps = _engine.GetElementProperties(focusEl);
+                    _lastFocusedRuntimeId = rid;
+                    focusChanged = true;
+                    focusInfo = ToElementInfo(focusEl);
+                    focusProps = _engine.GetElementProperties(focusEl);
 
-                        var entry = new WatchEntry(
-                            DateTime.Now, WatchEntryKind.Focus,
-                            focusInfo.ControlType, focusInfo.AutomationId, focusInfo.Name,
-                            focusInfo.RefKey, focusProps);
-                        RecordWatchEntry(entry);
-                        LogWatchEvent("Focus", focusInfo, focusProps);
+                    var entry = new WatchEntry(
+                        DateTime.Now, WatchEntryKind.Focus,
+                        focusInfo.ControlType, focusInfo.AutomationId, focusInfo.Name,
+                        focusInfo.RefKey, focusProps);
+                    RecordWatchEntry(entry);
+                    LogWatchEvent("Focus", focusInfo, focusProps);
 
-                        _watchSelectedRef = focusInfo.RefKey;
-                        _watchSelectedProps = focusProps;
-                    }
+                    _watchSelectedRef = focusInfo.RefKey;
+                    _watchSelectedProps = focusProps;
                 }
+            }
 
-                // --- Hover tracking ---
-                bool hoverChanged = false;
-                var hoverEl = _engine.GetElementAtCursor();
-                if (hoverEl != null)
+            // --- Hover tracking ---
+            bool hoverChanged = false;
+            var hoverEl = _engine.GetElementAtCursor();
+            if (hoverEl != null)
+            {
+                var rid = GetRuntimeId(hoverEl);
+                if (!string.IsNullOrEmpty(rid) && rid != _lastHoverRuntimeId)
                 {
-                    var rid = GetRuntimeId(hoverEl);
-                    if (!string.IsNullOrEmpty(rid) && rid != _lastHoverRuntimeId)
+                    _lastHoverRuntimeId = rid;
+                    hoverChanged = true;
+                    var hoverInfo = ToElementInfo(hoverEl);
+                    var hoverProps = _engine.GetElementProperties(hoverEl);
+
+                    var entry = new WatchEntry(
+                        DateTime.Now, WatchEntryKind.Hover,
+                        hoverInfo.ControlType, hoverInfo.AutomationId, hoverInfo.Name,
+                        hoverInfo.RefKey, hoverProps);
+                    RecordWatchEntry(entry);
+                    LogWatchEvent("Hover", hoverInfo, hoverProps);
+
+                    if (!focusChanged)
                     {
-                        _lastHoverRuntimeId = rid;
-                        hoverChanged = true;
-                        var hoverInfo = ToElementInfo(hoverEl);
-                        var hoverProps = _engine.GetElementProperties(hoverEl);
-
-                        var entry = new WatchEntry(
-                            DateTime.Now, WatchEntryKind.Hover,
-                            hoverInfo.ControlType, hoverInfo.AutomationId, hoverInfo.Name,
-                            hoverInfo.RefKey, hoverProps);
-                        RecordWatchEntry(entry);
-                        LogWatchEvent("Hover", hoverInfo, hoverProps);
-
-                        if (!focusChanged)
-                        {
-                            _watchSelectedRef = hoverInfo.RefKey;
-                            _watchSelectedProps = hoverProps;
-                        }
-                    }
-                }
-
-                // --- Property diff on selected element ---
-                if (!focusChanged && !hoverChanged && _watchSelectedRef != null && _watchSelectedProps != null)
-                {
-                    if (_cache.TryGet(_watchSelectedRef, out var selEl) && selEl != null)
-                    {
-                        var fresh = _engine.GetElementProperties(selEl);
-                        if (fresh.Count > 0)
-                        {
-                            foreach (var kv in fresh)
-                            {
-                                if (kv.Key == "BoundingRectangle") continue;
-                                if (!_watchSelectedProps.TryGetValue(kv.Key, out var old) || old != kv.Value)
-                                {
-                                    var info = ToElementInfo(selEl, _watchSelectedRef);
-                                    var propEntry = new WatchEntry(
-                                        DateTime.Now, WatchEntryKind.PropertyChange,
-                                        info.ControlType, info.AutomationId, info.Name,
-                                        _watchSelectedRef, fresh,
-                                        kv.Key, old ?? "(new)", kv.Value);
-                                    RecordWatchEntry(propEntry);
-                                    Log(Web.LogLevel.Info,
-                                        $"{kv.Key}: \"{old ?? "(new)"}\" → \"{kv.Value}\"",
-                                        _watchSelectedRef);
-                                }
-                            }
-                            _watchSelectedProps = fresh;
-                        }
+                        _watchSelectedRef = hoverInfo.RefKey;
+                        _watchSelectedProps = hoverProps;
                     }
                 }
             }
-            finally { _lock.Release(); }
+
+            // --- Property diff on selected element ---
+            if (!focusChanged && !hoverChanged && _watchSelectedRef != null && _watchSelectedProps != null)
+            {
+                if (_cache.TryGet(_watchSelectedRef, out var selEl) && selEl != null)
+                {
+                    var fresh = _engine.GetElementProperties(selEl);
+                    if (fresh.Count > 0)
+                    {
+                        foreach (var kv in fresh)
+                        {
+                            if (kv.Key == "BoundingRectangle") continue;
+                            if (!_watchSelectedProps.TryGetValue(kv.Key, out var old) || old != kv.Value)
+                            {
+                                var info = ToElementInfo(selEl, _watchSelectedRef);
+                                var propEntry = new WatchEntry(
+                                    DateTime.Now, WatchEntryKind.PropertyChange,
+                                    info.ControlType, info.AutomationId, info.Name,
+                                    _watchSelectedRef, fresh,
+                                    kv.Key, old ?? "(new)", kv.Value);
+                                RecordWatchEntry(propEntry);
+                                Log(Web.LogLevel.Info,
+                                    $"{kv.Key}: \"{old ?? "(new)"}\" → \"{kv.Value}\"",
+                                    _watchSelectedRef);
+                            }
+                        }
+                        _watchSelectedProps = fresh;
+                    }
+                }
+            }
         }
         catch { /* element may have gone stale */ }
+        finally { _lock.Release(); }
     }
 
     private void RecordWatchEntry(WatchEntry entry)
@@ -460,7 +550,7 @@ internal sealed class AppState : IAppState
         Log(Web.LogLevel.Info, $"{kind} → {desc}{suffix}", element.RefKey);
     }
 
-    private static string GetRuntimeId(System.Windows.Automation.AutomationElement el)
+    private static string GetRuntimeId(AutomationElement el)
     {
         try { return string.Join(".", el.GetRuntimeId()); }
         catch { return ""; }

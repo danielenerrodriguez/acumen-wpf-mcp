@@ -96,6 +96,49 @@ public class UiaEngine
         public IntPtr dwExtraInfo;
     }
 
+    // Keyboard hook P/Invoke
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+    [DllImport("user32.dll")]
+    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+    [DllImport("user32.dll")]
+    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto)]
+    private static extern IntPtr GetModuleHandle(string? lpModuleName);
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern IntPtr LoadLibrary(string lpFileName);
+    [DllImport("user32.dll")]
+    private static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax);
+    [DllImport("user32.dll")]
+    private static extern bool TranslateMessage(ref MSG lpMsg);
+    [DllImport("user32.dll")]
+    private static extern IntPtr DispatchMessage(ref MSG lpMsg);
+    [DllImport("user32.dll")]
+    private static extern bool PostThreadMessage(uint idThread, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam, lParam; public uint time; public POINT pt; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KBDLLHOOKSTRUCT { public uint vkCode, scanCode, flags, time; public IntPtr dwExtraInfo; }
+
+    private const int WH_KEYBOARD_LL = 13;
+    private const int WM_KEYDOWN = 0x0100;
+    private const int WM_KEYUP = 0x0101;
+    private const int WM_SYSKEYDOWN = 0x0104;
+    private const int WM_SYSKEYUP = 0x0105;
+    private const uint WM_QUIT = 0x0012;
+
+    // Keyboard hook state
+    private IntPtr _hookHandle;
+    private Thread? _hookThread;
+    private uint _hookThreadId;
+    private LowLevelKeyboardProc? _hookProc; // prevent GC of the delegate
+    private Action<string, string>? _keypressCallback; // (keyName, keyCombo)
+    private readonly HashSet<ushort> _pressedModifiers = new();
+
     private const uint INPUT_KEYBOARD = 1;
     private const uint KEYEVENTF_KEYUP = 0x0002;
 
@@ -1174,6 +1217,169 @@ public class UiaEngine
         if (s_controlTypeAliases.TryGetValue(name, out var mapped))
             name = mapped;
         return s_controlTypes.TryGetValue(name, out var ct) ? ct : null;
+    }
+
+    // --- Keyboard Hook for Watch Mode ---
+
+    /// <summary>
+    /// Start a low-level keyboard hook on a dedicated thread with a message pump.
+    /// The callback receives (keyName, keyCombo) for each keypress directed at the attached process.
+    /// </summary>
+    public void StartKeyboardHook(Action<string, string> onKeypress)
+    {
+        StopKeyboardHook();
+        _keypressCallback = onKeypress;
+        _pressedModifiers.Clear();
+
+        _hookThread = new Thread(KeyboardHookThreadProc);
+        _hookThread.SetApartmentState(ApartmentState.STA);
+        _hookThread.IsBackground = true;
+        _hookThread.Start();
+    }
+
+    /// <summary>Stop the keyboard hook and its message pump thread.</summary>
+    public void StopKeyboardHook()
+    {
+        if (_hookThread != null && _hookThreadId != 0)
+        {
+            PostThreadMessage(_hookThreadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+            _hookThread.Join(2000);
+        }
+        _hookThread = null;
+        _hookThreadId = 0;
+        _keypressCallback = null;
+        _pressedModifiers.Clear();
+    }
+
+    private void KeyboardHookThreadProc()
+    {
+        _hookThreadId = GetCurrentThreadId();
+        _hookProc = HookCallback;
+
+        // Use LoadLibrary("user32.dll") instead of GetModuleHandle(null) —
+        // in single-file .NET apps, GetModuleHandle(null) can return a handle
+        // that SetWindowsHookEx rejects for WH_KEYBOARD_LL hooks.
+        var hMod = LoadLibrary("user32.dll");
+        _hookHandle = SetWindowsHookEx(WH_KEYBOARD_LL, _hookProc, hMod, 0);
+
+        if (_hookHandle == IntPtr.Zero)
+        {
+            var err = Marshal.GetLastWin32Error();
+            Console.Error.WriteLine($"[Watch] Failed to install keyboard hook (error {err})");
+            return;
+        }
+
+        Console.Error.WriteLine($"[Watch] Keyboard hook installed (handle={_hookHandle}, thread={_hookThreadId})");
+
+        try
+        {
+            // Message pump — required for WH_KEYBOARD_LL callbacks to fire
+            while (GetMessage(out var msg, IntPtr.Zero, 0, 0) > 0)
+            {
+                TranslateMessage(ref msg);
+                DispatchMessage(ref msg);
+            }
+        }
+        finally
+        {
+            UnhookWindowsHookEx(_hookHandle);
+            _hookHandle = IntPtr.Zero;
+            _hookProc = null;
+        }
+    }
+
+    private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 && _attachedProcess != null)
+        {
+            var msg = (uint)wParam;
+            var kbd = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+            var vk = (ushort)kbd.vkCode;
+
+            // Track modifier key state (track globally, not just for attached process)
+            if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN)
+            {
+                if (IsModifierKey(vk))
+                {
+                    _pressedModifiers.Add(NormalizeModifier(vk));
+                }
+                else
+                {
+                    // Non-modifier key pressed — check if it's directed at the attached process
+                    try
+                    {
+                        var fg = GetForegroundWindow();
+                        GetWindowThreadProcessId(fg, out var fgPid);
+
+                        // Also check if the foreground window belongs to a child process
+                        // (e.g., file dialogs may be hosted by the same process)
+                        var attachedPid = (uint)_attachedProcess.Id;
+                        if (fgPid == attachedPid)
+                        {
+                            var keyName = VkToKeyName(vk);
+                            var combo = BuildComboString(keyName);
+                            _keypressCallback?.Invoke(keyName, combo);
+                        }
+                    }
+                    catch { /* process may have exited */ }
+                }
+            }
+            else if (msg == WM_KEYUP || msg == WM_SYSKEYUP)
+            {
+                if (IsModifierKey(vk))
+                    _pressedModifiers.Remove(NormalizeModifier(vk));
+            }
+        }
+
+        return CallNextHookEx(_hookHandle, nCode, wParam, lParam);
+    }
+
+    private static bool IsModifierKey(ushort vk) =>
+        vk is 0xA0 or 0xA1  // LShift, RShift
+            or 0xA2 or 0xA3  // LCtrl, RCtrl
+            or 0xA4 or 0xA5  // LAlt, RAlt
+            or 0x5B or 0x5C  // LWin, RWin
+            or 0x10 or 0x11 or 0x12; // generic Shift, Ctrl, Alt
+
+    /// <summary>Normalize left/right modifier variants to a single VK.</summary>
+    private static ushort NormalizeModifier(ushort vk) => vk switch
+    {
+        0xA0 or 0xA1 or 0x10 => 0x10, // Shift
+        0xA2 or 0xA3 or 0x11 => 0x11, // Ctrl
+        0xA4 or 0xA5 or 0x12 => 0x12, // Alt
+        0x5B or 0x5C => 0x5B,          // Win
+        _ => vk
+    };
+
+    private string BuildComboString(string keyName)
+    {
+        var parts = new List<string>();
+        if (_pressedModifiers.Contains(0x11)) parts.Add("Ctrl");
+        if (_pressedModifiers.Contains(0x12)) parts.Add("Alt");
+        if (_pressedModifiers.Contains(0x10)) parts.Add("Shift");
+        if (_pressedModifiers.Contains(0x5B)) parts.Add("Win");
+        parts.Add(keyName);
+        return string.Join("+", parts);
+    }
+
+    /// <summary>Reverse-map a virtual key code to a readable key name.</summary>
+    private static string VkToKeyName(ushort vk)
+    {
+        // Try reverse mapping through System.Windows.Input.Key
+        try
+        {
+            var key = KeyInterop.KeyFromVirtualKey(vk);
+            if (key != Key.None)
+            {
+                var name = key.ToString();
+                // Clean up D0-D9 → 0-9, Oem names
+                if (name.Length == 2 && name[0] == 'D' && char.IsDigit(name[1]))
+                    return name[1..];
+                return name;
+            }
+        }
+        catch { }
+        return $"VK{vk:X2}";
     }
 
     /// <summary>

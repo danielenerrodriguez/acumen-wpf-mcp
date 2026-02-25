@@ -1,3 +1,4 @@
+@implements IDisposable
 @inject IAppState State
 
 <div class="flex flex-col h-full">
@@ -9,18 +10,23 @@
             @(Watching ? "Watching" : "Watch")
         </button>
     </div>
-    <div class="flex-1 overflow-auto p-3 space-y-3 text-xs">
+    <div class="flex-1 overflow-auto p-3 space-y-2 text-xs">
 
         @* Attach *@
         <div>
             <label class="text-gray-500 block mb-1">Attach</label>
-            <div class="flex gap-1">
-                <input @bind="_attachProcess" @bind:event="oninput" placeholder="Process name"
-                       class="flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
-                <button @onclick="DoAttach" class="px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">
-                    Attach
-                </button>
-            </div>
+            <select @bind="_selectedPid" @bind:after="OnProcessSelected"
+                    disabled="@_attaching"
+                    class="w-full bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none truncate disabled:opacity-50">
+                <option value="0">@(_attaching ? "Attaching..." : "-- Select process --")</option>
+                @if (_processes != null)
+                {
+                    @foreach (var p in _processes)
+                    {
+                        <option value="@p.Pid" title="@p.Title">@p.Name (@p.Pid)</option>
+                    }
+                }
+            </select>
         </div>
 
         @* Element actions *@
@@ -32,6 +38,7 @@
                     <button @onclick="DoClick" class="px-2 py-1 bg-surface-lighter border border-gray-700 rounded hover:border-accent transition">Click</button>
                     <button @onclick="DoRightClick" class="px-2 py-1 bg-surface-lighter border border-gray-700 rounded hover:border-accent transition">RClick</button>
                     <button @onclick="DoGetValue" class="px-2 py-1 bg-surface-lighter border border-gray-700 rounded hover:border-accent transition">GetValue</button>
+                    <button @onclick="DoFocus" class="px-2 py-1 bg-surface-lighter border border-gray-700 rounded hover:border-accent transition">Focus</button>
                 </div>
             </div>
 
@@ -40,8 +47,8 @@
                 <label class="text-gray-500 block mb-1">Set Value</label>
                 <div class="flex gap-1">
                     <input @bind="_setValue" @bind:event="oninput" placeholder="Value"
-                           class="flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
-                    <button @onclick="DoSetValue" class="px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">Set</button>
+                           class="min-w-0 flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+                    <button @onclick="DoSetValue" class="shrink-0 px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">Set</button>
                 </div>
             </div>
 
@@ -50,7 +57,7 @@
                 <label class="text-gray-500 block mb-1">Verify</label>
                 <div class="flex gap-1">
                     <select @bind="_verifyProperty"
-                            class="bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none">
+                            class="shrink-0 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none">
                         <option value="value">value</option>
                         <option value="name">name</option>
                         <option value="toggle_state">toggle_state</option>
@@ -61,27 +68,29 @@
                         <option value="automation_id">automation_id</option>
                     </select>
                     <input @bind="_verifyExpected" @bind:event="oninput" placeholder="Expected"
-                           class="flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
-                    <button @onclick="DoVerify" class="px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">Verify</button>
+                           class="min-w-0 flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+                    <button @onclick="DoVerify" class="shrink-0 px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">Verify</button>
                 </div>
             </div>
         }
-
-        @* Global actions *@
-        <div>
-            <label class="text-gray-500 block mb-1">Global</label>
-            <div class="flex gap-1 mb-2">
-                <button @onclick="DoFocus" class="px-2 py-1 bg-surface-lighter border border-gray-700 rounded hover:border-accent transition">Focus</button>
+        else
+        {
+            @* Focus button when no element selected *@
+            <div>
+                <label class="text-gray-500 block mb-1">Global</label>
+                <div class="flex gap-1">
+                    <button @onclick="DoFocus" class="px-2 py-1 bg-surface-lighter border border-gray-700 rounded hover:border-accent transition">Focus</button>
+                </div>
             </div>
-        </div>
+        }
 
         @* Send Keys *@
         <div>
             <label class="text-gray-500 block mb-1">Keys</label>
             <div class="flex gap-1">
                 <input @bind="_keysText" @bind:event="oninput" placeholder="Ctrl+S, Alt+F4..."
-                       class="flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
-                <button @onclick="DoSendKeys" class="px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">Send</button>
+                       class="min-w-0 flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+                <button @onclick="DoSendKeys" class="shrink-0 px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">Send</button>
             </div>
         </div>
 
@@ -90,19 +99,19 @@
             <label class="text-gray-500 block mb-1">Type</label>
             <div class="flex gap-1">
                 <input @bind="_typeText" @bind:event="oninput" placeholder="Text to type..."
-                       class="flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
-                <button @onclick="DoTypeText" class="px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">Type</button>
+                       class="min-w-0 flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+                <button @onclick="DoTypeText" class="shrink-0 px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">Type</button>
             </div>
         </div>
 
         @* Find *@
         <div>
             <label class="text-gray-500 block mb-1">Find</label>
-            <div class="grid grid-cols-2 gap-1 mb-1">
+            <div class="flex gap-1 mb-1">
                 <input @bind="_findAutomationId" @bind:event="oninput" placeholder="AutomationId"
-                       class="bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+                       class="min-w-0 flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
                 <input @bind="_findName" @bind:event="oninput" placeholder="Name"
-                       class="bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+                       class="min-w-0 flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
             </div>
             <button @onclick="DoFind" class="px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition w-full">Find</button>
         </div>
@@ -115,7 +124,10 @@
     [Parameter] public EventCallback<bool> OnWatchToggled { get; set; }
     [Parameter] public EventCallback<string?> OnElementSelected { get; set; }
 
-    private string _attachProcess = "";
+    private List<ProcessInfo>? _processes;
+    private int _selectedPid;
+    private bool _attaching;
+    private Timer? _refreshTimer;
 
     private async Task ToggleWatch() => await OnWatchToggled.InvokeAsync(!Watching);
 
@@ -127,54 +139,92 @@
     private string _findAutomationId = "";
     private string _findName = "";
 
-    private void DoAttach()
+    protected override void OnInitialized()
     {
-        if (string.IsNullOrWhiteSpace(_attachProcess)) return;
-        State.Attach(_attachProcess.Trim());
+        RefreshProcessList();
+        _refreshTimer = new Timer(_ =>
+        {
+            if (_attaching) return;
+            InvokeAsync(() =>
+            {
+                RefreshProcessList();
+                StateHasChanged();
+            });
+        }, null, 5000, 5000);
     }
 
-    private void DoClick()
+    private void RefreshProcessList()
+    {
+        try { _processes = State.ListWindowedProcesses(); } catch { _processes = new(); }
+    }
+
+    private async Task OnProcessSelected()
+    {
+        if (_selectedPid == 0 || _attaching) return;
+        var proc = _processes?.FirstOrDefault(p => p.Pid == _selectedPid);
+        if (proc == null) return;
+
+        _attaching = true;
+        StateHasChanged();
+        try
+        {
+            await State.AttachAsync(proc.Name);
+        }
+        finally
+        {
+            _attaching = false;
+            _selectedPid = 0; // Reset to placeholder
+            StateHasChanged();
+        }
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+
+    private async Task DoClick()
     {
         if (SelectedRefKey == null) return;
-        State.Click(SelectedRefKey);
+        await State.ClickAsync(SelectedRefKey);
     }
 
-    private void DoRightClick()
+    private async Task DoRightClick()
     {
         if (SelectedRefKey == null) return;
-        State.RightClick(SelectedRefKey);
+        await State.RightClickAsync(SelectedRefKey);
     }
 
-    private void DoGetValue()
+    private async Task DoGetValue()
     {
         if (SelectedRefKey == null) return;
-        State.GetValue(SelectedRefKey);
+        await State.GetValueAsync(SelectedRefKey);
     }
 
-    private void DoFocus() => State.Focus();
+    private async Task DoFocus() => await State.FocusAsync();
 
-    private void DoSendKeys()
+    private async Task DoSendKeys()
     {
         if (string.IsNullOrWhiteSpace(_keysText)) return;
-        State.SendKeys(_keysText.Trim());
+        await State.SendKeysAsync(_keysText.Trim());
     }
 
-    private void DoTypeText()
+    private async Task DoTypeText()
     {
         if (string.IsNullOrWhiteSpace(_typeText)) return;
-        State.TypeText(_typeText);
+        await State.TypeTextAsync(_typeText);
     }
 
-    private void DoSetValue()
+    private async Task DoSetValue()
     {
         if (SelectedRefKey == null || string.IsNullOrEmpty(_setValue)) return;
-        State.SetValue(SelectedRefKey, _setValue);
+        await State.SetValueAsync(SelectedRefKey, _setValue);
     }
 
-    private void DoVerify()
+    private async Task DoVerify()
     {
         if (SelectedRefKey == null || string.IsNullOrWhiteSpace(_verifyExpected)) return;
-        State.Verify(SelectedRefKey, _verifyProperty, _verifyExpected.Trim());
+        await State.VerifyAsync(SelectedRefKey, _verifyProperty, _verifyExpected.Trim());
     }
 
     private async Task DoFind()
@@ -182,9 +232,10 @@
         var aid = string.IsNullOrWhiteSpace(_findAutomationId) ? null : _findAutomationId.Trim();
         var name = string.IsNullOrWhiteSpace(_findName) ? null : _findName.Trim();
         if (aid == null && name == null) return;
-        var result = State.Find(aid, name, null, null);
+        var result = await State.FindAsync(aid, name, null, null);
         // Auto-select the found element
         if (result != null)
             await OnElementSelected.InvokeAsync(result.Element.RefKey);
     }
+
 }

@@ -313,11 +313,13 @@ The web dashboard receives live updates via in-process C# events (not pipe push 
 - **`OnLog` event**: New log entries trigger `StateHasChanged()` in `LogPanel`, with auto-scroll via JS interop (`scrollToBottom`)
 - **`OnAttachChanged` event**: Fires when a process is attached/detached — `MainLayout` refreshes status bar, `Dashboard` refreshes element tree
 - **`OnWatchEntry` event**: New watch entries trigger element auto-selection and property highlighting in Dashboard
+- **`OnWatchStateChanged` event**: Fires when watch is started/stopped from any source — Dashboard updates the Watch toggle button
+- **`OnMacrosChanged` event**: Fires when FileSystemWatcher reloads macros — MacroRunner auto-refreshes the macro list
 - **Status bar polling**: `MainLayout` polls `GetStatus()` every 3 seconds for process name + PID display
 
 ### Watch Mode (Server-Side Sessions)
 
-Watch mode records focus changes, hover changes, and property diffs in the attached WPF application. The watch timer runs **server-side in AppState** (not in the Dashboard), so it works from MCP tools, CLI, and web dashboard simultaneously.
+Watch mode records focus changes, hover changes, keypresses, and property diffs in the attached WPF application. The watch timer runs **server-side in AppState** (not in the Dashboard), so it works from MCP tools, CLI, and web dashboard simultaneously.
 
 **Architecture:**
 1. `AppState` owns a 500ms `System.Threading.Timer` that polls `AutomationElement.FocusedElement` and `AutomationElement.FromPoint()` (via `GetCursorPos`)
@@ -327,8 +329,8 @@ Watch mode records focus changes, hover changes, and property diffs in the attac
 5. Only the **last completed session** is retained in memory (no disk persistence)
 
 **Watch session lifecycle:**
-- `StartWatch()` → creates new `WatchSession`, starts timer, resets runtime IDs
-- `StopWatch()` → stops timer, timestamps session, moves to `_lastSession`
+- `StartWatch()` → creates new `WatchSession`, starts timer, starts keyboard hook, resets runtime IDs, fires `OnWatchStateChanged`
+- `StopWatch()` → stops timer, stops keyboard hook, timestamps session, moves to `_lastSession`, fires `OnWatchStateChanged`
 - `GetWatchSession()` → returns current (active) or last (completed) session
 
 **Access points:**
@@ -339,9 +341,10 @@ Watch mode records focus changes, hover changes, and property diffs in the attac
 ### WatchEntry Types
 - **`Focus`** — keyboard focus changed to a new element
 - **`Hover`** — mouse cursor moved over a new element
+- **`Keypress`** — a key was pressed while the attached application had foreground focus
 - **`PropertyChange`** — a property value changed on the currently tracked element
 
-Each entry includes: `Time`, `Kind`, `ControlType`, `AutomationId`, `Name`, `RefKey`, `Properties` dict, and for PropertyChange: `ChangedProperty`, `OldValue`, `NewValue`.
+Each entry includes: `Time`, `Kind`, `ControlType`, `AutomationId`, `Name`, `RefKey`, `Properties` dict, and for PropertyChange: `ChangedProperty`, `OldValue`, `NewValue`. For Keypress: `KeyName`, `KeyCombo`.
 
 ### MCP Tool Output Format
 ```
@@ -350,6 +353,7 @@ Session: a1b2c3d4 | Started: 14:23:05 | Stopped: 14:25:12 | Entries: 47
 14:23:05.123 [Focus]  [TextBox] #NameField  (Value="hello")
 14:23:06.456 [Hover]  [Button] #SaveButton
 14:23:07.789 [PropChange] [TextBox] #NameField  Value: "hello" → "hello world"
+14:23:08.012 [Keypress]  Ctrl+S  (on [TextBox] #NameField)
 ```
 
 ### AI Agent Workflow
@@ -361,6 +365,9 @@ Session: a1b2c3d4 | Started: 14:23:05 | Stopped: 14:25:12 | Entries: 47
 
 ### Hover Watcher
 Uses `GetCursorPos` P/Invoke + `AutomationElement.FromPoint()` in `UiaEngine.GetElementAtCursor()`. Filters to attached process by PID. Focus changes take priority over hover for auto-selection when both change in the same tick.
+
+### Keyboard Hook (Keypress Capture)
+Uses `SetWindowsHookEx(WH_KEYBOARD_LL)` with a dedicated STA thread running a `GetMessage` message pump. The hook is system-wide but filters to the attached process by checking `GetForegroundWindow()` PID. Modifier keys (Ctrl, Alt, Shift, Win) are tracked for combo detection (e.g., `Ctrl+S`). Standalone modifier presses are not logged. The `_hookProc` delegate is stored in a field to prevent GC collection. `VkToKeyName()` uses reverse lookup from `System.Windows.Input.Key` enum via `KeyInterop.KeyFromVirtualKey()`.
 
 ### Why Polling, Not UIA Events
 The STA thread uses a custom `BlockingQueue`, not a Windows message pump. `Automation.AddAutomationFocusChangedEventHandler` requires a COM message pump to fire reliably. Polling every 500ms is the pragmatic approach. Same reasoning for hover — no UIA hover event exists.
