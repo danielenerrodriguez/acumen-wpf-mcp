@@ -294,7 +294,7 @@ public class MacroEngine : IDisposable
         "send_keys", "keys", "find", "find_by_path", "click", "right_click",
         "type", "set_value", "get_value", "wait", "wait_for_enabled", "macro",
         "launch", "wait_for_window", "focus", "snapshot", "screenshot",
-        "properties", "children", "file_dialog", "attach"
+        "properties", "children", "file_dialog", "attach", "verify"
     };
 
     /// <summary>
@@ -367,6 +367,11 @@ public class MacroEngine : IDisposable
             case "attach":
                 if (!Has("process_name") && !Has("pid"))
                     return $"{StepPrefix()}: requires at least one of: process_name, pid";
+                break;
+            case "verify":
+                if (!Has("ref")) return $"{StepPrefix()}: requires 'ref' field";
+                if (!Has("property")) return $"{StepPrefix()}: requires 'property' field";
+                if (!Has("expected")) return $"{StepPrefix()}: requires 'expected' field";
                 break;
             // click, right_click, focus, snapshot, screenshot, properties, children, launch, get_value
             // have no strictly required fields
@@ -863,6 +868,35 @@ public class MacroEngine : IDisposable
                 return new StepResult(r.success, r.message);
             }
 
+            case "verify":
+            {
+                var refKey = ResolveRef(step.Ref, aliases);
+                if (refKey == null)
+                    return new StepResult(false, "verify requires a ref");
+                if (!cache.TryGet(refKey, out var el))
+                    return new StepResult(false, $"Unknown ref '{refKey}'");
+
+                var property = SubstituteParams(step.Property, parameters);
+                if (string.IsNullOrEmpty(property))
+                    return new StepResult(false, "verify requires a property");
+
+                var expected = SubstituteParams(step.Expected, parameters);
+                if (expected == null)
+                    return new StepResult(false, "verify requires an expected value");
+
+                var readResult = engine.ReadElementProperty(el!, property);
+                if (!readResult.success)
+                    return new StepResult(false, readResult.message);
+
+                if (string.Equals(readResult.value, expected, StringComparison.OrdinalIgnoreCase))
+                    return new StepResult(true, $"Verify passed: {property} = \"{readResult.value}\"");
+
+                var failMsg = step.Message != null
+                    ? SubstituteParams(step.Message, parameters)
+                    : $"Verify failed: expected {property} = \"{expected}\" but got \"{readResult.value}\"";
+                return new StepResult(false, failMsg ?? "Verify failed");
+            }
+
             case "file_dialog":
             {
                 var filePath = SubstituteParams(step.Text, parameters);
@@ -885,8 +919,9 @@ public class MacroEngine : IDisposable
                     return new StepResult(false, "properties requires a ref");
                 if (!cache.TryGet(refKey, out var el))
                     return new StepResult(false, $"Unknown ref '{refKey}'");
-                engine.GetElementProperties(el!);
-                return new StepResult(true, "Properties retrieved");
+                var propsDict = engine.GetElementProperties(el!);
+                var propsSummary = string.Join(", ", propsDict.Select(kv => $"{kv.Key}={kv.Value}"));
+                return new StepResult(true, $"Properties: {propsSummary}");
             }
 
             case "wait":

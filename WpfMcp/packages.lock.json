@@ -376,6 +376,9 @@
           "System.IO.Pipelines": "10.0.3",
           "System.Text.Encodings.Web": "10.0.3"
         }
+      },
+      "wpfmcp.web": {
+        "type": "Project"
       }
     }
   }

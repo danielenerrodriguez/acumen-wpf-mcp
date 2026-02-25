@@ -919,6 +919,52 @@ public class UiaEngine
                 props["SupportedPatterns"] = string.Join(", ", patterns.Select(p => p.ProgrammaticName.Replace("PatternIdentifiers.Pattern", "")));
             }
             catch { props["SupportedPatterns"] = ""; }
+
+            // Read actual values from supported patterns
+            try
+            {
+                if (element.TryGetCurrentPattern(ValuePattern.Pattern, out var vp))
+                    props["Value"] = ((ValuePattern)vp).Current.Value ?? "";
+            }
+            catch { }
+            try
+            {
+                if (element.TryGetCurrentPattern(TogglePattern.Pattern, out var tp))
+                    props["ToggleState"] = ((TogglePattern)tp).Current.ToggleState.ToString();
+            }
+            catch { }
+            try
+            {
+                if (element.TryGetCurrentPattern(RangeValuePattern.Pattern, out var rvp))
+                {
+                    var rv = (RangeValuePattern)rvp;
+                    props["RangeValue"] = rv.Current.Value.ToString();
+                    props["RangeMinimum"] = rv.Current.Minimum.ToString();
+                    props["RangeMaximum"] = rv.Current.Maximum.ToString();
+                }
+            }
+            catch { }
+            try
+            {
+                if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var sip))
+                    props["IsSelected"] = ((SelectionItemPattern)sip).Current.IsSelected.ToString();
+            }
+            catch { }
+            try
+            {
+                if (element.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out var ecp))
+                    props["ExpandCollapseState"] = ((ExpandCollapsePattern)ecp).Current.ExpandCollapseState.ToString();
+            }
+            catch { }
+            try
+            {
+                if (element.TryGetCurrentPattern(SelectionPattern.Pattern, out var sp))
+                {
+                    var selected = ((SelectionPattern)sp).Current.GetSelection();
+                    props["SelectedItems"] = string.Join(", ", selected.Select(s => s.Current.Name ?? ""));
+                }
+            }
+            catch { }
             return props;
         });
     }
@@ -927,6 +973,76 @@ public class UiaEngine
     public bool IsElementEnabled(AutomationElement element)
     {
         return RunOnSta(() => element.Current.IsEnabled);
+    }
+
+    /// <summary>
+    /// Read a named property from an element. Used by the verify macro step.
+    /// Supported properties: value, name, toggle_state, is_enabled, expand_state,
+    /// is_selected, control_type, automation_id.
+    /// </summary>
+    public (bool success, string? value, string message) ReadElementProperty(AutomationElement element, string property)
+    {
+        if (!IsAttached) return (false, null, "Not attached");
+        try
+        {
+            return RunOnSta<(bool success, string? value, string message)>(() =>
+            {
+                switch (property.ToLowerInvariant())
+                {
+                    case "value":
+                        if (element.TryGetCurrentPattern(ValuePattern.Pattern, out var vp))
+                        {
+                            var val = ((ValuePattern)vp).Current.Value ?? "";
+                            return (true, val, $"value = \"{val}\"");
+                        }
+                        return (false, null, "Element does not support ValuePattern");
+
+                    case "name":
+                        var name = element.Current.Name ?? "";
+                        return (true, name, $"name = \"{name}\"");
+
+                    case "toggle_state":
+                        if (element.TryGetCurrentPattern(TogglePattern.Pattern, out var tp))
+                        {
+                            var state = ((TogglePattern)tp).Current.ToggleState.ToString();
+                            return (true, state, $"toggle_state = \"{state}\"");
+                        }
+                        return (false, null, "Element does not support TogglePattern");
+
+                    case "is_enabled":
+                        var enabled = element.Current.IsEnabled.ToString();
+                        return (true, enabled, $"is_enabled = \"{enabled}\"");
+
+                    case "expand_state":
+                        if (element.TryGetCurrentPattern(ExpandCollapsePattern.Pattern, out var ecp))
+                        {
+                            var state = ((ExpandCollapsePattern)ecp).Current.ExpandCollapseState.ToString();
+                            return (true, state, $"expand_state = \"{state}\"");
+                        }
+                        return (false, null, "Element does not support ExpandCollapsePattern");
+
+                    case "is_selected":
+                        if (element.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var sip))
+                        {
+                            var selected = ((SelectionItemPattern)sip).Current.IsSelected.ToString();
+                            return (true, selected, $"is_selected = \"{selected}\"");
+                        }
+                        return (false, null, "Element does not support SelectionItemPattern");
+
+                    case "control_type":
+                        var ct = element.Current.ControlType.ProgrammaticName.Replace("ControlType.", "");
+                        return (true, ct, $"control_type = \"{ct}\"");
+
+                    case "automation_id":
+                        var aid = element.Current.AutomationId ?? "";
+                        return (true, aid, $"automation_id = \"{aid}\"");
+
+                    default:
+                        return (false, null, $"Unknown property '{property}'. Valid: value, name, toggle_state, is_enabled, expand_state, is_selected, control_type, automation_id");
+                }
+            });
+        }
+        catch (Exception ex) { return (false, null, $"ReadElementProperty failed: {ex.Message}"); }
     }
 
     public string FormatElement(AutomationElement e)

@@ -1,0 +1,48 @@
+<div class="flex flex-col h-full">
+    <div class="flex items-center justify-between px-3 py-2 bg-surface-light border-b border-gray-700 shrink-0">
+        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Properties</span>
+        @if (RefKey != null)
+        {
+            <span class="text-xs text-gray-500">@RefKey</span>
+        }
+    </div>
+    <div class="flex-1 overflow-auto">
+        @if (Properties == null || Properties.Count == 0)
+        {
+            <p class="text-gray-500 text-xs p-3">Select an element to view properties.</p>
+        }
+        else
+        {
+            <table class="w-full text-xs">
+                <tbody>
+                    @foreach (var kv in Properties)
+                    {
+                        <tr class="border-b border-gray-800 hover:bg-surface-lighter">
+                            <td class="px-3 py-1.5 text-gray-400 font-medium whitespace-nowrap">@kv.Key</td>
+                            <td class="px-3 py-1.5 @GetValueColor(kv.Key) font-mono break-all">@kv.Value</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? RefKey { get; set; }
+    [Parameter] public Dictionary<string, string>? Properties { get; set; }
+
+    /// <summary>Highlight enriched pattern values with distinct colors.</summary>
+    private static string GetValueColor(string key) => key switch
+    {
+        "Value" => "text-green-400",
+        "ToggleState" => "text-blue-400",
+        "IsSelected" => "text-blue-400",
+        "ExpandCollapseState" => "text-blue-400",
+        "RangeValue" or "RangeMinimum" or "RangeMaximum" => "text-cyan-400",
+        "SelectedItems" => "text-cyan-400",
+        "IsEnabled" => "text-yellow-400",
+        "IsOffscreen" => "text-yellow-400",
+        _ => "text-gray-300"
+    };
+}

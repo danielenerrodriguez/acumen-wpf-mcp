@@ -38,6 +38,9 @@ public static class Constants
     public const string ServerName = "wpf-uia";
     public const string ServerVersion = "1.0.0";
 
+    // Web dashboard
+    public const int WebPort = 5112;
+
     // Timeouts (milliseconds unless noted)
     public const int ServerStartupTimeoutSeconds = 30;
     public const int ServerStartupPollMs = 1000;

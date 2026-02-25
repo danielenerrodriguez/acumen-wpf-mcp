@@ -141,6 +141,19 @@ public class MacroStep
     [YamlMember(Alias = "enabled")]
     public bool? Enabled { get; set; }
 
+    // --- verify ---
+    /// <summary>Property to check: value, name, toggle_state, is_enabled, expand_state, is_selected, control_type, automation_id.</summary>
+    [YamlMember(Alias = "property")]
+    public string? Property { get; set; }
+
+    /// <summary>Expected value for the property (case-insensitive exact match).</summary>
+    [YamlMember(Alias = "expected")]
+    public string? Expected { get; set; }
+
+    /// <summary>Optional custom failure message for verify steps.</summary>
+    [YamlMember(Alias = "message")]
+    public string? Message { get; set; }
+
     // --- timeouts ---
     /// <summary>Per-step timeout in seconds. 0 = use default.</summary>
     [YamlMember(Alias = "timeout")]

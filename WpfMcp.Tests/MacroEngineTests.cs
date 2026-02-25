@@ -309,12 +309,17 @@ steps:
     title_contains: My App
     timeout: 20
     retry_interval: 2
+  - action: verify
+    ref: btn
+    property: value
+    expected: Done
+    message: Must be Done to continue
 ");
 
         using var engine = new MacroEngine(_tempDir, enableWatcher: false);
         var macro = engine.Get("all-steps");
         Assert.NotNull(macro);
-        Assert.Equal(16, macro!.Steps.Count);
+        Assert.Equal(17, macro!.Steps.Count);
         Assert.Equal("focus", macro.Steps[0].Action);
         Assert.Equal("Notepad", macro.Steps[1].ProcessName);
         Assert.Equal(5, macro.Steps[2].MaxDepth);
@@ -341,6 +346,12 @@ steps:
         Assert.Equal("My App", macro.Steps[15].TitleContains);
         Assert.Equal(20, macro.Steps[15].StepTimeout);
         Assert.Equal(2, macro.Steps[15].RetryInterval);
+        // Verify step
+        Assert.Equal("verify", macro.Steps[16].Action);
+        Assert.Equal("btn", macro.Steps[16].Ref);
+        Assert.Equal("value", macro.Steps[16].Property);
+        Assert.Equal("Done", macro.Steps[16].Expected);
+        Assert.Equal("Must be Done to continue", macro.Steps[16].Message);
     }
 
     [Fact]
@@ -908,6 +919,7 @@ steps:
             new() { ["action"] = "focus" },
             new() { ["action"] = "snapshot" },
             new() { ["action"] = "screenshot" },
+            new() { ["action"] = "verify", ["ref"] = "btn", ["property"] = "value", ["expected"] = "Done" },
         };
         var error = MacroEngine.ValidateSteps(steps);
         Assert.Null(error);
@@ -1077,6 +1089,119 @@ steps:
         Assert.NotNull(macro);
         var step = macro!.Steps[0];
         Assert.Null(step.Enabled); // defaults to null, runtime treats as true
+    }
+
+    // --- verify step parsing ---
+
+    [Fact]
+    public void Load_VerifyStep_ParsesAllFields()
+    {
+        WriteMacro("verify-test.yaml", @"
+name: Verify Test
+description: Tests verify step parsing
+steps:
+  - action: find
+    automation_id: uxStatus
+    save_as: status
+  - action: verify
+    ref: status
+    property: value
+    expected: Complete
+    message: Status must be Complete before proceeding
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("verify-test");
+        Assert.NotNull(macro);
+        Assert.Equal(2, macro!.Steps.Count);
+        var step = macro.Steps[1];
+        Assert.Equal("verify", step.Action);
+        Assert.Equal("status", step.Ref);
+        Assert.Equal("value", step.Property);
+        Assert.Equal("Complete", step.Expected);
+        Assert.Equal("Status must be Complete before proceeding", step.Message);
+    }
+
+    [Fact]
+    public void Load_VerifyStep_MinimalFields_ParsesCorrectly()
+    {
+        WriteMacro("verify-minimal.yaml", @"
+name: Verify Minimal
+description: Tests verify with minimal fields
+steps:
+  - action: verify
+    ref: el
+    property: is_enabled
+    expected: 'True'
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("verify-minimal");
+        Assert.NotNull(macro);
+        var step = macro!.Steps[0];
+        Assert.Equal("verify", step.Action);
+        Assert.Equal("el", step.Ref);
+        Assert.Equal("is_enabled", step.Property);
+        Assert.Equal("True", step.Expected);
+        Assert.Null(step.Message); // message is optional
+    }
+
+    [Fact]
+    public void ValidateSteps_VerifyWithoutRef_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "verify", ["property"] = "value", ["expected"] = "Done" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'ref'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_VerifyWithoutProperty_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "verify", ["ref"] = "el", ["expected"] = "Done" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'property'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_VerifyWithoutExpected_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "verify", ["ref"] = "el", ["property"] = "value" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'expected'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_VerifyWithAllFields_ReturnsNull()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "verify", ["ref"] = "el", ["property"] = "value", ["expected"] = "Done" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void ValidateSteps_VerifyWithMessage_ReturnsNull()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "verify", ["ref"] = "el", ["property"] = "toggle_state", ["expected"] = "On", ["message"] = "Checkbox must be checked" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.Null(error);
     }
 
     // --- GetProductFolder ---

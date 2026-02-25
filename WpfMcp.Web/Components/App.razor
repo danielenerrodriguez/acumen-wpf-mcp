@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WPF MCP Dashboard</title>
+    <base href="/" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        surface: { DEFAULT: '#1e1e2e', light: '#252538', lighter: '#2d2d44' },
+                        accent: { DEFAULT: '#7c3aed', light: '#a78bfa' },
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #1e1e2e; }
+        ::-webkit-scrollbar-thumb { background: #4a4a6a; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6a6a8a; }
+
+        /* Tree node hover */
+        .tree-node:hover { background: rgba(124, 58, 237, 0.1); }
+        .tree-node.selected { background: rgba(124, 58, 237, 0.2); border-left: 2px solid #7c3aed; }
+
+        /* Prevent body scroll */
+        html, body { height: 100%; overflow: hidden; }
+    </style>
+    <HeadOutlet @rendermode="RenderMode.InteractiveServer" />
+</head>
+<body class="bg-surface text-gray-200 h-full">
+    <Routes @rendermode="RenderMode.InteractiveServer" />
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

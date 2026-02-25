@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="WpfMcp/WpfMcp.csproj" />
+  <Project Path="WpfMcp.Web/WpfMcp.Web.csproj" />
   <Project Path="WpfMcp.Tests/WpfMcp.Tests.csproj" />
 </Solution>

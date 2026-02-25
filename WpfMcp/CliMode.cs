@@ -30,6 +30,8 @@ public static class CliMode
         Console.WriteLine("  type <text>                - Type text");
         Console.WriteLine("  set-value <ref> <value>    - Set element value via ValuePattern");
         Console.WriteLine("  get-value <ref>            - Get element value via ValuePattern");
+        Console.WriteLine("  read-prop <ref> <property> - Read a property (value, name, toggle_state, is_enabled, expand_state, is_selected, control_type, automation_id)");
+        Console.WriteLine("  verify <ref> <prop> <exp>  - Verify element property equals expected value");
         Console.WriteLine("  file-dialog <path>         - Navigate file dialog to select a file");
         Console.WriteLine("  screenshot                 - Take screenshot (saves to wpfmcp_screenshot.png)");
         Console.WriteLine("  status                     - Show attachment status");
@@ -196,6 +198,35 @@ public static class CliMode
                         if (!cache.TryGet(arg, out var gvEl)) { Console.WriteLine($"Error: Unknown ref '{arg}'"); break; }
                         var gvResult = engine.GetElementValue(gvEl!);
                         Console.WriteLine(gvResult.success ? $"OK: {gvResult.message}" : $"Error: {gvResult.message}");
+                        break;
+                    }
+
+                    case "read-prop":
+                    {
+                        var rpParts = arg?.Split(' ', 2, StringSplitOptions.TrimEntries);
+                        if (rpParts == null || rpParts.Length < 2) { Console.WriteLine("Usage: read-prop <ref> <property>"); break; }
+                        if (!cache.TryGet(rpParts[0], out var rpEl)) { Console.WriteLine($"Error: Unknown ref '{rpParts[0]}'"); break; }
+                        var rpResult = engine.ReadElementProperty(rpEl!, rpParts[1]);
+                        Console.WriteLine(rpResult.success ? $"OK: {rpResult.message}" : $"Error: {rpResult.message}");
+                        break;
+                    }
+
+                    case "verify":
+                    {
+                        var vParts = arg?.Split(' ', 3, StringSplitOptions.TrimEntries);
+                        if (vParts == null || vParts.Length < 3)
+                        {
+                            Console.WriteLine("Usage: verify <ref> <property> <expected>");
+                            Console.WriteLine("  Properties: value, name, toggle_state, is_enabled, expand_state, is_selected, control_type, automation_id");
+                            break;
+                        }
+                        if (!cache.TryGet(vParts[0], out var vEl)) { Console.WriteLine($"Error: Unknown ref '{vParts[0]}'"); break; }
+                        var vResult = engine.ReadElementProperty(vEl!, vParts[1]);
+                        if (!vResult.success) { Console.WriteLine($"Error: {vResult.message}"); break; }
+                        if (string.Equals(vResult.value, vParts[2], StringComparison.OrdinalIgnoreCase))
+                            Console.WriteLine($"PASS: {vParts[1]} = \"{vResult.value}\"");
+                        else
+                            Console.WriteLine($"FAIL: expected {vParts[1]} = \"{vParts[2]}\" but got \"{vResult.value}\"");
                         break;
                     }
 

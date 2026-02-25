@@ -1,0 +1,176 @@
+@inject IAppState State
+
+<div class="flex flex-col h-full">
+    <div class="px-3 py-2 bg-surface-light border-b border-gray-700 shrink-0">
+        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</span>
+    </div>
+    <div class="flex-1 overflow-auto p-3 space-y-3 text-xs">
+
+        @* Attach *@
+        <div>
+            <label class="text-gray-500 block mb-1">Attach</label>
+            <div class="flex gap-1">
+                <input @bind="_attachProcess" @bind:event="oninput" placeholder="Process name"
+                       class="flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+                <button @onclick="DoAttach" class="px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">
+                    Attach
+                </button>
+            </div>
+        </div>
+
+        @* Element actions *@
+        @if (SelectedRefKey != null)
+        {
+            <div>
+                <label class="text-gray-500 block mb-1">Element: <span class="text-accent-light">@SelectedRefKey</span></label>
+                <div class="flex flex-wrap gap-1">
+                    <button @onclick="DoClick" class="px-2 py-1 bg-surface-lighter border border-gray-700 rounded hover:border-accent transition">Click</button>
+                    <button @onclick="DoRightClick" class="px-2 py-1 bg-surface-lighter border border-gray-700 rounded hover:border-accent transition">RClick</button>
+                    <button @onclick="DoGetValue" class="px-2 py-1 bg-surface-lighter border border-gray-700 rounded hover:border-accent transition">GetValue</button>
+                </div>
+            </div>
+
+            @* Set Value *@
+            <div>
+                <label class="text-gray-500 block mb-1">Set Value</label>
+                <div class="flex gap-1">
+                    <input @bind="_setValue" @bind:event="oninput" placeholder="Value"
+                           class="flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+                    <button @onclick="DoSetValue" class="px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">Set</button>
+                </div>
+            </div>
+
+            @* Verify *@
+            <div>
+                <label class="text-gray-500 block mb-1">Verify</label>
+                <div class="flex gap-1">
+                    <select @bind="_verifyProperty"
+                            class="bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none">
+                        <option value="value">value</option>
+                        <option value="name">name</option>
+                        <option value="toggle_state">toggle_state</option>
+                        <option value="is_enabled">is_enabled</option>
+                        <option value="expand_state">expand_state</option>
+                        <option value="is_selected">is_selected</option>
+                        <option value="control_type">control_type</option>
+                        <option value="automation_id">automation_id</option>
+                    </select>
+                    <input @bind="_verifyExpected" @bind:event="oninput" placeholder="Expected"
+                           class="flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+                    <button @onclick="DoVerify" class="px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">Verify</button>
+                </div>
+            </div>
+        }
+
+        @* Global actions *@
+        <div>
+            <label class="text-gray-500 block mb-1">Global</label>
+            <div class="flex gap-1 mb-2">
+                <button @onclick="DoFocus" class="px-2 py-1 bg-surface-lighter border border-gray-700 rounded hover:border-accent transition">Focus</button>
+            </div>
+        </div>
+
+        @* Send Keys *@
+        <div>
+            <label class="text-gray-500 block mb-1">Keys</label>
+            <div class="flex gap-1">
+                <input @bind="_keysText" @bind:event="oninput" placeholder="Ctrl+S, Alt+F4..."
+                       class="flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+                <button @onclick="DoSendKeys" class="px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">Send</button>
+            </div>
+        </div>
+
+        @* Type text *@
+        <div>
+            <label class="text-gray-500 block mb-1">Type</label>
+            <div class="flex gap-1">
+                <input @bind="_typeText" @bind:event="oninput" placeholder="Text to type..."
+                       class="flex-1 bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+                <button @onclick="DoTypeText" class="px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition">Type</button>
+            </div>
+        </div>
+
+        @* Find *@
+        <div>
+            <label class="text-gray-500 block mb-1">Find</label>
+            <div class="grid grid-cols-2 gap-1 mb-1">
+                <input @bind="_findAutomationId" @bind:event="oninput" placeholder="AutomationId"
+                       class="bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+                <input @bind="_findName" @bind:event="oninput" placeholder="Name"
+                       class="bg-surface border border-gray-700 rounded px-2 py-1 text-gray-200 focus:border-accent outline-none" />
+            </div>
+            <button @onclick="DoFind" class="px-2 py-1 bg-accent/20 text-accent-light rounded hover:bg-accent/30 transition w-full">Find</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string? SelectedRefKey { get; set; }
+
+    private string _attachProcess = "";
+    private string _keysText = "";
+    private string _typeText = "";
+    private string _setValue = "";
+    private string _verifyProperty = "value";
+    private string _verifyExpected = "";
+    private string _findAutomationId = "";
+    private string _findName = "";
+
+    private void DoAttach()
+    {
+        if (string.IsNullOrWhiteSpace(_attachProcess)) return;
+        State.Attach(_attachProcess.Trim());
+    }
+
+    private void DoClick()
+    {
+        if (SelectedRefKey == null) return;
+        State.Click(SelectedRefKey);
+    }
+
+    private void DoRightClick()
+    {
+        if (SelectedRefKey == null) return;
+        State.RightClick(SelectedRefKey);
+    }
+
+    private void DoGetValue()
+    {
+        if (SelectedRefKey == null) return;
+        State.GetValue(SelectedRefKey);
+    }
+
+    private void DoFocus() => State.Focus();
+
+    private void DoSendKeys()
+    {
+        if (string.IsNullOrWhiteSpace(_keysText)) return;
+        State.SendKeys(_keysText.Trim());
+    }
+
+    private void DoTypeText()
+    {
+        if (string.IsNullOrWhiteSpace(_typeText)) return;
+        State.TypeText(_typeText);
+    }
+
+    private void DoSetValue()
+    {
+        if (SelectedRefKey == null || string.IsNullOrEmpty(_setValue)) return;
+        State.SetValue(SelectedRefKey, _setValue);
+    }
+
+    private void DoVerify()
+    {
+        if (SelectedRefKey == null || string.IsNullOrWhiteSpace(_verifyExpected)) return;
+        State.Verify(SelectedRefKey, _verifyProperty, _verifyExpected.Trim());
+    }
+
+    private void DoFind()
+    {
+        var aid = string.IsNullOrWhiteSpace(_findAutomationId) ? null : _findAutomationId.Trim();
+        var name = string.IsNullOrWhiteSpace(_findName) ? null : _findName.Trim();
+        if (aid == null && name == null) return;
+        State.Find(aid, name, null, null);
+    }
+}

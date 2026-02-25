@@ -147,14 +147,33 @@ public static class UiaProxyServer
         Console.WriteLine("  WPF UIA Server (Elevated)");
         Console.WriteLine("========================================");
         Console.WriteLine();
-        Console.WriteLine("Provides UI Automation access to WPF apps.");
-        Console.WriteLine("Elevation is required to read the visual");
-        Console.WriteLine("tree of protected applications.");
+
+        // Start web dashboard before the banner completes
+        var webCts = new CancellationTokenSource();
+        string? dashboardUrl = null;
+        try
+        {
+            var appState = new AppState(
+                UiaEngine.Instance,
+                _cache,
+                _macroEngine,
+                _commandLock);
+            await WebServer.StartAsync(appState, Constants.WebPort, webCts.Token);
+            dashboardUrl = $"http://localhost:{Constants.WebPort}";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  Dashboard: FAILED ({ex.Message})");
+        }
+
+        Console.WriteLine($"  Pipe:       {Constants.PipeName}");
+        Console.WriteLine($"  Idle:       {Constants.ServerIdleTimeoutMinutes} min auto-shutdown");
+        if (dashboardUrl is not null)
+            Console.WriteLine($"  Dashboard:  {dashboardUrl}");
         Console.WriteLine();
-        Console.WriteLine($"Pipe: {Constants.PipeName}");
-        Console.WriteLine($"Auto-shutdown: {Constants.ServerIdleTimeoutMinutes} min idle");
-        Console.WriteLine("Status: READY");
+        Console.WriteLine("  Status: READY — waiting for connections");
         Console.WriteLine();
+        Console.WriteLine("----------------------------------------");
 
         // Acquire mutex to signal we're running
         using var mutex = new Mutex(true, Constants.MutexName);

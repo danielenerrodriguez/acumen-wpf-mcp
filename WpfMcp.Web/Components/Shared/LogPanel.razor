@@ -1,0 +1,66 @@
+@implements IDisposable
+@inject IAppState State
+
+<div class="flex flex-col h-full">
+    <div class="flex items-center justify-between px-3 py-2 bg-surface-light border-b border-gray-700 shrink-0">
+        <span class="text-xs font-semibold text-gray-400 uppercase tracking-wider">Log</span>
+        <button @onclick="Clear" class="text-xs text-gray-400 hover:text-accent-light px-2 py-0.5 rounded hover:bg-surface-lighter transition">
+            Clear
+        </button>
+    </div>
+    <div id="log-scroll" class="flex-1 overflow-auto p-2 font-mono text-xs space-y-0.5">
+        @foreach (var entry in _logs)
+        {
+            <div class="flex gap-2">
+                <span class="text-gray-600 shrink-0">@entry.Time.ToString("HH:mm:ss")</span>
+                <span class="@GetLevelColor(entry.Level)">@entry.Message</span>
+            </div>
+        }
+        @if (_logs.Count == 0)
+        {
+            <p class="text-gray-600">Ready.</p>
+        }
+    </div>
+</div>
+
+@code {
+    private List<LogEntry> _logs = new();
+
+    protected override void OnInitialized()
+    {
+        // Load existing logs
+        _logs = new(State.RecentLogs);
+        State.OnLog += HandleLog;
+    }
+
+    private void HandleLog(LogEntry entry)
+    {
+        InvokeAsync(() =>
+        {
+            _logs.Add(entry);
+            // Keep max 500 entries
+            if (_logs.Count > 500)
+                _logs.RemoveRange(0, _logs.Count - 500);
+            StateHasChanged();
+        });
+    }
+
+    private void Clear()
+    {
+        _logs.Clear();
+        StateHasChanged();
+    }
+
+    private static string GetLevelColor(LogLevel level) => level switch
+    {
+        LogLevel.Success => "text-green-400",
+        LogLevel.Warning => "text-yellow-400",
+        LogLevel.Error => "text-red-400",
+        _ => "text-gray-300"
+    };
+
+    public void Dispose()
+    {
+        State.OnLog -= HandleLog;
+    }
+}
