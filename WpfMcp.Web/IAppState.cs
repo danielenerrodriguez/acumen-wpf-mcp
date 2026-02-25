@@ -32,6 +32,14 @@ public interface IAppState
     // --- Find ---
     Task<FindResult?> FindAsync(string? automationId, string? name, string? className, string? controlType);
 
+    // --- Tree navigation ---
+    /// <summary>
+    /// Get RuntimeId path from root window down to the element identified by refKey.
+    /// Returns list of RuntimeId strings in order: [rootChild, ..., parent, target].
+    /// Used by the dashboard to auto-expand the tree to a watched element.
+    /// </summary>
+    Task<List<string>> GetAncestorRuntimeIdsAsync(string refKey);
+
     // --- Macros ---
     List<MacroSummary> ListMacros();
     Task<MacroRunResult> RunMacroAsync(string name, Dictionary<string, string> parameters);

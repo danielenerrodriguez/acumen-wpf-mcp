@@ -5,7 +5,9 @@
 <div class="flex h-full bg-surface-medium dark:bg-[#1a1a2a]">
     @* Left panel: Element Tree *@
     <div class="w-80 flex flex-col shrink-0 panel-card border-r-0 border-t-0 border-b-0">
-        <ElementTree @ref="_elementTree" SelectedRefKey="@_selectedRef" HighlightRuntimeId="@_highlightRuntimeId" OnElementSelected="HandleElementSelected" />
+        <ElementTree @ref="_elementTree" SelectedRefKey="@_selectedRef"
+                     HighlightRuntimeIds="@_highlightRuntimeIds"
+                     OnElementSelected="HandleElementSelected" />
     </div>
 
     @* Right panel *@
@@ -39,7 +41,7 @@
 
 @code {
     private string? _selectedRef;
-    private string? _highlightRuntimeId;
+    private HashSet<string>? _highlightRuntimeIds;
     private Dictionary<string, string>? _selectedProperties;
     private HashSet<string> _changedKeys = new();
     private ElementTree? _elementTree;
@@ -70,15 +72,28 @@
 
     private void HandleWatchEntry(WatchEntry entry)
     {
-        InvokeAsync(() =>
+        InvokeAsync(async () =>
         {
             if (entry.Kind == WatchEntryKind.Focus || entry.Kind == WatchEntryKind.Hover)
             {
                 // Auto-select the element and show its properties
                 _selectedRef = entry.RefKey;
-                _highlightRuntimeId = entry.RuntimeId;
                 _selectedProperties = entry.Properties;
                 _changedKeys.Clear();
+
+                // Highlight the full ancestor path in the tree
+                if (entry.RefKey != null)
+                {
+                    try
+                    {
+                        var path = await State.GetAncestorRuntimeIdsAsync(entry.RefKey);
+                        _highlightRuntimeIds = path.Count > 0 ? new HashSet<string>(path) : null;
+                    }
+                    catch
+                    {
+                        _highlightRuntimeIds = null;
+                    }
+                }
             }
             else if (entry.Kind == WatchEntryKind.PropertyChange && entry.RefKey == _selectedRef)
             {
@@ -105,13 +120,20 @@
         InvokeAsync(() =>
         {
             _elementTree?.Refresh();
+            _highlightRuntimeIds = null;
             StateHasChanged();
         });
     }
 
     private void HandleWatchStateChanged()
     {
-        InvokeAsync(StateHasChanged);
+        InvokeAsync(() =>
+        {
+            // Clear highlights when watch stops
+            if (!State.IsWatching)
+                _highlightRuntimeIds = null;
+            StateHasChanged();
+        });
     }
 
     public void Dispose()

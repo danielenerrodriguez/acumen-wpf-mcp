@@ -276,6 +276,43 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
+    // --- Tree navigation ---
+
+    public async Task<List<string>> GetAncestorRuntimeIdsAsync(string refKey)
+    {
+        await _lock.WaitAsync();
+        try
+        {
+            if (!_cache.TryGet(refKey, out var el) || el == null)
+                return new();
+
+            var rids = new List<string>();
+            var walker = TreeWalker.ControlViewWalker;
+            var current = walker.GetParent(el);
+            var rootHandle = _engine.TargetWindowHandle;
+
+            while (current != null)
+            {
+                try
+                {
+                    if (current == AutomationElement.RootElement) break;
+                    var rid = GetRuntimeId(current);
+                    if (!string.IsNullOrEmpty(rid)) rids.Add(rid);
+                    if (current.Current.NativeWindowHandle == (int)rootHandle) break;
+                    current = walker.GetParent(current);
+                }
+                catch { break; }
+            }
+
+            rids.Reverse(); // now root → ... → parent
+            var targetRid = GetRuntimeId(el);
+            if (!string.IsNullOrEmpty(targetRid)) rids.Add(targetRid);
+            return rids;
+        }
+        catch { return new(); }
+        finally { _lock.Release(); }
+    }
+
     // --- Processes ---
 
     public List<ProcessInfo> ListWindowedProcesses()

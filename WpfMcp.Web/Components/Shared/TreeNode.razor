@@ -40,7 +40,9 @@
     {
         @foreach (var child in _children)
         {
-            <TreeNode Node="child" Depth="Depth + 1" SelectedRefKey="@SelectedRefKey" HighlightRuntimeId="@HighlightRuntimeId" OnSelect="OnSelect" />
+            <TreeNode Node="child" Depth="Depth + 1" SelectedRefKey="@SelectedRefKey"
+                      HighlightRuntimeIds="@HighlightRuntimeIds"
+                      OnSelect="OnSelect" />
         }
     }
 </div>
@@ -49,16 +51,15 @@
     [Parameter, EditorRequired] public ElementInfo Node { get; set; } = default!;
     [Parameter] public int Depth { get; set; }
     [Parameter] public string? SelectedRefKey { get; set; }
-    [Parameter] public string? HighlightRuntimeId { get; set; }
+    [Parameter] public HashSet<string>? HighlightRuntimeIds { get; set; }
     [Parameter] public EventCallback<string> OnSelect { get; set; }
 
     private bool _expanded;
     private List<ElementInfo>? _children;
 
     private bool IsSelected => SelectedRefKey == Node.RefKey;
-    private bool IsHighlighted => !string.IsNullOrEmpty(HighlightRuntimeId)
-        && !string.IsNullOrEmpty(Node.RuntimeId)
-        && HighlightRuntimeId == Node.RuntimeId
+    private bool IsHighlighted => !string.IsNullOrEmpty(Node.RuntimeId)
+        && HighlightRuntimeIds?.Contains(Node.RuntimeId) == true
         && !IsSelected;
 
     private string NodeCssClass => IsSelected ? "selected" : IsHighlighted ? "watched" : "";

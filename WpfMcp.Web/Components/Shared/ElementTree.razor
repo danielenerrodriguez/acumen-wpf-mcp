@@ -20,7 +20,9 @@
         {
             @foreach (var node in _rootNodes)
             {
-                <TreeNode Node="node" Depth="0" SelectedRefKey="@SelectedRefKey" HighlightRuntimeId="@HighlightRuntimeId" OnSelect="SelectNode" />
+                <TreeNode Node="node" Depth="0" SelectedRefKey="@SelectedRefKey"
+                          HighlightRuntimeIds="@HighlightRuntimeIds"
+                          OnSelect="SelectNode" />
             }
         }
     </div>
@@ -28,7 +30,7 @@
 
 @code {
     [Parameter] public string? SelectedRefKey { get; set; }
-    [Parameter] public string? HighlightRuntimeId { get; set; }
+    [Parameter] public HashSet<string>? HighlightRuntimeIds { get; set; }
     [Parameter] public EventCallback<string?> OnElementSelected { get; set; }
 
     private List<ElementInfo>? _rootNodes;
