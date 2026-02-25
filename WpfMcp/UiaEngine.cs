@@ -1407,6 +1407,20 @@ public class UiaEngine
             ["Control"] = "LeftCtrl",
             ["Alt"] = "LeftAlt",
             ["Shift"] = "LeftShift",
+            // Special characters → OEM key names
+            ["/"] = "OemQuestion",
+            ["?"] = "OemQuestion",
+            [";"] = "OemSemicolon",
+            [":"] = "OemSemicolon",
+            ["="] = "OemPlus",
+            ["-"] = "OemMinus",
+            ["."] = "OemPeriod",
+            ["["] = "Oem4",
+            ["]"] = "Oem6",
+            [@"\"] = "Oem5",
+            ["`"] = "Oem3",
+            ["~"] = "Oem3",
+            ["'"] = "Oem7",
         };
 
     private static ushort ParseVirtualKey(string keyName)
