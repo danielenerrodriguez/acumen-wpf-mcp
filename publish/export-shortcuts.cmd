@@ -1,6 +1,6 @@
 @echo off
-echo WPF MCP - Setup
-echo ================
+echo WPF MCP - Export Shortcuts
+echo ==========================
 echo.
 echo Generating shortcuts for all macros...
 echo.

@@ -26,10 +26,10 @@ if (args.Length > 0
     return;
 }
 
-// --server: run elevated, listen on named pipe for UIA commands
-if (args.Contains("--server"))
+// --cli: interactive CLI mode for manual testing
+if (args.Contains("--cli"))
 {
-    await UiaProxyServer.RunAsync(macrosPath);
+    await CliMode.RunAsync(args, macrosPath);
     return;
 }
 
@@ -74,8 +74,32 @@ if (args.Contains("--export-all"))
     return;
 }
 
-// Default (no args / double-click): interactive CLI mode
-await CliMode.RunAsync(args, macrosPath);
+// Default (no args / double-click / --server): run elevated server with named pipe + web dashboard
+// If not already elevated, re-launch with UAC prompt and exit this instance
+if (!IsElevated())
+{
+    try
+    {
+        var exePath = Process.GetCurrentProcess().MainModule?.FileName
+            ?? Path.Combine(AppContext.BaseDirectory, "WpfMcp.exe");
+        var serverArgs = "--server";
+        if (macrosPath != null)
+            serverArgs += $" --macros-path \"{macrosPath}\"";
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = exePath,
+            Arguments = serverArgs,
+            Verb = "runas",
+            UseShellExecute = true
+        });
+    }
+    catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
+    {
+        Console.Error.WriteLine("Elevation was denied by the user.");
+    }
+    return;
+}
+await UiaProxyServer.RunAsync(macrosPath);
 
 // =====================================================================
 // --mcp-connect implementation
@@ -232,6 +256,13 @@ async Task<UiaProxyClient?> EnsureServerAndConnectAsync(TextWriter log)
 // =====================================================================
 // Helpers
 // =====================================================================
+static bool IsElevated()
+{
+    using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+    var principal = new System.Security.Principal.WindowsPrincipal(identity);
+    return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+}
+
 static bool IsServerRunning(string mutexName)
 {
     try

@@ -69,7 +69,7 @@ jobs:
 
       - name: Create release zip
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        run: Compress-Archive -Path dist\WpfMcp.exe, publish\macros, publish\setup.cmd -DestinationPath dist\WpfMcp.zip
+        run: Compress-Archive -Path dist\WpfMcp.exe, publish\macros, publish\export-shortcuts.cmd, publish\launch-cli.cmd -DestinationPath dist\WpfMcp.zip
 
       - name: Generate version tag
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
@@ -92,7 +92,7 @@ jobs:
             Automated release from `master` branch.
 
             Self-contained single exe — no .NET runtime required.
-            Extract the zip and place `WpfMcp.exe` alongside the `macros/` folder.
+            Extract the zip and run `export-shortcuts.cmd` to generate desktop shortcuts for all macros.
 
-            **New:** Run `setup.cmd` after extraction to generate desktop shortcuts for all macros.
+            Double-click `WpfMcp.exe` to start the elevated server with web dashboard on `http://localhost:5112`.
           files: dist/WpfMcp.zip
