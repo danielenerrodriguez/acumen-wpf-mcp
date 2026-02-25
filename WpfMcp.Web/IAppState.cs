@@ -49,10 +49,10 @@ public interface IAppState
 
     // --- Watch mode ---
     /// <summary>Start a new watch session. Returns the session, or null if already watching.</summary>
-    WatchSession? StartWatch();
+    Task<WatchSession?> StartWatchAsync();
 
     /// <summary>Stop the current watch session. Returns the completed session, or null if not watching.</summary>
-    WatchSession? StopWatch();
+    Task<WatchSession?> StopWatchAsync();
 
     /// <summary>Get the current (active) or last (completed) watch session.</summary>
     WatchSession? GetWatchSession();

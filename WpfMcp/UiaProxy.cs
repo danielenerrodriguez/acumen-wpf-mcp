@@ -674,7 +674,7 @@ public static class UiaProxyServer
                     {
                         if (_appState == null)
                             return Json(false, "Server not initialized");
-                        var session = _appState.StartWatch();
+                        var session = _appState.StartWatchAsync().GetAwaiter().GetResult();
                         if (session == null)
                             return Json(false, "Watch session already active");
                         return JsonSerializer.Serialize(new
@@ -689,7 +689,7 @@ public static class UiaProxyServer
                     {
                         if (_appState == null)
                             return Json(false, "Server not initialized");
-                        var session = _appState.StopWatch();
+                        var session = _appState.StopWatchAsync().GetAwaiter().GetResult();
                         if (session == null)
                             return Json(false, "No watch session to stop");
                         return SerializeWatchSession(session);

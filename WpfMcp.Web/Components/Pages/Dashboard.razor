@@ -58,12 +58,12 @@
         StateHasChanged();
     }
 
-    private void ToggleWatch(bool watching)
+    private async Task ToggleWatch(bool watching)
     {
         if (watching)
-            State.StartWatch();
+            await State.StartWatchAsync();
         else
-            State.StopWatch();
+            await State.StopWatchAsync();
         StateHasChanged();
     }
 

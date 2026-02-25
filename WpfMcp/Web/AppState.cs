@@ -354,7 +354,7 @@ internal sealed class AppState : IAppState
 
     // --- Watch mode (server-side) ---
 
-    public WatchSession? StartWatch()
+    public async Task<WatchSession?> StartWatchAsync()
     {
         if (IsWatching) return null;
 
@@ -368,7 +368,7 @@ internal sealed class AppState : IAppState
         _watchTimer = new Timer(WatchTick, null, 500, 500);
 
         // Start keyboard hook to capture keypresses directed at the attached process
-        _engine.StartKeyboardHook((keyName, keyCombo) =>
+        await _engine.StartKeyboardHookAsync((keyName, keyCombo) =>
         {
             if (!IsWatching) return;
 
@@ -401,13 +401,13 @@ internal sealed class AppState : IAppState
         return _currentSession;
     }
 
-    public WatchSession? StopWatch()
+    public async Task<WatchSession?> StopWatchAsync()
     {
         if (!IsWatching) return _lastSession;
 
         _watchTimer?.Dispose();
         _watchTimer = null;
-        _engine.StopKeyboardHook();
+        await _engine.StopKeyboardHookAsync();
 
         var session = _currentSession!;
         session.StopTime = DateTime.Now;

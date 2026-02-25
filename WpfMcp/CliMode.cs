@@ -372,7 +372,7 @@ public static class CliMode
                         var sub = arg?.Trim().ToLowerInvariant();
                         if (sub == "stop")
                         {
-                            var session = appState.StopWatch();
+                            var session = appState.StopWatchAsync().GetAwaiter().GetResult();
                             if (session == null)
                             {
                                 Console.WriteLine("No watch session active.");
@@ -392,7 +392,7 @@ public static class CliMode
                         }
                         else
                         {
-                            var session = appState.StartWatch();
+                            var session = appState.StartWatchAsync().GetAwaiter().GetResult();
                             if (session == null)
                             {
                                 Console.WriteLine("Watch session already active. Use 'watch stop' to stop it.");

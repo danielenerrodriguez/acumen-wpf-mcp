@@ -135,6 +135,7 @@ public class UiaEngine
     private IntPtr _hookHandle;
     private Thread? _hookThread;
     private uint _hookThreadId;
+    private TaskCompletionSource? _hookStopped;
     private LowLevelKeyboardProc? _hookProc; // prevent GC of the delegate
     private Action<string, string>? _keypressCallback; // (keyName, keyCombo)
     private readonly HashSet<ushort> _pressedModifiers = new();
@@ -1225,28 +1226,34 @@ public class UiaEngine
     /// Start a low-level keyboard hook on a dedicated thread with a message pump.
     /// The callback receives (keyName, keyCombo) for each keypress directed at the attached process.
     /// </summary>
-    public void StartKeyboardHook(Action<string, string> onKeypress)
+    public async Task StartKeyboardHookAsync(Action<string, string> onKeypress)
     {
-        StopKeyboardHook();
+        await StopKeyboardHookAsync();
         _keypressCallback = onKeypress;
         _pressedModifiers.Clear();
 
+        _hookStopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _hookThread = new Thread(KeyboardHookThreadProc);
         _hookThread.SetApartmentState(ApartmentState.STA);
         _hookThread.IsBackground = true;
         _hookThread.Start();
     }
 
-    /// <summary>Stop the keyboard hook and its message pump thread.</summary>
-    public void StopKeyboardHook()
+    /// <summary>Stop the keyboard hook and its message pump thread without blocking.</summary>
+    public async Task StopKeyboardHookAsync()
     {
         if (_hookThread != null && _hookThreadId != 0)
         {
             PostThreadMessage(_hookThreadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
-            _hookThread.Join(2000);
+            if (_hookStopped != null)
+            {
+                // Wait for hook thread to exit, with a safety timeout
+                await Task.WhenAny(_hookStopped.Task, Task.Delay(2000));
+            }
         }
         _hookThread = null;
         _hookThreadId = 0;
+        _hookStopped = null;
         _keypressCallback = null;
         _pressedModifiers.Clear();
     }
@@ -1266,6 +1273,7 @@ public class UiaEngine
         {
             var err = Marshal.GetLastWin32Error();
             Console.Error.WriteLine($"[Watch] Failed to install keyboard hook (error {err})");
+            _hookStopped?.TrySetResult();
             return;
         }
 
@@ -1285,6 +1293,7 @@ public class UiaEngine
             UnhookWindowsHookEx(_hookHandle);
             _hookHandle = IntPtr.Zero;
             _hookProc = null;
+            _hookStopped?.TrySetResult();
         }
     }
 
