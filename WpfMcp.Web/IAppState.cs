@@ -43,11 +43,17 @@ public interface IAppState
     /// <summary>Get the currently focused element in the attached app, or null if focus is outside.</summary>
     FocusResult? GetFocusedElement();
 
+    /// <summary>Get the element under the mouse cursor in the attached app, or null if cursor is outside.</summary>
+    FocusResult? GetHoverElement();
+
     /// <summary>Log a property change detected by the polling timer.</summary>
     void LogPropertyChange(string refKey, string property, string oldValue, string newValue);
 
     /// <summary>Log a focus change detected by the watch timer.</summary>
     void LogFocusChange(ElementInfo element, Dictionary<string, string> properties);
+
+    /// <summary>Log a hover change detected by the watch timer.</summary>
+    void LogHoverChange(ElementInfo element, Dictionary<string, string> properties);
 
     // --- Events ---
     /// <summary>Fires when attachment status changes (attach/detach).</summary>

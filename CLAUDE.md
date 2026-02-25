@@ -327,12 +327,28 @@ Tracks which element has focus in the attached WPF application, logging changes 
 7. On same element: diffs property values, logs changes, highlights in `PropertiesPanel` with purple background via `ChangedKeys` set
 
 **Key types:**
-- `FocusResult` record in `IAppState.cs`: `(string? RefKey, Dictionary<string, string> Properties, string RuntimeId)`
+- `FocusResult` record in `IAppState.cs`: `(ElementInfo Element, Dictionary<string, string> Properties, string RuntimeId)`
 - `GetFocusedElement()` on `IAppState`/`AppState`: Returns `FocusResult?` with RuntimeId and full properties
 - `LogFocusChange()` on `IAppState`/`AppState`: Logs with key property values from the properties dictionary
 
+### Hover Watcher (Mouse Tracking)
+Tracks which element is under the mouse cursor in the attached WPF application, alongside the focus watcher.
+
+**How it works:**
+1. Runs in the same 500ms `WatchTick` timer as the focus watcher
+2. Each tick calls `AppState.GetHoverElement()` → `UiaEngine.GetElementAtCursor()` → `GetCursorPos` + `AutomationElement.FromPoint()`
+3. Filters to attached process by PID (ignores cursor over other apps/desktop)
+4. Uses `GetRuntimeId()` for stable identity comparison (same approach as focus watcher)
+5. On hover change: logs `"Hover → [ControlType] #AutomationId"` with key property values
+6. Auto-selects the hovered element in the properties panel (focus changes take priority if both change in the same tick)
+
+**Key methods:**
+- `GetCursorPos` P/Invoke + `AutomationElement.FromPoint()` in `UiaEngine.GetElementAtCursor()`
+- `GetHoverElement()` on `IAppState`/`AppState`: Returns `FocusResult?` (reuses same DTO)
+- `LogHoverChange()` on `IAppState`/`AppState`: Logs with `"Hover →"` prefix
+
 **Why polling, not UIA events:**
-The STA thread uses a custom `BlockingQueue`, not a Windows message pump. `Automation.AddAutomationFocusChangedEventHandler` requires a COM message pump to fire reliably. Polling `AutomationElement.FocusedElement` every 500ms is the pragmatic approach.
+The STA thread uses a custom `BlockingQueue`, not a Windows message pump. `Automation.AddAutomationFocusChangedEventHandler` requires a COM message pump to fire reliably. Polling `AutomationElement.FocusedElement` every 500ms is the pragmatic approach. Same reasoning applies to hover — no UIA hover event exists; `AutomationElement.FromPoint()` on a timer is the only approach.
 
 **BoundingRectangle filter:** This property changes constantly as elements scroll/resize — filtered out from property change diff logging to prevent log spam.
 

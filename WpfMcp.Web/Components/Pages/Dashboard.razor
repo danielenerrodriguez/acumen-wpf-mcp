@@ -45,6 +45,7 @@
     private ElementTree? _elementTree;
     private bool _watching;
     private string? _lastFocusedRuntimeId;
+    private string? _lastHoverRuntimeId;
 
     protected override void OnInitialized()
     {
@@ -65,7 +66,10 @@
     {
         _watching = watching;
         if (_watching)
+        {
             _lastFocusedRuntimeId = null;
+            _lastHoverRuntimeId = null;
+        }
         StateHasChanged();
     }
 
@@ -91,8 +95,27 @@
                 _changedKeys.Clear();
             }
 
-            // --- Property diff on currently selected element (when focus didn't change) ---
-            if (!focusChanged && _selectedRef != null && _selectedProperties != null)
+            // --- Hover tracking (element under mouse cursor) ---
+            var hover = State.GetHoverElement();
+            bool hoverChanged = false;
+
+            if (hover != null && !string.IsNullOrEmpty(hover.RuntimeId) && hover.RuntimeId != _lastHoverRuntimeId)
+            {
+                _lastHoverRuntimeId = hover.RuntimeId;
+                hoverChanged = true;
+                State.LogHoverChange(hover.Element, hover.Properties);
+
+                // Auto-select the hovered element (only if focus didn't already change this tick)
+                if (!focusChanged)
+                {
+                    _selectedRef = hover.Element.RefKey;
+                    _selectedProperties = hover.Properties;
+                    _changedKeys.Clear();
+                }
+            }
+
+            // --- Property diff on currently selected element (when neither focus nor hover changed) ---
+            if (!focusChanged && !hoverChanged && _selectedRef != null && _selectedProperties != null)
             {
                 var fresh = State.GetProperties(_selectedRef);
                 if (fresh.Count > 0)
@@ -130,7 +153,7 @@
                 }
             }
 
-            if (focusChanged)
+            if (focusChanged || hoverChanged)
                 InvokeAsync(StateHasChanged);
         }
         catch { /* element may have gone stale */ }

@@ -308,6 +308,30 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
+    public FocusResult? GetHoverElement()
+    {
+        _lock.Wait();
+        try
+        {
+            var el = _engine.GetElementAtCursor();
+            if (el == null) return null;
+
+            string runtimeId;
+            try
+            {
+                var rid = el.GetRuntimeId();
+                runtimeId = string.Join(".", rid);
+            }
+            catch { runtimeId = ""; }
+
+            var info = ToElementInfo(el);
+            var props = _engine.GetElementProperties(el);
+            return new FocusResult(info, props, runtimeId);
+        }
+        catch { return null; }
+        finally { _lock.Release(); }
+    }
+
     public void LogPropertyChange(string refKey, string property, string oldValue, string newValue)
     {
         Log(Web.LogLevel.Info, $"{property}: \"{oldValue}\" → \"{newValue}\"", refKey);
@@ -335,6 +359,28 @@ internal sealed class AppState : IAppState
 
         var suffix = extras.Count > 0 ? $"  ({string.Join(", ", extras)})" : "";
         Log(Web.LogLevel.Info, $"Focus → {desc}{suffix}", element.RefKey);
+    }
+
+    public void LogHoverChange(ElementInfo element, Dictionary<string, string> properties)
+    {
+        var desc = !string.IsNullOrEmpty(element.AutomationId)
+            ? $"[{element.ControlType}] #{element.AutomationId}"
+            : !string.IsNullOrEmpty(element.Name)
+                ? $"[{element.ControlType}] \"{Truncate(element.Name, 30)}\""
+                : $"[{element.ControlType}]";
+
+        var extras = new List<string>();
+        if (properties.TryGetValue("Value", out var val) && !string.IsNullOrEmpty(val))
+            extras.Add($"Value=\"{Truncate(val, 40)}\"");
+        if (properties.TryGetValue("ToggleState", out var ts))
+            extras.Add($"Toggle={ts}");
+        if (properties.TryGetValue("IsSelected", out var sel) && sel == "True")
+            extras.Add("Selected");
+        if (properties.TryGetValue("ExpandCollapseState", out var ecs) && ecs != "LeafNode")
+            extras.Add(ecs);
+
+        var suffix = extras.Count > 0 ? $"  ({string.Join(", ", extras)})" : "";
+        Log(Web.LogLevel.Info, $"Hover → {desc}{suffix}", element.RefKey);
     }
 
     private static string Truncate(string s, int max) =>

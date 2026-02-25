@@ -55,6 +55,10 @@ public class UiaEngine
     private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out POINT lpPoint);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT { public int X, Y; }
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
     [StructLayout(LayoutKind.Sequential)]
@@ -1068,6 +1072,36 @@ public class UiaEngine
                 catch { return null; }
 
                 return focused;
+            });
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Returns the element under the mouse cursor if it belongs to the attached process.
+    /// Uses GetCursorPos + AutomationElement.FromPoint for hit-testing.
+    /// Returns null if not attached, cursor is outside the app, or the element is inaccessible.
+    /// </summary>
+    public AutomationElement? GetElementAtCursor()
+    {
+        if (!IsAttached) return null;
+        try
+        {
+            return RunOnSta<AutomationElement?>(() =>
+            {
+                if (!GetCursorPos(out var pt)) return null;
+                var element = AutomationElement.FromPoint(new System.Windows.Point(pt.X, pt.Y));
+                if (element == null) return null;
+
+                // Only return elements belonging to the attached process
+                try
+                {
+                    if (element.Current.ProcessId != _attachedProcess!.Id)
+                        return null;
+                }
+                catch { return null; }
+
+                return element;
             });
         }
         catch { return null; }
