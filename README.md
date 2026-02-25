@@ -18,7 +18,7 @@ Originally built for **Deltek Acumen Fuse**, but designed to work with any WPF a
 1. Download and extract `WpfMcp.zip` from the [latest release](https://github.com/danielenerrodriguez/acumen-wpf-mcp/releases)
 2. Run `setup.cmd` — this generates Windows shortcuts for all macros
 3. Open the `Shortcuts/` folder and double-click any shortcut to run it
-4. On first run, approve the UAC prompt — subsequent runs connect silently
+4. On first run, approve the UAC prompt — subsequent runs connect silently (server stays alive for 1 hour)
 
 Your folder should look like:
 
@@ -246,7 +246,7 @@ Shortcuts do **not** require "Run as administrator". Elevation is handled intern
 
 - **First run**: UAC prompt appears once to start the elevated server
 - **Subsequent runs**: Connects to the existing server silently
-- **After 5 minutes idle**: Server shuts down, next run prompts again
+- **After 1 hour idle**: Server shuts down, next run prompts again
 
 ### Path Resolution
 
@@ -307,7 +307,7 @@ Configure your MCP client to launch:
 }
 ```
 
-On first use, approve the UAC prompt to elevate the server. It stays running for 5 minutes of idle time.
+On first use, approve the UAC prompt to elevate the server. It stays running for 1 hour of idle time.
 
 ### MCP Tools
 
@@ -393,7 +393,7 @@ WpfMcp.exe --server           (elevated, executes UIA commands)
 Target WPF Application
 ```
 
-The `--mcp-connect` process auto-launches the elevated server if it isn't already running. The elevated server persists across client reconnections (5 min idle timeout) and remembers the last attached process for auto-reattach.
+The `--mcp-connect` process auto-launches the elevated server if it isn't already running. The elevated server persists across client reconnections (1 hour idle timeout) and remembers the last attached process for auto-reattach.
 
 Shortcuts and drag-and-drop use the same architecture — the non-elevated client process connects to the elevated server, only triggering UAC if the server isn't already running.
 
@@ -534,7 +534,7 @@ The server process is not elevated. Kill it and re-launch — approve the elevat
 **"Not attached to any process"**
 Call `wpf_attach` with the process name. After the first attach, the server remembers the process and auto-reattaches on reconnection.
 
-**Server shuts down after 5 minutes**
+**Server shuts down after 1 hour**
 The elevated server has an idle timeout. It auto-relaunches when the next client starts.
 
 **Build errors about Infragistics NuGet source**
