@@ -16,6 +16,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-tags: true
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -74,9 +76,11 @@ jobs:
         id: version
         run: |
           $date = Get-Date -Format "yyyy.MM.dd"
-          $sha = "${{ github.sha }}".Substring(0, 7)
-          echo "tag=v$date-$sha" >> $env:GITHUB_OUTPUT
-          echo "name=Release $date ($sha)" >> $env:GITHUB_OUTPUT
+          # Find the next sequential build number for today
+          $existing = git tag -l "v$date.*" | ForEach-Object { [int]($_ -replace "v$date\.","") } | Sort-Object -Descending | Select-Object -First 1
+          $build = if ($existing) { $existing + 1 } else { 1 }
+          echo "tag=v$date.$build" >> $env:GITHUB_OUTPUT
+          echo "name=Release $date.$build" >> $env:GITHUB_OUTPUT
 
       - name: Create Release
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
