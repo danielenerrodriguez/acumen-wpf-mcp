@@ -20,6 +20,18 @@ public static class Constants
             Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory,
             "macros");
 
+    /// <summary>
+    /// Resolve the shortcuts export folder path.
+    /// Priority: explicit path > env var > Shortcuts/ as sibling of macros folder.
+    /// This ensures shortcuts land next to the macros/ folder (e.g., publish/Shortcuts/).
+    /// </summary>
+    public static string ResolveShortcutsPath(string? explicitPath = null, string? macrosPath = null) =>
+        explicitPath
+        ?? Environment.GetEnvironmentVariable("WPFMCP_SHORTCUTS_PATH")
+        ?? Path.Combine(
+            Path.GetDirectoryName(macrosPath ?? ResolveMacrosPath()) ?? AppContext.BaseDirectory,
+            "Shortcuts");
+
     // Named pipe and mutex
     public const string PipeName = "WpfMcp_UIA";
     public const string MutexName = "Global\\WpfMcp_Server_Running";
@@ -89,5 +101,7 @@ public static class Constants
         public const string Launch = "launch";
         public const string WaitForWindow = "waitForWindow";
         public const string SaveMacro = "saveMacro";
+        public const string ExportMacro = "exportMacro";
+        public const string ExportAllMacros = "exportAllMacros";
     }
 }

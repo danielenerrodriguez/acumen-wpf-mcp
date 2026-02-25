@@ -550,6 +550,79 @@ public static class WpfTools
         return $"Error: {result.Message}";
     }
 
+    [McpServerTool, Description("Export a macro as a Windows shortcut (.lnk) file that can be double-clicked to run. The shortcut runs with administrator privileges. Use 'all' as the name to export all macros.")]
+    public static async Task<string> wpf_export_macro(
+        [Description("Macro name (e.g., 'acumen-fuse/import-xer') or 'all' to export all macros")] string name,
+        [Description("Output directory for shortcuts (optional, defaults to Shortcuts/ next to exe)")] string? output_path = null,
+        [Description("Overwrite existing shortcut files (default false)")] bool force = false)
+    {
+        if (Proxy != null)
+        {
+            if (name.Equals("all", StringComparison.OrdinalIgnoreCase))
+            {
+                var allArgs = new Dictionary<string, object?>
+                {
+                    ["outputPath"] = output_path,
+                    ["force"] = force
+                };
+                var allResp = await Proxy.CallAsync(Constants.Commands.ExportAllMacros, allArgs);
+                if (allResp.TryGetProperty("ok", out var allOk) && allOk.GetBoolean())
+                {
+                    var results = allResp.GetProperty("results");
+                    var lines = new List<string>();
+                    int success = 0, failed = 0;
+                    foreach (var r in results.EnumerateArray())
+                    {
+                        var rOk = r.GetProperty("ok").GetBoolean();
+                        var rName = r.GetProperty("macroName").GetString();
+                        var rMsg = r.GetProperty("message").GetString();
+                        lines.Add(rOk ? $"  OK: {rName} -> {r.GetProperty("shortcutPath").GetString()}" : $"  FAILED: {rName} - {rMsg}");
+                        if (rOk) success++; else failed++;
+                    }
+                    return $"Exported {success} shortcut(s), {failed} failed:\n{string.Join("\n", lines)}";
+                }
+                return $"Error: {allResp.GetProperty("error").GetString()}";
+            }
+
+            var args = new Dictionary<string, object?>
+            {
+                ["name"] = name,
+                ["outputPath"] = output_path,
+                ["force"] = force
+            };
+            var resp = await Proxy.CallAsync(Constants.Commands.ExportMacro, args);
+            if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
+            {
+                var shortcutPath = resp.TryGetProperty("shortcutPath", out var sp) ? sp.GetString() : "";
+                var macroName = resp.TryGetProperty("macroName", out var mn) ? mn.GetString() : "";
+                var message = resp.TryGetProperty("message", out var msg) ? msg.GetString() : "";
+                return $"OK: {message}\nMacro: {macroName}\nShortcut: {shortcutPath}";
+            }
+            return $"Error: {resp.GetProperty("error").GetString()}";
+        }
+
+        // Direct mode
+        var macroEngine = _macroEngine.Value;
+
+        if (name.Equals("all", StringComparison.OrdinalIgnoreCase))
+        {
+            var results = macroEngine.ExportAllMacros(output_path, force);
+            var lines = new List<string>();
+            int successCount = 0, failedCount = 0;
+            foreach (var r in results)
+            {
+                lines.Add(r.Ok ? $"  OK: {r.MacroName} -> {r.ShortcutPath}" : $"  FAILED: {r.MacroName} - {r.Message}");
+                if (r.Ok) successCount++; else failedCount++;
+            }
+            return $"Exported {successCount} shortcut(s), {failedCount} failed:\n{string.Join("\n", lines)}";
+        }
+
+        var result = macroEngine.ExportMacro(name, output_path, force);
+        if (result.Ok)
+            return $"OK: {result.Message}\nMacro: {result.MacroName}\nShortcut: {result.ShortcutPath}";
+        return $"Error: {result.Message}";
+    }
+
     // Helper: format simple ok/error response from proxy
     private static string FormatResponse(JsonElement resp)
     {

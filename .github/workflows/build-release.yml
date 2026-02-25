@@ -43,7 +43,7 @@ jobs:
 
       - name: Create release zip
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        run: Compress-Archive -Path dist\WpfMcp.exe, publish\macros -DestinationPath dist\WpfMcp.zip
+        run: Compress-Archive -Path dist\WpfMcp.exe, publish\macros, publish\setup.cmd -DestinationPath dist\WpfMcp.zip
 
       - name: Generate version tag
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
@@ -65,4 +65,6 @@ jobs:
 
             Self-contained single exe — no .NET runtime required.
             Extract the zip and place `WpfMcp.exe` alongside the `macros/` folder.
+
+            **New:** Run `setup.cmd` after extraction to generate desktop shortcuts for all macros.
           files: dist/WpfMcp.zip

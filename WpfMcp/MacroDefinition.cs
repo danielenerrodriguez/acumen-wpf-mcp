@@ -168,6 +168,13 @@ public record SaveMacroResult(
     string MacroName,
     string Message);
 
+/// <summary>Result returned after exporting a macro as a shortcut.</summary>
+public record ExportMacroResult(
+    bool Ok,
+    string ShortcutPath,
+    string MacroName,
+    string Message);
+
 /// <summary>
 /// Represents a knowledge base file (_knowledge.yaml) that provides
 /// navigation context for AI agents automating a specific application.

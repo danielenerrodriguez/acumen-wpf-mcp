@@ -475,6 +475,82 @@ public class MacroEngine : IDisposable
             $"Macro '{macroName}' saved successfully to {fullPath}");
     }
 
+    // --- Export macros as Windows shortcuts (.lnk) ---
+
+    /// <summary>
+    /// Export a macro as a Windows shortcut (.lnk) file.
+    /// The shortcut targets WpfMcp.exe with the YAML file path as argument,
+    /// reusing the existing drag-and-drop execution mode.
+    /// </summary>
+    public ExportMacroResult ExportMacro(string macroName, string? shortcutsPath = null, bool force = false)
+    {
+        if (!_macros.TryGetValue(macroName, out var macro))
+            return new ExportMacroResult(false, "", macroName, $"Macro '{macroName}' not found");
+
+        var exePath = Environment.ProcessPath
+            ?? Path.Combine(AppContext.BaseDirectory, "WpfMcp.exe");
+
+        // Resolve the YAML file path (absolute)
+        var yamlRelative = macroName.Replace('/', Path.DirectorySeparatorChar) + ".yaml";
+        var yamlFullPath = Path.Combine(_macrosPath, yamlRelative);
+        if (!File.Exists(yamlFullPath))
+            return new ExportMacroResult(false, "", macroName, $"YAML file not found: {yamlFullPath}");
+
+        // Resolve shortcuts output directory (sibling of macros folder)
+        var resolvedShortcutsPath = Constants.ResolveShortcutsPath(shortcutsPath, _macrosPath);
+
+        // Mirror the macro directory structure in shortcuts folder
+        var lnkRelative = macroName.Replace('/', Path.DirectorySeparatorChar) + ".lnk";
+        var lnkFullPath = Path.Combine(resolvedShortcutsPath, lnkRelative);
+
+        if (File.Exists(lnkFullPath) && !force)
+            return new ExportMacroResult(false, lnkFullPath, macroName,
+                $"Shortcut already exists at {lnkFullPath}. Use force=true to overwrite.");
+
+        try
+        {
+            var description = !string.IsNullOrEmpty(macro.Description)
+                ? $"WPF MCP Macro: {macro.Description}"
+                : $"WPF MCP Macro: {macroName}";
+
+            // Truncate description to 260 chars (Windows .lnk limit)
+            if (description.Length > 260)
+                description = description[..257] + "...";
+
+            ShortcutCreator.CreateShortcut(
+                lnkPath: lnkFullPath,
+                targetExe: exePath,
+                arguments: $"\"{yamlFullPath}\"",
+                workingDirectory: Path.GetDirectoryName(exePath) ?? "",
+                description: description,
+                runAsAdmin: false);
+
+            Console.Error.WriteLine($"[{DateTime.Now:HH:mm:ss}] Exported shortcut: {macroName} -> {lnkFullPath}");
+            return new ExportMacroResult(true, lnkFullPath, macroName,
+                $"Shortcut exported to {lnkFullPath}");
+        }
+        catch (Exception ex)
+        {
+            return new ExportMacroResult(false, lnkFullPath, macroName,
+                $"Failed to create shortcut: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Export all loaded macros as Windows shortcuts.
+    /// Returns a list of results for each macro.
+    /// </summary>
+    public List<ExportMacroResult> ExportAllMacros(string? shortcutsPath = null, bool force = false)
+    {
+        var results = new List<ExportMacroResult>();
+        lock (_reloadLock)
+        {
+            foreach (var macroName in _macros.Keys.OrderBy(k => k))
+                results.Add(ExportMacro(macroName, shortcutsPath, force));
+        }
+        return results;
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

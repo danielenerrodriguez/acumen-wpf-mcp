@@ -6,15 +6,15 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using WpfMcp;
 
-// Parse --macros-path argument (used by both server and client modes)
+// Parse --macros-path and --shortcuts-path arguments (used by both server and client modes)
 string? macrosPath = null;
+string? shortcutsPath = null;
 for (int i = 0; i < args.Length - 1; i++)
 {
     if (args[i] == "--macros-path")
-    {
         macrosPath = args[i + 1];
-        break;
-    }
+    else if (args[i] == "--shortcuts-path")
+        shortcutsPath = args[i + 1];
 }
 
 // Drag-and-drop: first arg is a .yaml file dropped onto the exe
@@ -54,6 +54,23 @@ if (args.Length >= 2
     && args[1].EndsWith(".yaml", StringComparison.OrdinalIgnoreCase))
 {
     await RunDragDropMacroAsync(args[1], args.Skip(2).ToArray());
+    return;
+}
+
+// --export-all: bulk export all macros as Windows shortcuts, then exit
+if (args.Contains("--export-all"))
+{
+    using var exportEngine = new MacroEngine(macrosPath, enableWatcher: false);
+    var results = exportEngine.ExportAllMacros(shortcutsPath, force: args.Contains("--force"));
+    int ok = 0, fail = 0;
+    foreach (var r in results)
+    {
+        Console.WriteLine(r.Ok
+            ? $"  OK: {r.MacroName} -> {r.ShortcutPath}"
+            : $"  FAILED: {r.MacroName} - {r.Message}");
+        if (r.Ok) ok++; else fail++;
+    }
+    Console.WriteLine($"Exported {ok} shortcut(s), {fail} failed.");
     return;
 }
 

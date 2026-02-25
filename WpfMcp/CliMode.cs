@@ -36,6 +36,8 @@ public static class CliMode
         Console.WriteLine("  macros                     - List available macros");
         Console.WriteLine("  macro <name> [k=v ...]     - Run a macro with optional parameters");
         Console.WriteLine("  run <path.yaml> [k=v ...]  - Run a YAML macro file directly (or drag file here)");
+        Console.WriteLine("  export <name>              - Export a macro as a Windows shortcut (.lnk)");
+        Console.WriteLine("  export-all                 - Export all macros as Windows shortcuts");
         Console.WriteLine("  quit                       - Exit");
         Console.WriteLine();
 
@@ -300,6 +302,34 @@ public static class CliMode
                         var runParamsStr = runParts.Length > 1 ? runParts[1] : "";
                         await RunYamlFileAsync(runPath, runParamsStr, macroEngine, engine, cache);
                         break;
+
+                    case "export":
+                        if (string.IsNullOrEmpty(arg))
+                        {
+                            Console.WriteLine("Usage: export <macro-name>");
+                            Console.WriteLine("  Exports a macro as a Windows shortcut (.lnk) to the Shortcuts/ folder.");
+                            break;
+                        }
+                        var exportResult = macroEngine.ExportMacro(arg.Trim());
+                        Console.WriteLine(exportResult.Ok
+                            ? $"OK: {exportResult.Message}"
+                            : $"Error: {exportResult.Message}");
+                        break;
+
+                    case "export-all":
+                    {
+                        var exportResults = macroEngine.ExportAllMacros();
+                        int exportOk = 0, exportFail = 0;
+                        foreach (var er in exportResults)
+                        {
+                            Console.WriteLine(er.Ok
+                                ? $"  OK: {er.MacroName} -> {er.ShortcutPath}"
+                                : $"  FAILED: {er.MacroName} - {er.Message}");
+                            if (er.Ok) exportOk++; else exportFail++;
+                        }
+                        Console.WriteLine($"Exported {exportOk} shortcut(s), {exportFail} failed.");
+                        break;
+                    }
 
                     default:
                         Console.WriteLine($"Unknown command: {cmd}. Type 'quit' to exit.");

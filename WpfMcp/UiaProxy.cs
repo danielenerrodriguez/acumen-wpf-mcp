@@ -608,6 +608,46 @@ public static class UiaProxyServer
                             });
                         return Json(false, saveResult.Message);
                     }
+                    case Constants.Commands.ExportMacro:
+                    {
+                        var exportName = GetStringArg(args, "name");
+                        if (string.IsNullOrEmpty(exportName))
+                            return Json(false, "Macro name is required");
+
+                        var outputPath = GetStringArg(args, "outputPath");
+                        var exportForce = args.TryGetProperty("force", out var ef) &&
+                            ef.ValueKind == JsonValueKind.True;
+
+                        var exportResult = _macroEngine.Value.ExportMacro(
+                            exportName, outputPath, exportForce);
+
+                        if (exportResult.Ok)
+                            return JsonSerializer.Serialize(new
+                            {
+                                ok = true,
+                                shortcutPath = exportResult.ShortcutPath,
+                                macroName = exportResult.MacroName,
+                                message = exportResult.Message
+                            });
+                        return Json(false, exportResult.Message);
+                    }
+                    case Constants.Commands.ExportAllMacros:
+                    {
+                        var outputPath = GetStringArg(args, "outputPath");
+                        var exportForce = args.TryGetProperty("force", out var eaf) &&
+                            eaf.ValueKind == JsonValueKind.True;
+
+                        var results = _macroEngine.Value.ExportAllMacros(outputPath, exportForce);
+                        var resultList = results.Select(r => new
+                        {
+                            ok = r.Ok,
+                            shortcutPath = r.ShortcutPath,
+                            macroName = r.MacroName,
+                            message = r.Message
+                        }).ToList();
+
+                        return JsonSerializer.Serialize(new { ok = true, results = resultList });
+                    }
                     default:
                         return Json(false, $"Unknown method: {method}");
                 }
