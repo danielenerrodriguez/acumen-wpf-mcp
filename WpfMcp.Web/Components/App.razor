@@ -1,19 +1,25 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>WPF MCP Dashboard</title>
     <base href="/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
-            darkMode: 'class',
             theme: {
                 extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+                    },
                     colors: {
-                        surface: { DEFAULT: '#1e1e2e', light: '#252538', lighter: '#2d2d44' },
-                        accent: { DEFAULT: '#7c3aed', light: '#a78bfa' },
+                        navy: { DEFAULT: '#0A1628', light: '#0F1D32', lighter: '#162340', 600: '#1E3A5F' },
+                        deltek: { DEFAULT: '#0066FF', light: '#3B82F6', lighter: '#60A5FA', dark: '#0052CC', bg: '#EBF4FF' },
+                        surface: { DEFAULT: '#E8EBF0', light: '#E8EBF0', medium: '#DDE1E8', dark: '#D1D5DB' },
                     }
                 }
             }
@@ -22,20 +28,75 @@
     <style>
         /* Scrollbar styling */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #1e1e2e; }
-        ::-webkit-scrollbar-thumb { background: #4a4a6a; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #6a6a8a; }
+        ::-webkit-scrollbar-track { background: #E8EBF0; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
 
         /* Tree node hover */
-        .tree-node:hover { background: rgba(124, 58, 237, 0.1); }
-        .tree-node.selected { background: rgba(124, 58, 237, 0.2); border-left: 2px solid #7c3aed; }
+        .tree-node:hover { background: #F1F5F9; }
+        .tree-node.selected { background: #EBF4FF; border-left: 2px solid #0066FF; }
 
         /* Prevent body scroll */
         html, body { height: 100%; overflow: hidden; }
+
+        /* Panel headers */
+        .panel-header {
+            background: #E8EBF0;
+            border-bottom: 1px solid #D1D5DB;
+        }
+
+        /* Form inputs */
+        .input-field {
+            background: #FFFFFF;
+            border: 1px solid #D1D5DB;
+            border-radius: 0.375rem;
+            padding: 0.25rem 0.5rem;
+            color: #1F2937;
+            font-size: 0.75rem;
+            outline: none;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .input-field:focus {
+            border-color: #0066FF;
+            box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.15);
+        }
+        .input-field::placeholder { color: #9CA3AF; }
+        .input-field:disabled { opacity: 0.5; }
+
+        /* Action buttons */
+        .btn-primary {
+            background: #0066FF;
+            color: white;
+            border-radius: 0.375rem;
+            padding: 0.25rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            transition: background 0.15s;
+        }
+        .btn-primary:hover { background: #0052CC; }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-secondary {
+            background: #F1F5F9;
+            color: #374151;
+            border: 1px solid #D1D5DB;
+            border-radius: 0.375rem;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            transition: all 0.15s;
+        }
+        .btn-secondary:hover { background: #E2E8F0; border-color: #0066FF; color: #0066FF; }
+
+        /* Subtle card shadow */
+        .panel-card {
+            background: white;
+            border: 1px solid #E5E7EB;
+        }
     </style>
     <HeadOutlet @rendermode="RenderMode.InteractiveServer" />
 </head>
-<body class="bg-surface text-gray-200 h-full">
+<body class="bg-surface-light text-gray-800 h-full font-sans">
     <Routes @rendermode="RenderMode.InteractiveServer" />
     <script src="_framework/blazor.web.js"></script>
     <script>

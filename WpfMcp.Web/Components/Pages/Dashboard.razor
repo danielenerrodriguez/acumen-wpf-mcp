@@ -2,22 +2,22 @@
 @implements IDisposable
 @inject IAppState State
 
-<div class="flex h-full">
+<div class="flex h-full bg-surface-medium">
     @* Left panel: Element Tree *@
-    <div class="w-80 flex flex-col border-r border-gray-700 shrink-0">
+    <div class="w-80 flex flex-col shrink-0 panel-card border-r-0 border-t-0 border-b-0">
         <ElementTree @ref="_elementTree" SelectedRefKey="@_selectedRef" OnElementSelected="HandleElementSelected" />
     </div>
 
     @* Right panel *@
-    <div class="flex-1 flex flex-col overflow-hidden">
+    <div class="flex-1 flex flex-col overflow-hidden gap-px bg-surface-dark">
         @* Top: Properties + Actions *@
-        <div class="flex border-b border-gray-700" style="height: 45%;">
+        <div class="flex gap-px" style="height: 45%;">
             @* Properties *@
-            <div class="flex-1 overflow-hidden border-r border-gray-700">
+            <div class="flex-1 overflow-hidden bg-surface">
                 <PropertiesPanel RefKey="@_selectedRef" Properties="@_selectedProperties" ChangedKeys="@_changedKeys" />
             </div>
             @* Actions *@
-            <div class="w-80 overflow-hidden shrink-0">
+            <div class="w-80 overflow-hidden shrink-0 bg-surface">
                 <ActionsPanel SelectedRefKey="@_selectedRef"
                               Watching="@State.IsWatching"
                               OnWatchToggled="ToggleWatch"
@@ -26,12 +26,12 @@
         </div>
 
         @* Middle: Macros *@
-        <div class="border-b border-gray-700" style="height: 25%;">
+        <div class="bg-surface" style="height: 25%;">
             <MacroRunner />
         </div>
 
         @* Bottom: Log *@
-        <div class="flex-1 overflow-hidden">
+        <div class="flex-1 overflow-hidden bg-surface">
             <LogPanel OnNavigateToElement="HandleElementSelected" />
         </div>
     </div>
