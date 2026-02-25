@@ -86,10 +86,16 @@
 
         @* Send Keys *@
         <div>
-            <label class="text-gray-500 dark:text-gray-400 font-medium block mb-1">Keys</label>
+            <label class="text-gray-500 dark:text-gray-400 font-medium block mb-1">Keys <span class="text-gray-400 dark:text-gray-500 font-normal">(press keys to record)</span></label>
             <div class="flex gap-1">
-                <input @bind="_keysText" @bind:event="oninput" placeholder="Ctrl+S, Alt+F4..."
-                       class="input-field min-w-0 flex-1" />
+                <input value="@_keysText" readonly
+                       @onkeydown="HandleKeysKeyDown" @onkeydown:preventDefault
+                       placeholder="Click here, then press keys..."
+                       class="input-field min-w-0 flex-1 cursor-default" />
+                @if (!string.IsNullOrEmpty(_keysText))
+                {
+                    <button @onclick="ClearKeys" class="btn-secondary px-1.5" title="Clear">✕</button>
+                }
                 <button @onclick="DoSendKeys" class="btn-primary">Send</button>
             </div>
         </div>
@@ -138,6 +144,41 @@
     private string _verifyExpected = "";
     private string _findAutomationId = "";
     private string _findName = "";
+
+    private void HandleKeysKeyDown(KeyboardEventArgs e)
+    {
+
+        // Ignore standalone modifier keypresses — wait for the actual key
+        if (e.Key is "Control" or "Alt" or "Shift" or "Meta") return;
+
+        // Build combo string from modifiers + key
+        var parts = new List<string>();
+        if (e.CtrlKey) parts.Add("Ctrl");
+        if (e.AltKey) parts.Add("Alt");
+        if (e.ShiftKey) parts.Add("Shift");
+        parts.Add(NormalizeKeyName(e.Key));
+
+        var combo = string.Join("+", parts);
+
+        _keysText = string.IsNullOrEmpty(_keysText) ? combo : _keysText + "," + combo;
+    }
+
+    private void ClearKeys() => _keysText = "";
+
+    private static string NormalizeKeyName(string key) => key switch
+    {
+        "Control" => "Ctrl",
+        "Meta" => "Win",
+        " " => "Space",
+        "ArrowUp" => "Up",
+        "ArrowDown" => "Down",
+        "ArrowLeft" => "Left",
+        "ArrowRight" => "Right",
+        "Delete" => "Delete",
+        "Backspace" => "Backspace",
+        var k when k.Length == 1 => k.ToUpper(),
+        _ => key
+    };
 
     protected override void OnInitialized()
     {

@@ -487,22 +487,13 @@ public class UiaEngine
             var handle = _attachedProcess!.MainWindowHandle;
             ShowWindow(handle, SW_RESTORE);
 
-            // Use AttachThreadInput to allow SetForegroundWindow from background process
-            var foregroundWnd = GetForegroundWindow();
-            uint foregroundThread = GetWindowThreadProcessId(foregroundWnd, out _);
-            uint currentThread = GetCurrentThreadId();
-            bool attached = false;
-            if (foregroundThread != currentThread)
-            {
-                attached = AttachThreadInput(currentThread, foregroundThread, true);
-            }
+            // Simulate Alt key press+release to trick Windows into allowing
+            // SetForegroundWindow from a background process. Windows only permits
+            // foreground changes from processes that recently received input.
+            keybd_event(0xA4, 0x45, 0, UIntPtr.Zero);                // VK_LMENU down
+            keybd_event(0xA4, 0x45, KEYEVENTF_KEYUP, UIntPtr.Zero);  // VK_LMENU up
 
             SetForegroundWindow(handle);
-
-            if (attached)
-            {
-                AttachThreadInput(currentThread, foregroundThread, false);
-            }
 
             Thread.Sleep(Constants.FocusDelayMs);
             return (true, "Window focused");
