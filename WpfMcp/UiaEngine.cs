@@ -56,6 +56,11 @@ public class UiaEngine
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SystemParametersInfo(uint uiAction, uint uiParam, IntPtr pvParam, uint fWinIni);
+    private const uint SPI_SETFOREGROUNDLOCKTIMEOUT = 0x2001;
+    [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out POINT lpPoint);
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT { public int X, Y; }
@@ -487,13 +492,13 @@ public class UiaEngine
             var handle = _attachedProcess!.MainWindowHandle;
             ShowWindow(handle, SW_RESTORE);
 
-            // Simulate Alt key press+release to trick Windows into allowing
-            // SetForegroundWindow from a background process. Windows only permits
-            // foreground changes from processes that recently received input.
-            keybd_event(0xA4, 0x45, 0, UIntPtr.Zero);                // VK_LMENU down
-            keybd_event(0xA4, 0x45, KEYEVENTF_KEYUP, UIntPtr.Zero);  // VK_LMENU up
+            // Temporarily remove the foreground lock timeout so SetForegroundWindow
+            // works from a background process. This avoids injecting phantom keystrokes
+            // (like Alt) that break macros using send_keys. Works because we're elevated.
+            SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, IntPtr.Zero, 0);
 
             SetForegroundWindow(handle);
+            BringWindowToTop(handle);
 
             Thread.Sleep(Constants.FocusDelayMs);
             return (true, "Window focused");
