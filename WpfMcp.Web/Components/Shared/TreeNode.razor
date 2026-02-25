@@ -36,13 +36,20 @@
     </div>
 
     @* Children *@
-    @if (_expanded && _children != null)
+    @if (_expanded)
     {
-        @foreach (var child in _children)
+        var children = GetChildren();
+        if (children != null)
         {
-            <TreeNode Node="child" Depth="Depth + 1" SelectedRefKey="@SelectedRefKey"
-                      HighlightRuntimeIds="@HighlightRuntimeIds"
-                      OnSelect="OnSelect" />
+            @foreach (var child in children)
+            {
+                <TreeNode Node="child" Depth="Depth + 1" SelectedRefKey="@SelectedRefKey"
+                          HighlightRuntimeIds="@HighlightRuntimeIds"
+                          AutoExpandedRuntimeIds="@AutoExpandedRuntimeIds"
+                          PreloadedChildren="@PreloadedChildren"
+                          CollapseVersion="@CollapseVersion"
+                          OnSelect="OnSelect" />
+            }
         }
     }
 </div>
@@ -52,10 +59,14 @@
     [Parameter] public int Depth { get; set; }
     [Parameter] public string? SelectedRefKey { get; set; }
     [Parameter] public HashSet<string>? HighlightRuntimeIds { get; set; }
+    [Parameter] public HashSet<string>? AutoExpandedRuntimeIds { get; set; }
+    [Parameter] public Dictionary<string, List<ElementInfo>>? PreloadedChildren { get; set; }
+    [Parameter] public int CollapseVersion { get; set; }
     [Parameter] public EventCallback<string> OnSelect { get; set; }
 
     private bool _expanded;
     private List<ElementInfo>? _children;
+    private int _lastCollapseVersion;
 
     private bool IsSelected => SelectedRefKey == Node.RefKey;
     private bool IsHighlighted => !string.IsNullOrEmpty(Node.RuntimeId)
@@ -64,10 +75,38 @@
 
     private string NodeCssClass => IsSelected ? "selected" : IsHighlighted ? "watched" : "";
 
+    protected override void OnParametersSet()
+    {
+        // React to collapse/expand version changes from ElementTree
+        if (CollapseVersion != _lastCollapseVersion)
+        {
+            _lastCollapseVersion = CollapseVersion;
+            // Auto-expand if in the set, otherwise collapse
+            var shouldExpand = !string.IsNullOrEmpty(Node.RuntimeId)
+                && AutoExpandedRuntimeIds?.Contains(Node.RuntimeId) == true;
+            _expanded = shouldExpand;
+            // Clear locally loaded children so preloaded ones take effect
+            if (shouldExpand)
+                _children = null;
+        }
+    }
+
+    private List<ElementInfo>? GetChildren()
+    {
+        // Prefer locally loaded children (from manual expand)
+        if (_children != null)
+            return _children;
+        // Fall back to preloaded children (from expand-to-highlights)
+        if (!string.IsNullOrEmpty(Node.RuntimeId)
+            && PreloadedChildren?.TryGetValue(Node.RuntimeId, out var preloaded) == true)
+            return preloaded;
+        return null;
+    }
+
     private async Task ToggleExpand()
     {
         _expanded = !_expanded;
-        if (_expanded && _children == null)
+        if (_expanded && GetChildren() == null)
         {
             try
             {

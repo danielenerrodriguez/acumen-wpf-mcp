@@ -127,13 +127,7 @@
 
     private void HandleWatchStateChanged()
     {
-        InvokeAsync(() =>
-        {
-            // Clear highlights when watch stops
-            if (!State.IsWatching)
-                _highlightRuntimeIds = null;
-            StateHasChanged();
-        });
+        InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()

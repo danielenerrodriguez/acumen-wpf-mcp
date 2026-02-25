@@ -3,9 +3,25 @@
 <div class="flex flex-col h-full">
     <div class="panel-header flex items-center justify-between px-3 py-2 shrink-0">
         <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Element Tree</span>
-        <button @onclick="RefreshAsync" class="btn-secondary text-xs" title="Refresh">
-            Refresh
-        </button>
+        <div class="flex items-center gap-1">
+            @* Collapse All / Expand to highlights toggle *@
+            <button @onclick="ToggleCollapseExpandAsync"
+                    class="btn-secondary text-xs px-1.5"
+                    title="@(_isAutoExpanded ? "Collapse All" : "Expand to highlights")"
+                    disabled="@(!_isAutoExpanded && (HighlightRuntimeIds == null || HighlightRuntimeIds.Count == 0))">
+                @(_isAutoExpanded ? "\u229F" : "\u229E")
+            </button>
+            @* Toggle highlight visibility *@
+            <button @onclick="ToggleHighlights"
+                    class="btn-secondary text-xs px-1.5 @(!_showHighlights ? "opacity-40" : "")"
+                    title="@(_showHighlights ? "Hide highlights" : "Show highlights")"
+                    disabled="@(HighlightRuntimeIds == null || HighlightRuntimeIds.Count == 0)">
+                @(_showHighlights ? "\u25C9" : "\u25CB")
+            </button>
+            <button @onclick="RefreshAsync" class="btn-secondary text-xs" title="Refresh">
+                Refresh
+            </button>
+        </div>
     </div>
     <div class="flex-1 overflow-auto p-1 text-xs font-mono bg-surface dark:bg-dm-light">
         @if (_rootNodes == null)
@@ -21,7 +37,10 @@
             @foreach (var node in _rootNodes)
             {
                 <TreeNode Node="node" Depth="0" SelectedRefKey="@SelectedRefKey"
-                          HighlightRuntimeIds="@HighlightRuntimeIds"
+                          HighlightRuntimeIds="@EffectiveHighlights"
+                          AutoExpandedRuntimeIds="@_autoExpandedRuntimeIds"
+                          PreloadedChildren="@_preloadedChildren"
+                          CollapseVersion="@_collapseVersion"
                           OnSelect="SelectNode" />
             }
         }
@@ -34,6 +53,13 @@
     [Parameter] public EventCallback<string?> OnElementSelected { get; set; }
 
     private List<ElementInfo>? _rootNodes;
+    private bool _showHighlights = true;
+    private bool _isAutoExpanded;
+    private int _collapseVersion;
+    private HashSet<string> _autoExpandedRuntimeIds = new();
+    private Dictionary<string, List<ElementInfo>> _preloadedChildren = new();
+
+    private HashSet<string>? EffectiveHighlights => _showHighlights ? HighlightRuntimeIds : null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -56,7 +82,65 @@
         {
             _rootNodes = new();
         }
+        _autoExpandedRuntimeIds.Clear();
+        _preloadedChildren.Clear();
+        _isAutoExpanded = false;
+        _collapseVersion++;
         StateHasChanged();
+    }
+
+    private async Task ToggleCollapseExpandAsync()
+    {
+        if (_isAutoExpanded)
+        {
+            // Collapse all
+            _autoExpandedRuntimeIds.Clear();
+            _preloadedChildren.Clear();
+            _collapseVersion++;
+            _isAutoExpanded = false;
+        }
+        else
+        {
+            // Expand to highlighted path
+            await ExpandToHighlightsAsync();
+        }
+        StateHasChanged();
+    }
+
+    private async Task ExpandToHighlightsAsync()
+    {
+        if (_rootNodes == null || HighlightRuntimeIds == null || HighlightRuntimeIds.Count == 0)
+            return;
+
+        _autoExpandedRuntimeIds.Clear();
+        _preloadedChildren.Clear();
+
+        var currentLevel = _rootNodes;
+        while (true)
+        {
+            var match = currentLevel.FirstOrDefault(n =>
+                !string.IsNullOrEmpty(n.RuntimeId) && HighlightRuntimeIds.Contains(n.RuntimeId));
+            if (match == null || !match.HasChildren) break;
+
+            _autoExpandedRuntimeIds.Add(match.RuntimeId);
+
+            // Load children for this level
+            try
+            {
+                var children = await State.GetChildrenAsync(match.RefKey);
+                _preloadedChildren[match.RuntimeId] = children;
+                currentLevel = children;
+            }
+            catch { break; }
+        }
+
+        _collapseVersion++;
+        _isAutoExpanded = _autoExpandedRuntimeIds.Count > 0;
+    }
+
+    private void ToggleHighlights()
+    {
+        _showHighlights = !_showHighlights;
     }
 
     private async Task SelectNode(string refKey)
