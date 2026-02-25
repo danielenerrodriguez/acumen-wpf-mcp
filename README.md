@@ -10,6 +10,8 @@ Originally built for **Deltek Acumen Fuse**, but designed to work with any WPF a
 - **Double-click shortcuts** — Export macros as Windows shortcuts (.lnk) that anyone can run
 - **AI agent integration** — An MCP server that lets AI agents interact with WPF apps through UI Automation
 - **Knowledge bases** — Structured reference data (automation IDs, keytips, workflows) that help AI agents navigate applications efficiently
+- **Web dashboard** — Browser-based UI at `http://localhost:5112` for element inspection, actions, and macro running
+- **Watch mode** — Record focus, hover, keypress, and property changes to understand user workflows
 
 ## Getting Started
 
@@ -288,6 +290,74 @@ data_formats: { ... }           # Supported import/export formats
 |---------|------|---------|
 | `acumen-fuse` | `macros/acumen-fuse/_knowledge.yaml` | 1800+ lines, 100+ automation IDs, 15 workflows, 19 navigation tips, verified keytip sequences |
 
+## Web Dashboard
+
+The elevated server hosts a **Blazor Server dashboard** at `http://localhost:5112` for interactive element inspection, actions, and macro running — no MCP client needed.
+
+### Features
+
+- **Element Tree** — Browse the UI automation tree of the attached application
+- **Properties Panel** — View all properties of a selected element with colored values
+- **Actions Panel** — Click, type, send keys, and run other actions directly from the browser
+- **Macro Runner** — List, select, and run macros with parameter input
+- **Log Panel** — Live log viewer with auto-scroll (includes macro step-by-step execution logs)
+- **Watch Mode** — Toggle focus/hover/keypress recording from the dashboard
+
+### Theming
+
+The dashboard supports **dual light/dark themes**:
+
+- **Light theme** — Deltek-inspired: blue header (`#0066FF`), Inter font, warm gray (`#E8EBF0`) backgrounds
+- **Dark theme** — Purple accents (`#7c3aed`), dark surface colors
+- **Auto-detection** — Reads OS `prefers-color-scheme` on first visit
+- **Persistence** — Saves to `localStorage`, sun/moon toggle in the header bar
+
+### Access
+
+Open `http://localhost:5112` in a Windows browser while the elevated server is running. WSL2 browsers cannot reach this port due to VM networking limitations.
+
+## Watch Mode
+
+Watch mode records what a user (or AI agent) does in the attached WPF application — useful for understanding workflows, debugging, and creating macros.
+
+### What It Records
+
+| Entry Type | Description |
+|------------|-------------|
+| **Focus** | Keyboard focus changed to a new element |
+| **Hover** | Mouse cursor moved over a new element |
+| **Keypress** | A key was pressed (with modifier combos like `Ctrl+S`) |
+| **PropertyChange** | A property value changed on the tracked element |
+
+### How to Use
+
+**From the web dashboard**: Click the Watch toggle button in the Actions panel.
+
+**From the CLI**:
+```
+wpf> watch         # Start recording
+wpf> watch stop    # Stop and show results
+wpf> watch status  # View current/last session
+```
+
+**From an AI agent** (MCP tools):
+1. Call `wpf_watch_start` — session begins recording
+2. User interacts with the application
+3. Call `wpf_watch_stop` — receive the full session log
+4. Analyze entries to understand the workflow
+5. Optionally save as a macro via `wpf_save_macro`
+
+### Session Output
+
+```
+Session: a1b2c3d4 | Started: 14:23:05 | Stopped: 14:25:12 | Entries: 47
+
+14:23:05.123 [Focus]  [TextBox] #NameField  (Value="hello")
+14:23:06.456 [Hover]  [Button] #SaveButton
+14:23:07.789 [PropChange] [TextBox] #NameField  Value: "hello" → "hello world"
+14:23:08.012 [Keypress]  Ctrl+S  (on [TextBox] #NameField)
+```
+
 ---
 
 ## MCP Integration
@@ -333,6 +403,9 @@ On first use, approve the UAC prompt to elevate the server. It stays running for
 | `wpf_macro_list` | List all available macros, parameters, and knowledge base summaries |
 | `wpf_save_macro` | Save a workflow as a reusable macro YAML file |
 | `wpf_export_macro` | Export a macro (or all) as a double-clickable Windows shortcut |
+| `wpf_watch_start` | Start a watch session recording focus, hover, keypress, and property changes |
+| `wpf_watch_stop` | Stop the watch session and return all recorded entries |
+| `wpf_watch_status` | Get the current or last watch session's entries |
 
 ### Element References
 
@@ -410,7 +483,7 @@ Shortcuts and drag-and-drop use the same architecture — the non-elevated clien
 │  WpfMcp.exe --mcp-connect              (non-elevated process)   │
 │                                                                 │
 │  Program.cs         Mode routing, auto-launches elevated server │
-│  Tools.cs           17 MCP tool definitions                     │
+│  Tools.cs           20 MCP tool definitions                     │
 │  UiaProxyClient     Sends JSON requests over named pipe         │
 │  ElementCache       Thread-safe LRU ref cache (e1, e2, max 500) │
 │  Constants          Shared config (pipe name, timeouts, etc.)   │
@@ -464,7 +537,7 @@ Output: `WpfMcp\bin\Release\net9.0-windows\WpfMcp.exe`
 ### Running Tests
 
 ```
-dotnet test    # 125 tests
+dotnet test    # 132 tests
 ```
 
 ### CI/CD
@@ -497,7 +570,7 @@ C:\WpfMcp\
   WpfMcp/
     Program.cs                          Entry point, mode routing, auto-launch logic
     Constants.cs                        Shared constants, path resolution, command names
-    Tools.cs                            17 MCP tool definitions
+    Tools.cs                            20 MCP tool definitions
     UiaEngine.cs                        Core UI Automation engine (STA thread, SendInput)
     UiaProxy.cs                         Proxy client/server for named pipe communication
     MacroDefinition.cs                  YAML POCOs for macros, knowledge bases, result records
@@ -509,12 +582,23 @@ C:\WpfMcp\
     YamlHelpers.cs                      Shared YAML deserializer/serializer instances
     Resources.cs                        MCP resources (knowledge://{productName})
     CliMode.cs                          Interactive CLI for manual testing
+    Web/
+      WebServer.cs                      Kestrel startup for Blazor Server dashboard
+      AppState.cs                       IAppState implementation (wraps UiaEngine + MacroEngine)
+  WpfMcp.Web/                           Razor Class Library — Blazor Server dashboard components
+    IAppState.cs                        Interface + DTOs (ElementInfo, ActionResult, LogEntry, etc.)
+    Components/
+      App.razor                         Root: Tailwind config, color tokens, theme JS, custom CSS
+      Layout/MainLayout.razor           Header bar with theme toggle and status polling
+      Pages/Dashboard.razor             4-zone panel layout (tree, properties, actions, log)
+      Shared/                           ElementTree, TreeNode, PropertiesPanel, ActionsPanel,
+                                        MacroRunner, LogPanel
   publish/
     macros/                             Version-controlled macro + knowledge base YAML files
     Shortcuts/                          Generated .lnk shortcuts (gitignored)
     setup.cmd                           Post-extraction script to generate shortcuts
-  WpfMcp.Tests/                         125 xUnit tests
-    MacroEngineTests.cs                 73 tests — macro loading, validation, execution, saving
+  WpfMcp.Tests/                         132 xUnit tests
+    MacroEngineTests.cs                 80 tests — macro loading, validation, execution, saving
     MacroExportTests.cs                 18 tests — shortcut export, ShortcutCreator
     MacroSerializerTests.cs             6 tests — YAML serialization round-trips
     WpfToolsTests.cs                    9 tests — MCP tool input validation

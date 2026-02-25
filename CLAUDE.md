@@ -38,7 +38,7 @@ WpfMcp.Web (RCL)           → IAppState interface + DTOs + Razor components
 WpfMcp (main project)      → AppState implementation + WebServer.cs Kestrel host
 ```
 
-- **Styling**: Tailwind CSS via CDN, dark theme
+- **Styling**: Tailwind CSS via CDN, dual light/dark theme with Deltek-inspired branding
 - **Communication**: Blazor Server's built-in SignalR (real-time, no polling)
 - **Binding**: `http://*:5112` (all interfaces, accessible from WSL and LAN)
 - **One-way dependency**: `WpfMcp` references `WpfMcp.Web`; the RCL has no reference back
@@ -380,6 +380,94 @@ This property changes constantly as elements scroll/resize — filtered out from
 - `LogPanel.razor` injects `IJSRuntime`, sets `_shouldScroll = true` on new log entries
 - `OnAfterRenderAsync` calls `scrollToBottom("log-scroll")` when `_shouldScroll` is set, then resets the flag
 - Catches `ObjectDisposedException` for circuit disconnect safety
+
+## Web Dashboard Theming
+
+### Dual Light/Dark Theme
+- **Light theme**: Deltek-inspired — blue header (`#0066FF`), Inter font, warm gray (`#E8EBF0`) content backgrounds, blue accents
+- **Dark theme**: Original purple accents (`#7c3aed` / `#a78bfa`), dark surface colors
+- **Strategy**: Tailwind `darkMode: 'class'` — toggling `class="dark"` on `<html>` element
+- **OS detection**: Reads `prefers-color-scheme: dark` on first visit
+- **Persistence**: Theme choice saved to `localStorage`, restored before Tailwind CDN loads (prevents flash-of-wrong-theme)
+- **Toggle**: Sun/moon button in header bar, calls `window.toggleTheme()` JS function
+
+### Tailwind Color Tokens (App.razor)
+```javascript
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        dm: { bg: '#1e1e2e', surface: '#2a2a3c', ... },  // dark mode surfaces
+        accent: { DEFAULT: '#7c3aed', light: '#a78bfa' }  // purple accents for dark mode
+      }
+    }
+  }
+}
+```
+
+### Custom CSS Classes (App.razor `<style>` block)
+| Class | Light | Dark |
+|-------|-------|------|
+| `.panel-header` | Deltek blue bg, white text | Dark surface bg, purple text |
+| `.panel-card` | White bg, gray border | Dark bg, dark border |
+| `.input-field` | Standard light input | Dark input with purple focus ring |
+| `.btn-primary` | Deltek blue | Purple (`accent`) |
+| `.btn-secondary` | Gray outline | Dark outline |
+
+### JS Functions (App.razor `<script>` block)
+- `window.getTheme()` — returns current theme from `localStorage` or OS preference
+- `window.setTheme(theme)` — applies theme class + saves to `localStorage`
+- `window.toggleTheme()` — toggles between light/dark
+- `window.syncThemeIcon()` — updates sun/moon icon visibility
+- `window.scrollToBottom(id)` — auto-scroll helper for LogPanel
+
+### Key Design Decisions
+- Tailwind CSS loaded via CDN (`cdn.tailwindcss.com`) with inline config — no build step
+- All 9 Razor components have `dark:` variant classes for every themed element
+- Header text: white process name + white/70% PID on blue header (no green text on blue)
+- Content areas use `#E8EBF0` (warm gray) not pure white — reduces brightness
+- Macro backgrounds consistent across all panels (same `#E8EBF0`)
+
+## Macro Execution Logging
+
+Per-step logging for macro execution, visible in both terminal (stderr) and web dashboard log panel.
+
+### Architecture
+1. `MacroEngine.ExecuteAsync()` / `ExecuteDefinitionAsync()` / `ExecuteInternalAsync()` accept an optional `Action<string>? onLog` callback (default `null`)
+2. `FormatStepSummary()` static helper formats a human-readable summary for each step, covering all 21 action types with parameter values
+3. Before each step: logs `[Macro] Step {n}/{total}: {action} ({params})`
+4. After each step: logs `[Macro] Step {n}/{total}: OK — {result}` or `FAILED — {error}`
+
+### Caller Wiring
+| Caller | onLog implementation |
+|--------|---------------------|
+| `AppState` (web dashboard) | `msg => Log(LogLevel.Info, msg)` — appears in LogPanel |
+| `UiaProxy` (pipe server) | `msg => Console.Error.WriteLine(msg)` — stderr for MCP client visibility |
+| `Tools.cs` (direct MCP) | `msg => Console.Error.WriteLine(msg)` — stderr fallback |
+
+### Log Format Examples
+```
+[Macro] Step 1/5: find (automation_id=uxProjectsView)
+[Macro] Step 1/5: OK — Found [e3]
+[Macro] Step 2/5: click (ref=e3)
+[Macro] Step 2/5: OK — Clicked
+[Macro] Step 3/5: send_keys (keys=Alt,F)
+[Macro] Step 3/5: OK — Keys sent
+[Macro] Step 4/5: file_dialog (path=C:\data\test.xer)
+[Macro] Step 4/5: OK — File selected
+[Macro] Step 5/5: verify (ref=e3, property=value, expected=Done)
+[Macro] Step 5/5: FAILED — Expected "Done" but got "Processing"
+```
+
+### FormatStepSummary Coverage
+Covers all 21 action types: `launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys`, `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `verify`. Each type extracts relevant fields (e.g., `automation_id` for `find`, `keys` for `send_keys`, `property`+`expected` for `verify`).
+
+### Files Modified
+- `MacroEngine.cs` — `onLog` parameter on execute methods, `FormatStepSummary()` static helper, step loop pre/post logging
+- `Web/AppState.cs` — passes log callback to `ExecuteAsync`
+- `UiaProxy.cs` — passes stderr callback for `runMacro` and `executeMacroYaml` commands
+- `Tools.cs` — passes stderr callback for direct-mode `wpf_macro` fallback
 
 ## Discoveries & Gotchas
 
