@@ -20,6 +20,7 @@ internal sealed class AppState : IAppState
 
     public event Action<LogEntry>? OnLog;
     public event Action? OnAttachChanged;
+    public void NotifyAttachChanged() => OnAttachChanged?.Invoke();
     public event Action<WatchEntry>? OnWatchEntry;
     public event Action? OnWatchStateChanged;
     public event Action? OnMacrosChanged;

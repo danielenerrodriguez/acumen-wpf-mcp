@@ -161,6 +161,11 @@ public static class UiaProxyServer
                 _commandLock);
             await WebServer.StartAsync(_appState, Constants.WebPort, webCts.Token);
             dashboardUrl = $"http://localhost:{Constants.WebPort}";
+
+            // Auto-reattach to last known process at startup so the web dashboard works immediately
+            TryAutoReattach();
+            if (UiaEngine.Instance.IsAttached)
+                _appState.NotifyAttachChanged();
         }
         catch (Exception ex)
         {
