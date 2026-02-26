@@ -12,47 +12,12 @@ parameters:
     default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
 
 steps:
-  # 1. Ensure Fuse is running
-  - action: launch
-    exe_path: '{{exePath}}'
-    if_not_running: true
-    timeout: 60
-  - action: wait_for_window
-    title_contains: ' - Deltek Acumen'
-    timeout: 90
-    retry_interval: 2
-
-  # 2. Open file dialog via keytips (S1 Projects > Oracle Primavera > All types)
-  - action: focus
-  - action: send_keys
-    keys: Alt,S,O,A
-
-  # 3. Navigate the file dialog to the XER file
-  - action: file_dialog
-    text: '{{filePath}}'
-    timeout: 15
-
-  # 4. Wait for file to load, then Import All via keytips
-  - action: wait
-    seconds: 2
-  - action: focus
-  - action: send_keys
-    keys: Alt,S,R,I
-
-  # 5. Verify import loaded data — tree root should show activity count > 0
-  - action: find_by_path
-    path:
-      - 'SearchProp:AutomationId~PART_TreeView'
-      - 'SearchProp:ControlType~TreeItem'
-      - 'SearchProp:ControlType~Text'
-    save_as: rootLabel
-    timeout: 30
-  - action: verify
-    ref: rootLabel
-    property: name
-    match_mode: not_equals
-    expected: "Workbook1 (0)"
-    message: "Import verification failed — no activities were loaded"
+  # 1-5. Import XER file (includes launch + import + verification)
+  - action: include
+    macro_name: acumen-fuse/import-xer
+    params:
+      exePath: '{{exePath}}'
+      filePath: '{{filePath}}'
 
   # 6. Switch to Diagnostics tab and run analysis
   - action: focus

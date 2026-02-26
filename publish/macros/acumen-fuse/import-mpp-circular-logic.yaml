@@ -12,15 +12,11 @@ parameters:
     default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
 
 steps:
-  # 1. Ensure Fuse is running and ready (inlined from acumen-fuse/launch)
-  - action: launch
-    exe_path: '{{exePath}}'
-    if_not_running: true
-    timeout: 60
-  - action: wait_for_window
-    title_contains: ' - Deltek Acumen'
-    timeout: 90
-    retry_interval: 2
+  # 1. Ensure Fuse is running and ready
+  - action: include
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
 
   # 2. Switch to S1 Projects tab and open MSP file dialog
   - action: focus

@@ -110,6 +110,9 @@ public class MacroEngine : IDisposable
                 }
             }
 
+            // Expand include steps — must happen after all macros are loaded
+            ExpandIncludes();
+
             var parts = new List<string>();
             if (_macros.Count > 0) parts.Add($"{_macros.Count} macros");
             if (_knowledgeBases.Count > 0) parts.Add($"{_knowledgeBases.Count} knowledge base(s)");
@@ -120,6 +123,176 @@ public class MacroEngine : IDisposable
 
         // Fire outside lock to prevent deadlocks with subscribers
         OnReloaded?.Invoke();
+    }
+
+    /// <summary>
+    /// Expand all 'action: include' steps in loaded macros by inlining the referenced
+    /// macro's steps at load time. This produces flat step lists with zero runtime overhead.
+    /// Detects circular includes and reports them as load errors.
+    /// </summary>
+    private void ExpandIncludes()
+    {
+        // Process each macro that contains include steps
+        foreach (var (macroName, macro) in _macros.ToList())
+        {
+            if (!macro.Steps.Any(s => string.Equals(s.Action, "include", StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            var expanded = ExpandMacroSteps(macroName, macro, new HashSet<string>(StringComparer.OrdinalIgnoreCase) { macroName });
+            if (expanded != null)
+                macro.Steps = expanded;
+        }
+    }
+
+    /// <summary>
+    /// Recursively expand include steps for a macro. Returns the expanded step list,
+    /// or null if an error was recorded (circular ref, missing macro).
+    /// </summary>
+    private List<MacroStep>? ExpandMacroSteps(string macroName, MacroDefinition macro, HashSet<string> visited)
+    {
+        var result = new List<MacroStep>();
+
+        foreach (var step in macro.Steps)
+        {
+            if (!string.Equals(step.Action, "include", StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add(step);
+                continue;
+            }
+
+            var includedName = step.MacroName;
+            if (string.IsNullOrEmpty(includedName))
+            {
+                _loadErrors.Add(new MacroLoadError("", macroName,
+                    "include step is missing 'macro_name' field"));
+                return null;
+            }
+
+            if (visited.Contains(includedName))
+            {
+                _loadErrors.Add(new MacroLoadError("", macroName,
+                    $"Circular include detected: {macroName} -> {includedName}"));
+                return null;
+            }
+
+            if (!_macros.TryGetValue(includedName, out var includedMacro))
+            {
+                _loadErrors.Add(new MacroLoadError("", macroName,
+                    $"include references unknown macro '{includedName}'"));
+                return null;
+            }
+
+            // Recursively expand the included macro's steps first
+            visited.Add(includedName);
+            var childSteps = ExpandMacroSteps(includedName, includedMacro, visited);
+            visited.Remove(includedName);
+
+            if (childSteps == null) return null; // Error already recorded
+
+            // Clone steps and apply parameter remapping if params are specified
+            var paramMap = step.Params; // e.g., { "filePath": "{{inputFile}}" }
+            foreach (var childStep in childSteps)
+            {
+                var cloned = CloneStepWithParamRemap(childStep, paramMap);
+                result.Add(cloned);
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Clone a MacroStep, remapping parameter references in all string fields.
+    /// If paramMap is { "childParam": "{{parentParam}}" }, then all occurrences of
+    /// {{childParam}} in the cloned step's string properties are replaced with {{parentParam}}.
+    /// This enables parent macros to pass their parameters through to included macros.
+    /// </summary>
+    private static MacroStep CloneStepWithParamRemap(MacroStep source, Dictionary<string, string>? paramMap)
+    {
+        var clone = new MacroStep
+        {
+            Action = source.Action,
+            AutomationId = source.AutomationId,
+            Name = source.Name,
+            ClassName = source.ClassName,
+            ControlType = source.ControlType,
+            Path = source.Path != null ? new List<string>(source.Path) : null,
+            SaveAs = source.SaveAs,
+            Ref = source.Ref,
+            Text = source.Text,
+            Value = source.Value,
+            Keys = source.Keys,
+            MaxDepth = source.MaxDepth,
+            ProcessName = source.ProcessName,
+            Pid = source.Pid,
+            Seconds = source.Seconds,
+            MacroName = source.MacroName,
+            Params = source.Params != null ? new Dictionary<string, string>(source.Params) : null,
+            ExePath = source.ExePath,
+            Arguments = source.Arguments,
+            WorkingDirectory = source.WorkingDirectory,
+            IfNotRunning = source.IfNotRunning,
+            TitleContains = source.TitleContains,
+            Enabled = source.Enabled,
+            Property = source.Property,
+            Expected = source.Expected,
+            Message = source.Message,
+            MatchMode = source.MatchMode,
+            StepTimeout = source.StepTimeout,
+            RetryInterval = source.RetryInterval,
+        };
+
+        if (paramMap == null || paramMap.Count == 0)
+            return clone;
+
+        // Build a reverse map: {{childParam}} -> replacement value from parent
+        // e.g., paramMap = { "filePath": "{{inputFile}}" }
+        // means replace {{filePath}} with {{inputFile}} in all string fields
+        clone.AutomationId = RemapParam(clone.AutomationId, paramMap);
+        clone.Name = RemapParam(clone.Name, paramMap);
+        clone.ClassName = RemapParam(clone.ClassName, paramMap);
+        clone.ControlType = RemapParam(clone.ControlType, paramMap);
+        clone.Text = RemapParam(clone.Text, paramMap);
+        clone.Value = RemapParam(clone.Value, paramMap);
+        clone.Keys = RemapParam(clone.Keys, paramMap);
+        clone.ExePath = RemapParam(clone.ExePath, paramMap);
+        clone.Arguments = RemapParam(clone.Arguments, paramMap);
+        clone.WorkingDirectory = RemapParam(clone.WorkingDirectory, paramMap);
+        clone.TitleContains = RemapParam(clone.TitleContains, paramMap);
+        clone.Expected = RemapParam(clone.Expected, paramMap);
+        clone.Message = RemapParam(clone.Message, paramMap);
+        clone.MacroName = RemapParam(clone.MacroName, paramMap);
+        clone.ProcessName = RemapParam(clone.ProcessName, paramMap);
+        clone.Ref = RemapParam(clone.Ref, paramMap);
+        clone.SaveAs = RemapParam(clone.SaveAs, paramMap);
+        if (clone.Path != null)
+        {
+            for (int i = 0; i < clone.Path.Count; i++)
+                clone.Path[i] = RemapParam(clone.Path[i], paramMap) ?? clone.Path[i];
+        }
+        if (clone.Params != null)
+        {
+            var remapped = new Dictionary<string, string>();
+            foreach (var (k, v) in clone.Params)
+                remapped[k] = RemapParam(v, paramMap) ?? v;
+            clone.Params = remapped;
+        }
+
+        return clone;
+    }
+
+    /// <summary>
+    /// Replace {{childParam}} references with the mapped value from the include's params.
+    /// e.g., if paramMap = { "filePath": "{{inputFile}}" }, then "{{filePath}}" becomes "{{inputFile}}".
+    /// Literal values work too: if paramMap = { "filePath": "C:\\data\\test.xer" }, then
+    /// "{{filePath}}" becomes "C:\\data\\test.xer".
+    /// </summary>
+    private static string? RemapParam(string? value, Dictionary<string, string> paramMap)
+    {
+        if (value == null) return null;
+        foreach (var (childParam, replacement) in paramMap)
+            value = value.Replace($"{{{{{childParam}}}}}", replacement, StringComparison.OrdinalIgnoreCase);
+        return value;
     }
 
     /// <summary>Load a _knowledge.yaml file, parse it as a dictionary, and build a summary.</summary>
@@ -298,7 +471,7 @@ public class MacroEngine : IDisposable
     private static readonly HashSet<string> s_knownActions = new(StringComparer.OrdinalIgnoreCase)
     {
         "send_keys", "keys", "find", "find_by_path", "click", "right_click",
-        "type", "set_value", "get_value", "wait", "wait_for_enabled", "macro",
+        "type", "set_value", "get_value", "wait", "wait_for_enabled", "macro", "include",
         "launch", "wait_for_window", "focus", "snapshot", "screenshot",
         "properties", "children", "file_dialog", "attach", "verify"
     };
@@ -358,6 +531,7 @@ public class MacroEngine : IDisposable
                 if (!Has("seconds")) return $"{StepPrefix()}: requires 'seconds' field";
                 break;
             case "macro":
+            case "include":
                 if (!Has("macro_name")) return $"{StepPrefix()}: requires 'macro_name' field";
                 break;
             case "wait_for_window":
@@ -633,7 +807,7 @@ public class MacroEngine : IDisposable
     }
 
     /// <summary>Build a human-readable summary of a macro step for logging.</summary>
-    private static string FormatStepSummary(MacroStep step, Dictionary<string, string> parameters)
+    internal static string FormatStepSummary(MacroStep step, Dictionary<string, string> parameters)
     {
         var action = step.Action.ToLowerInvariant();
         var parts = new List<string>();
@@ -700,6 +874,7 @@ public class MacroEngine : IDisposable
                 if (step.Ref != null) parts.Add($"ref={step.Ref}");
                 break;
             case "macro":
+            case "include":
                 if (step.MacroName != null) parts.Add($"macro={step.MacroName}");
                 break;
         }
@@ -751,7 +926,7 @@ public class MacroEngine : IDisposable
                     i, step.Action, "Macro timeout exceeded");
 
             // Check process is still alive (except for actions that don't require attachment)
-            if (step.Action is not ("attach" or "wait" or "macro" or "launch" or "wait_for_window"))
+            if (step.Action is not ("attach" or "wait" or "macro" or "include" or "launch" or "wait_for_window"))
             {
                 if (!engine.IsAttached)
                     return new MacroResult(false, i, macro.Steps.Count,
@@ -765,7 +940,7 @@ public class MacroEngine : IDisposable
             try
             {
                 var stepResult = await ExecuteStepAsync(
-                    step, i, parameters, aliases, engine, cache, macroCts.Token);
+                    step, i, parameters, aliases, engine, cache, macroCts.Token, onLog);
 
                 if (!stepResult.Success)
                 {
@@ -802,7 +977,8 @@ public class MacroEngine : IDisposable
         Dictionary<string, string> parameters,
         Dictionary<string, string> aliases,
         UiaEngine engine, ElementCache cache,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        Action<string>? onLog = null)
     {
         var stepTimeoutSec = step.StepTimeout ?? Constants.DefaultStepTimeoutSec;
         using var stepCts = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
@@ -1146,9 +1322,35 @@ public class MacroEngine : IDisposable
                         nestedParams[k] = SubstituteParams(v, parameters) ?? v;
                 }
 
-                var nestedResult = await ExecuteAsync(nestedName, nestedParams, engine, cache, stepCts.Token);
+                // Use the nested macro's own timeout instead of the default 5s step timeout.
+                // Look up the nested macro to read its timeout field; fall back to DefaultMacroTimeoutSec.
+                var nestedMacro = Get(nestedName);
+                if (nestedMacro == null)
+                    return new StepResult(false, $"Macro '{nestedName}' not found");
+
+                var nestedTimeoutSec = step.StepTimeout
+                    ?? (nestedMacro.Timeout > 0 ? nestedMacro.Timeout : Constants.DefaultMacroTimeoutSec);
+                using var nestedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+                nestedCts.CancelAfter(TimeSpan.FromSeconds(nestedTimeoutSec));
+
+                // Prefix nested macro log messages with parent step context
+                var parentPrefix = $"Step {index + 1}";
+                Action<string>? nestedLog = onLog != null
+                    ? msg => onLog(msg.Replace("[Macro] ", $"[Macro] {parentPrefix} > "))
+                    : null;
+
+                var nestedResult = await ExecuteInternalAsync(
+                    nestedMacro, nestedName, nestedParams, engine, cache, nestedCts.Token, nestedLog);
                 return new StepResult(nestedResult.Success, nestedResult.Message, nestedResult.Error);
             }
+
+            case "include":
+                // Include steps should be expanded at load time by ExpandIncludes().
+                // If we reach here, the include was not expanded (e.g., macro was
+                // constructed at runtime via executeMacroYaml without going through Reload).
+                return new StepResult(false,
+                    $"include step was not expanded at load time (macro_name={step.MacroName}). " +
+                    "Include steps only work in macros loaded from the macros/ folder.");
 
             default:
                 return new StepResult(false, $"Unknown action: {step.Action}");

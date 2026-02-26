@@ -13,14 +13,10 @@ parameters:
 
 steps:
   # 1. Ensure Fuse is running and ready
-  - action: launch
-    exe_path: '{{exePath}}'
-    if_not_running: true
-    timeout: 60
-  - action: wait_for_window
-    title_contains: ' - Deltek Acumen'
-    timeout: 90
-    retry_interval: 2
+  - action: include
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
 
   # 2. Open file dialog via keytips (S1 Projects > Oracle Primavera > All types)
   - action: focus
@@ -46,6 +42,7 @@ steps:
       - 'SearchProp:ControlType~TreeItem'
       - 'SearchProp:ControlType~Text'
     save_as: rootLabel
+    timeout: 30
   - action: verify
     ref: rootLabel
     property: name

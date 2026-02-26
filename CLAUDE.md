@@ -54,7 +54,7 @@ cmd.exe /c "taskkill /IM WpfMcp.exe /F 2>nul"
 # Build
 cmd.exe /c "cd /d C:\WpfMcp && dotnet build WpfMcp.slnx"
 
-# Test (132 tests)
+# Test (166 tests)
 cmd.exe /c "cd /d C:\WpfMcp && dotnet test WpfMcp.Tests"
 
 # Release build + local publish
@@ -154,9 +154,37 @@ steps:
 ```
 
 ### Step Types
-`launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys` (alias), `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `verify`
+`launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys` (alias), `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `verify`, `include`, `macro`
 
-> **Note:** `macro` (sub-macro) step type exists in the engine but should NOT be used — it will always exceed the MCP client timeout. Inline the sub-macro steps instead.
+### Macro Reusability: `include` vs `macro`
+
+**`action: include`** — Load-time step inlining (recommended for MCP):
+```yaml
+steps:
+  - action: include
+    macro_name: acumen-fuse/import-xer
+    params:
+      filePath: "{{inputFile}}"   # Maps child's filePath param to parent's inputFile param
+```
+- Referenced macro's steps are **inlined at load time** during `MacroEngine.Reload()` — the result is a flat list of steps with zero runtime overhead
+- The `params` field remaps parameter names: `{{childParam}}` in included steps becomes `{{parentParam}}` (or a literal value)
+- Supports nested includes (A includes B which includes C)
+- Detects circular includes and reports load errors
+- **Safe for MCP tool calls** — no nested execution, no extra timeouts
+- Include steps that survive to runtime (e.g., in `executeMacroYaml`) return an error
+
+**`action: macro`** — Runtime nested execution (for web dashboard/CLI/drag-and-drop only):
+```yaml
+steps:
+  - action: macro
+    macro_name: acumen-fuse/import-xer
+    params:
+      filePath: "C:\\data\\test.xer"
+```
+- Executes the referenced macro at runtime as a nested call
+- Uses the nested macro's own `timeout` field (not the default 5s step timeout)
+- Propagates `onLog` callback with parent step prefix (e.g., `[Macro] Step 3 > Step 2/5: ...`)
+- **Do NOT use in macros invoked via MCP tools** — the parent + nested execution time will exceed the ~15-20s MCP client timeout. Use `include` instead for MCP-safe macros.
 
 ### Macros Path Resolution
 `Constants.ResolveMacrosPath()`: explicit `--macros-path` arg > `WPFMCP_MACROS_PATH` env var > `macros/` next to exe

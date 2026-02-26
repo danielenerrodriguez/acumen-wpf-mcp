@@ -12,44 +12,14 @@ parameters:
     default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
 
 steps:
-  # -- Inlined from acumen-fuse/launch --
-  - action: launch
-    exe_path: '{{exePath}}'
-    if_not_running: true
-    timeout: 60
-  - action: wait_for_window
-    title_contains: ' - Deltek Acumen'
-    timeout: 90
-    retry_interval: 2
+  # Import XER file (includes launch + import + verification)
+  - action: include
+    macro_name: acumen-fuse/import-xer
+    params:
+      exePath: '{{exePath}}'
+      filePath: '{{filePath}}'
 
-  # -- Inlined from acumen-fuse/import-xer --
-  - action: focus
-  - action: send_keys
-    keys: Alt,S,O,A
-  - action: file_dialog
-    text: '{{filePath}}'
-    timeout: 15
-  - action: wait
-    seconds: 2
-  - action: focus
-  - action: send_keys
-    keys: Alt,S,R,I
-  # Verify import loaded data — tree root should show activity count > 0
-  - action: find_by_path
-    path:
-      - 'SearchProp:AutomationId~PART_TreeView'
-      - 'SearchProp:ControlType~TreeItem'
-      - 'SearchProp:ControlType~Text'
-    save_as: rootLabel
-    timeout: 30
-  - action: verify
-    ref: rootLabel
-    property: name
-    match_mode: not_equals
-    expected: "Workbook1 (0)"
-    message: "Import verification failed — no activities were loaded"
-
-  # -- Inlined from acumen-fuse/switch-to-tab (uxLogic) --
+  # Switch to S2 Logic tab
   - action: focus
   - action: find
     automation_id: uxLogic

@@ -1,7 +1,7 @@
 # Acumen Fuse Knowledge Base
 # For use by AI agents navigating Deltek Acumen Fuse via WPF MCP tools
 # Version: 8.12.0 x64
-# Last updated: 2026-02-26 (updated workflows for verify steps with match_mode, fixed stale macro refs for deleted macros, added verify best practices)
+# Last updated: 2026-02-26 (refactored all 12 macros to use action:include for launch/import-xer reuse, added timeout:30 to import-xer find_by_path)
 
 kind: knowledge-base
 
@@ -55,10 +55,10 @@ update_instructions:
       - "Use save_as aliases in find steps and reference them in subsequent click/type steps"
       - "Extract variable values (file paths, search terms) as parameters with defaults"
       - "Keep total cumulative wait under 12-15 seconds to avoid MCP tool timeout"
-      - "NEVER use action: macro (sub-macro calls) — they will always exceed the MCP client timeout (~15-20s). Always inline the sub-macro steps directly into the parent macro YAML instead."
+      - "MACRO REUSABILITY: Use 'action: include' to reuse another macro's steps — steps are inlined at load time, producing a flat step list with zero runtime overhead. Safe for MCP tool calls. Use 'action: macro' only for web dashboard/CLI/drag-and-drop execution where there is no MCP timeout. NEVER use 'action: macro' in macros invoked via MCP tools — the nested execution will exceed the ~15-20s MCP client timeout."
       - "Include blind dialog dismissal steps (e.g., Left,Enter for overwrite, Tab,Enter for Mentor) even when dialogs may not appear — harmless if no dialog is present. Note: Mentor dialogs only appear on S3 Risk tabs, not on other tabs."
       - "Prefer wait_for_enabled over static wait steps when waiting for import/processing to complete — use automation_id: uxRibbons with timeout: 30 to poll until tabs become enabled"
-      - "IMPORT MACRO PATTERN: Use keytips for file dialog open (Alt,S,O,A) and Import All (Alt,S,R,I) — these are fast with no UI tree search. Use find+click for post-import navigation (tab switching, button clicks) — these are reliable. Always include wait: 2 before Import All keytips to let the file load into the project tree. The reference implementation is import-mpp-circular-logic.yaml."
+      - "IMPORT MACRO PATTERN: Use keytips for file dialog open (Alt,S,O,A) and Import All (Alt,S,R,I) — these are fast with no UI tree search. Use find+click for post-import navigation (tab switching, button clicks) — these are reliable. Always include wait: 2 before Import All keytips to let the file load into the project tree. The reference implementation is import-xer.yaml (uses include: acumen-fuse/launch). For composite macros, use 'action: include' with macro_name: acumen-fuse/import-xer to reuse the full import sequence."
       - "AVOID using find+click for Import All — the find operation searches the full UI tree which is slow on Fuse's complex interface. Keytips (Alt,S,R,I) are faster and equally reliable when preceded by a wait: 2 and focus step."
       - "IMPORT VERIFICATION PATTERN: All import macros should end with a find_by_path to the Projects tree root TextBlock (path: ['SearchProp:AutomationId~PART_TreeView', 'SearchProp:ControlType~TreeItem', 'SearchProp:ControlType~Text']) followed by a verify step with property: name, match_mode: not_equals, expected: 'Workbook1 (0)'. This confirms activities were actually loaded. The find_by_path with its retry timeout serves as both the wait and the verification — no separate wait_for_enabled is needed after import."
       - "OPERATION COMPLETION PATTERN: For macros that run analysis (F9, risk, forensics) or file operations (save, export, open), end with wait_for_enabled on automation_id: uxRibbons instead of blind wait steps. This polls until tabs become enabled, adapting to operation duration."
@@ -1742,6 +1742,7 @@ workflows:
       - "find_by_path to Projects tree root TextBlock (PART_TreeView > TreeItem > Text) with retry timeout"
       - "verify property=name, match_mode=not_equals, expected='Workbook1 (0)' — confirms activities were loaded"
     notes: >
+      Uses 'action: include' for acumen-fuse/launch (launch + wait_for_window).
       Uses keytips for both file dialog open and Import All (fast, no tree search).
       The wait: 2 before Import All is critical — gives the app time to load the file
       into the project tree before keytips fire. The find_by_path + verify replaces
@@ -1756,16 +1757,16 @@ workflows:
     last_tested: "2026-02-26"
     existing_macro: import-xer-and-analyze.yaml
     steps:
-      - "Run import_xer workflow steps (inline, keytips for file dialog + Import All)"
-      - "find_by_path + verify (not_equals 'Workbook1 (0)') — confirms import loaded activities"
-      - "find+click uxRibbons tab (switch to Diagnostics — reliable post-import)"
+      - "include: acumen-fuse/import-xer (launch + import + verify — nested include)"
+      - "Alt,2 (switch to Diagnostics tab)"
       - "F9 (run Fuse analysis)"
       - "wait_for_enabled on uxRibbons (polls until analysis complete)"
     notes: >
-      Uses the standard import pattern: keytips for file dialog/Import All (fast),
-      find_by_path + verify for import verification (replaces wait_for_enabled after import),
-      find+click for post-import tab switching (reliable), wait_for_enabled after F9
-      for analysis completion.
+      Uses 'action: include' for acumen-fuse/import-xer (which itself includes
+      acumen-fuse/launch). This is a nested include chain — at load time, the macro
+      expands to: launch → wait_for_window → focus → keytips → file_dialog → wait →
+      focus → Import All keytips → find_by_path → verify → switch to Diagnostics → F9 →
+      wait_for_enabled. All inlined at load time, safe for MCP tool calls.
 
   import_msp:
     description: "Import a Microsoft Project file"
@@ -1944,7 +1945,7 @@ workflows:
 navigation_tips:
   - tip: "Use keytips (Alt + letter sequences) for fastest navigation. Verified sequences are in the keytips.verified_sequences section."
   - tip: "Tabs can be clicked directly using wpf_find with automation_id (e.g., 'uxProjects', 'uxRibbons', 'RiskTab')"
-  - tip: "IMPORT MACRO PATTERN: Keytips for file dialog open + Import All (fast, no tree search). find+click for post-import tab switching and button clicks (reliable). Always wait: 2 before Import All keytips to let the file load. Reference implementation: import-mpp-circular-logic.yaml. Avoid using find+click for Import All — the find is slow on Fuse's complex UI tree."
+  - tip: "IMPORT MACRO PATTERN: Keytips for file dialog open + Import All (fast, no tree search). find+click for post-import tab switching and button clicks (reliable). Always wait: 2 before Import All keytips to let the file load. Reference implementation: import-xer.yaml (uses include: acumen-fuse/launch). Composite macros should use 'action: include' with macro_name: acumen-fuse/import-xer. Avoid using find+click for Import All — the find is slow on Fuse's complex UI tree."
   - tip: "Menu tools are split buttons - clicking the top half triggers the default action, clicking the bottom arrow opens the submenu"
   - tip: "Many tabs (Diagnostics, Logic, Risk, Dashboard) are disabled (IsEnabled=False) until a project is imported. Tab switching via keytips or click will appear to succeed but has no visible effect without data. Use wait_for_enabled on uxRibbons to detect when import completes."
   - tip: "The Projects sidebar (XamOutlookBar) shows the workbook hierarchy. Use uxTreeView to find project nodes."
@@ -1956,7 +1957,7 @@ navigation_tips:
   - tip: "The Fuse application menu has no 'Import' item. Use import-xer macro instead (imports via ribbon keytips: Alt,S,O,A for P6 files)."
   - tip: "The Publish menu item for Excel export is named 'To Microsoft Excel®' (with ® symbol), not 'To Excel'."
   - tip: "wpf_screenshot only captures the main application window — modal file dialogs and OS dialogs are NOT captured. Trust keytip sequences and use appropriate dialog interaction method."
-  - tip: "MCP TOOL TIMEOUT: There is a ~15-20 second timeout on MCP tool invocations. Macros with total wait time >12s will fail silently. Keep individual wait steps to 2-3 seconds max. NEVER use action: macro (sub-macro calls) — they will always exceed the timeout. Always inline steps directly."
+  - tip: "MCP TOOL TIMEOUT: There is a ~15-20 second timeout on MCP tool invocations. Macros with total wait time >12s will fail silently. Keep individual wait steps to 2-3 seconds max. NEVER use action: macro (sub-macro calls) — they will always exceed the timeout. Use 'action: include' instead — steps are inlined at load time with zero runtime overhead."
   - tip: "SAVE PROMPT: File > New, File > Open, and File > Close will trigger a save prompt dialog if the workbook has unsaved changes. The dialog has Yes/No/Cancel WPF buttons (no AutomationId). To discard: use wpf_find(name='No', control_type=Button) then wpf_click. In macros where the dialog may or may not appear, use Tab,Tab,Tab,Enter (focus starts on a non-button element, 3 Tabs reach 'No', Enter confirms). Do NOT use Right,Enter or Tab,Enter — they hit 'Yes' (Save) which opens a Save As file dialog."
   - tip: "Window title format is '<WorkbookName> - Deltek Acumen' after a workbook is opened"
   - tip: "For send_keys, use comma-separated keys for sequential presses (e.g., 'Alt,F,C') and + for simultaneous (e.g., 'Ctrl+A')"
