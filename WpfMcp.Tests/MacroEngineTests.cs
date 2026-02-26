@@ -314,6 +314,7 @@ steps:
     property: value
     expected: Done
     message: Must be Done to continue
+    match_mode: contains
 ");
 
         using var engine = new MacroEngine(_tempDir, enableWatcher: false);
@@ -352,6 +353,7 @@ steps:
         Assert.Equal("value", macro.Steps[16].Property);
         Assert.Equal("Done", macro.Steps[16].Expected);
         Assert.Equal("Must be Done to continue", macro.Steps[16].Message);
+        Assert.Equal("contains", macro.Steps[16].MatchMode);
     }
 
     [Fact]
@@ -1202,6 +1204,94 @@ steps:
         };
         var error = MacroEngine.ValidateSteps(steps);
         Assert.Null(error);
+    }
+
+    // --- verify match_mode ---
+
+    [Fact]
+    public void Load_VerifyStep_MatchMode_ParsesCorrectly()
+    {
+        WriteMacro("verify-matchmode.yaml", @"
+name: Verify MatchMode
+description: Tests verify match_mode parsing
+steps:
+  - action: verify
+    ref: el
+    property: name
+    expected: 'Workbook1 (0)'
+    match_mode: not_equals
+    message: Import failed
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("verify-matchmode");
+        Assert.NotNull(macro);
+        var step = macro!.Steps[0];
+        Assert.Equal("verify", step.Action);
+        Assert.Equal("el", step.Ref);
+        Assert.Equal("name", step.Property);
+        Assert.Equal("Workbook1 (0)", step.Expected);
+        Assert.Equal("not_equals", step.MatchMode);
+        Assert.Equal("Import failed", step.Message);
+    }
+
+    [Fact]
+    public void Load_VerifyStep_NoMatchMode_DefaultsToNull()
+    {
+        WriteMacro("verify-no-matchmode.yaml", @"
+name: Verify No MatchMode
+description: Tests verify without match_mode
+steps:
+  - action: verify
+    ref: el
+    property: value
+    expected: Done
+");
+
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("verify-no-matchmode");
+        Assert.NotNull(macro);
+        Assert.Null(macro!.Steps[0].MatchMode);
+    }
+
+    [Fact]
+    public void ValidateSteps_VerifyWithMatchMode_ReturnsNull()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "verify", ["ref"] = "el", ["property"] = "name", ["expected"] = "test", ["match_mode"] = "contains" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.Null(error);
+    }
+
+    [Theory]
+    [InlineData("hello world", "hello world", "equals", true)]
+    [InlineData("Hello World", "hello world", "equals", true)]
+    [InlineData("hello", "world", "equals", false)]
+    [InlineData("hello world", "world", "contains", true)]
+    [InlineData("Hello World", "WORLD", "contains", true)]
+    [InlineData("hello", "xyz", "contains", false)]
+    [InlineData("hello", "world", "not_equals", true)]
+    [InlineData("hello", "hello", "not_equals", false)]
+    [InlineData("Hello", "HELLO", "not_equals", false)]
+    [InlineData("Workbook1 (56)", @"\(\d+\)", "regex", true)]
+    [InlineData("Workbook1 (0)", @"\(\d*[1-9]\d*\)", "regex", false)]
+    [InlineData("hello world", "hello", "starts_with", true)]
+    [InlineData("Hello World", "HELLO", "starts_with", true)]
+    [InlineData("hello world", "world", "starts_with", false)]
+    public void VerifyMatch_AllModes_ReturnsExpected(string actual, string expected, string matchMode, bool expectedResult)
+    {
+        var result = MacroEngine.VerifyMatch(actual, expected, matchMode);
+        Assert.NotNull(result);
+        Assert.Equal(expectedResult, result!.Value);
+    }
+
+    [Fact]
+    public void VerifyMatch_UnknownMode_ReturnsNull()
+    {
+        var result = MacroEngine.VerifyMatch("hello", "hello", "invalid_mode");
+        Assert.Null(result);
     }
 
     // --- GetProductFolder ---

@@ -228,7 +228,7 @@ internal sealed class AppState : IAppState
         finally { _lock.Release(); }
     }
 
-    public async Task<ActionResult> VerifyAsync(string refKey, string property, string expected)
+    public async Task<ActionResult> VerifyAsync(string refKey, string property, string expected, string matchMode = "equals")
     {
         await _lock.WaitAsync();
         try
@@ -239,15 +239,19 @@ internal sealed class AppState : IAppState
             if (!r.success)
                 return LogAndReturn(false, $"Verify [{refKey}]: {r.message}");
 
-            if (string.Equals(r.value, expected, StringComparison.OrdinalIgnoreCase))
+            var matched = MacroEngine.VerifyMatch(r.value ?? "", expected, matchMode.ToLowerInvariant());
+            if (matched == null)
+                return LogAndReturn(false, $"Verify [{refKey}]: Unknown match_mode '{matchMode}'. Valid: equals, contains, not_equals, regex, starts_with");
+
+            if (matched.Value)
             {
-                Log(Web.LogLevel.Success, $"Verify PASS: [{refKey}] {property} = \"{r.value}\"", refKey);
-                return new(true, $"PASS: {property} = \"{r.value}\"");
+                Log(Web.LogLevel.Success, $"Verify PASS ({matchMode}): [{refKey}] {property} = \"{r.value}\"", refKey);
+                return new(true, $"PASS ({matchMode}): {property} = \"{r.value}\"");
             }
             else
             {
-                Log(Web.LogLevel.Error, $"Verify FAIL: [{refKey}] expected {property} = \"{expected}\" but got \"{r.value}\"", refKey);
-                return new(false, $"FAIL: expected {property} = \"{expected}\" but got \"{r.value}\"");
+                Log(Web.LogLevel.Error, $"Verify FAIL ({matchMode}): [{refKey}] expected {property} = \"{expected}\" but got \"{r.value}\"", refKey);
+                return new(false, $"FAIL ({matchMode}): expected {property} = \"{expected}\" but got \"{r.value}\"");
             }
         }
         finally { _lock.Release(); }

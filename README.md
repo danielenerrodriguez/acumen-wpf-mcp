@@ -129,6 +129,12 @@ steps:
     ref: importMenuItem             # Click a saved element
   - action: type
     text: "{{filePath}}"            # Parameter substitution
+  - action: verify
+    ref: importMenuItem             # Check an element property
+    property: name                  # value, name, toggle_state, is_enabled, etc.
+    expected: "Workbook1 (0)"
+    match_mode: not_equals          # equals (default), contains, not_equals, regex, starts_with
+    message: "Custom failure msg"   # Optional
 ```
 
 ### Supported Actions
@@ -154,6 +160,7 @@ steps:
 | `screenshot` | Capture window image | — |
 | `children` | List children of element | `ref`, `save_as` |
 | `properties` | Get element properties | `ref` |
+| `verify` | Verify an element property value | `ref`, `property`, `expected`, `match_mode` (equals/contains/not_equals/regex/starts_with), `message` |
 
 ### Parameter Substitution
 
@@ -538,7 +545,7 @@ Output: `WpfMcp\bin\Release\net9.0-windows\WpfMcp.exe`
 ### Running Tests
 
 ```
-dotnet test    # 132 tests
+dotnet test    # 150 tests
 ```
 
 ### CI/CD
@@ -599,8 +606,8 @@ C:\WpfMcp\
     Shortcuts/                          Generated .lnk shortcuts (gitignored)
     export-shortcuts.cmd                Generates .lnk shortcuts for all macros
     launch-cli.cmd                      Opens interactive CLI mode
-  WpfMcp.Tests/                         132 xUnit tests
-    MacroEngineTests.cs                 80 tests — macro loading, validation, execution, saving
+  WpfMcp.Tests/                         150 xUnit tests
+    MacroEngineTests.cs                 98 tests — macro loading, validation, execution, saving, verify match modes
     MacroExportTests.cs                 18 tests — shortcut export, ShortcutCreator
     MacroSerializerTests.cs             6 tests — YAML serialization round-trips
     WpfToolsTests.cs                    9 tests — MCP tool input validation

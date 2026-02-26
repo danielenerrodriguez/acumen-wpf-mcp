@@ -43,3 +43,17 @@ steps:
   - action: wait_for_enabled
     automation_id: uxRibbons
     timeout: 30
+
+  # 6. Verify import loaded data — tree root should show activity count > 0
+  - action: find_by_path
+    path:
+      - 'SearchProp:AutomationId~PART_TreeView'
+      - 'SearchProp:ControlType~TreeItem'
+      - 'SearchProp:ControlType~Text'
+    save_as: rootLabel
+  - action: verify
+    ref: rootLabel
+    property: name
+    match_mode: not_equals
+    expected: "Workbook1 (0)"
+    message: "Import verification failed — no activities were loaded"

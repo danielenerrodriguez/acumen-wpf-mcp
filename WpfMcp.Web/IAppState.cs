@@ -27,7 +27,7 @@ public interface IAppState
     Task<ActionResult> TypeTextAsync(string text);
     Task<ActionResult> SetValueAsync(string refKey, string value);
     Task<ActionResult> GetValueAsync(string refKey);
-    Task<ActionResult> VerifyAsync(string refKey, string property, string expected);
+    Task<ActionResult> VerifyAsync(string refKey, string property, string expected, string matchMode = "equals");
 
     // --- Find ---
     Task<FindResult?> FindAsync(string? automationId, string? name, string? className, string? controlType);

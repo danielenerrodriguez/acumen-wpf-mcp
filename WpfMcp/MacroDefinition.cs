@@ -154,6 +154,10 @@ public class MacroStep
     [YamlMember(Alias = "message")]
     public string? Message { get; set; }
 
+    /// <summary>Match mode for verify: equals (default), contains, not_equals, regex, starts_with.</summary>
+    [YamlMember(Alias = "match_mode")]
+    public string? MatchMode { get; set; }
+
     // --- timeouts ---
     /// <summary>Per-step timeout in seconds. 0 = use default.</summary>
     [YamlMember(Alias = "timeout")]

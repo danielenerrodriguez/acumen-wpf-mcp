@@ -149,6 +149,7 @@ steps:
     ref: el
     property: value          # value, name, toggle_state, is_enabled, expand_state, is_selected, control_type, automation_id
     expected: "Done"
+    match_mode: equals       # equals (default), contains, not_equals, regex, starts_with
     message: "Optional custom failure message"
 ```
 
@@ -457,12 +458,12 @@ Per-step logging for macro execution, visible in both terminal (stderr) and web 
 [Macro] Step 3/5: OK — Keys sent
 [Macro] Step 4/5: file_dialog (path=C:\data\test.xer)
 [Macro] Step 4/5: OK — File selected
-[Macro] Step 5/5: verify (ref=e3, property=value, expected=Done)
-[Macro] Step 5/5: FAILED — Expected "Done" but got "Processing"
+[Macro] Step 5/5: verify (ref=e3, property=value, expected=Done, match_mode=not_equals)
+[Macro] Step 5/5: FAILED (not_equals) — Expected "Done" but got "Processing"
 ```
 
 ### FormatStepSummary Coverage
-Covers all 21 action types: `launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys`, `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `verify`. Each type extracts relevant fields (e.g., `automation_id` for `find`, `keys` for `send_keys`, `property`+`expected` for `verify`).
+Covers all 21 action types: `launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys`, `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `verify`. Each type extracts relevant fields (e.g., `automation_id` for `find`, `keys` for `send_keys`, `property`+`expected`+`match_mode` for `verify`).
 
 ### Files Modified
 - `MacroEngine.cs` — `onLog` parameter on execute methods, `FormatStepSummary()` static helper, step loop pre/post logging

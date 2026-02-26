@@ -218,20 +218,24 @@ public static class CliMode
 
                     case "verify":
                     {
-                        var vParts = arg?.Split(' ', 3, StringSplitOptions.TrimEntries);
+                        var vParts = arg?.Split(' ', 4, StringSplitOptions.TrimEntries);
                         if (vParts == null || vParts.Length < 3)
                         {
-                            Console.WriteLine("Usage: verify <ref> <property> <expected>");
+                            Console.WriteLine("Usage: verify <ref> <property> <expected> [match_mode]");
                             Console.WriteLine("  Properties: value, name, toggle_state, is_enabled, expand_state, is_selected, control_type, automation_id");
+                            Console.WriteLine("  Match modes: equals (default), contains, not_equals, regex, starts_with");
                             break;
                         }
                         if (!cache.TryGet(vParts[0], out var vEl)) { Console.WriteLine($"Error: Unknown ref '{vParts[0]}'"); break; }
                         var vResult = engine.ReadElementProperty(vEl!, vParts[1]);
                         if (!vResult.success) { Console.WriteLine($"Error: {vResult.message}"); break; }
-                        if (string.Equals(vResult.value, vParts[2], StringComparison.OrdinalIgnoreCase))
-                            Console.WriteLine($"PASS: {vParts[1]} = \"{vResult.value}\"");
+                        var vMatchMode = vParts.Length >= 4 ? vParts[3].ToLowerInvariant() : "equals";
+                        var vMatched = MacroEngine.VerifyMatch(vResult.value ?? "", vParts[2], vMatchMode);
+                        if (vMatched == null) { Console.WriteLine($"Error: Unknown match_mode '{vParts[3]}'. Valid: equals, contains, not_equals, regex, starts_with"); break; }
+                        if (vMatched.Value)
+                            Console.WriteLine($"PASS ({vMatchMode}): {vParts[1]} = \"{vResult.value}\"");
                         else
-                            Console.WriteLine($"FAIL: expected {vParts[1]} = \"{vParts[2]}\" but got \"{vResult.value}\"");
+                            Console.WriteLine($"FAIL ({vMatchMode}): expected {vParts[1]} = \"{vParts[2]}\" but got \"{vResult.value}\"");
                         break;
                     }
 

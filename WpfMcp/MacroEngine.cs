@@ -688,6 +688,7 @@ public class MacroEngine : IDisposable
                 if (step.Ref != null) parts.Add($"ref={step.Ref}");
                 if (step.Property != null) parts.Add($"property={step.Property}");
                 if (step.Expected != null) parts.Add($"expected={SubstituteParams(step.Expected, parameters)}");
+                if (step.MatchMode != null) parts.Add($"match_mode={step.MatchMode}");
                 break;
             case "snapshot":
                 if (step.MaxDepth.HasValue) parts.Add($"depth={step.MaxDepth.Value}");
@@ -991,12 +992,19 @@ public class MacroEngine : IDisposable
                 if (!readResult.success)
                     return new StepResult(false, readResult.message);
 
-                if (string.Equals(readResult.value, expected, StringComparison.OrdinalIgnoreCase))
-                    return new StepResult(true, $"Verify passed: {property} = \"{readResult.value}\"");
+                var matchMode = step.MatchMode?.ToLowerInvariant() ?? "equals";
+                var actual = readResult.value ?? "";
+                var matched = VerifyMatch(actual, expected, matchMode);
+
+                if (matched == null)
+                    return new StepResult(false, $"Unknown match_mode '{step.MatchMode}'. Valid: equals, contains, not_equals, regex, starts_with");
+
+                if (matched.Value)
+                    return new StepResult(true, $"Verify passed ({matchMode}): {property} = \"{actual}\"");
 
                 var failMsg = step.Message != null
                     ? SubstituteParams(step.Message, parameters)
-                    : $"Verify failed: expected {property} = \"{expected}\" but got \"{readResult.value}\"";
+                    : $"Verify failed ({matchMode}): expected {property} {MatchModeDescription(matchMode)} \"{expected}\" but got \"{actual}\"";
                 return new StepResult(false, failMsg ?? "Verify failed");
             }
 
@@ -1181,6 +1189,38 @@ public class MacroEngine : IDisposable
 
     /// <summary>Internal result for a single step execution.</summary>
     internal record StepResult(bool Success, string Message, string? Error = null);
+
+    /// <summary>
+    /// Evaluate a verify match. Returns true/false on match result, or null for unknown match mode.
+    /// </summary>
+    internal static bool? VerifyMatch(string actual, string expected, string matchMode)
+    {
+        return matchMode switch
+        {
+            "equals" => string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase),
+            "contains" => actual.Contains(expected, StringComparison.OrdinalIgnoreCase),
+            "not_equals" => !string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase),
+            "regex" => Regex.IsMatch(actual, expected, RegexOptions.IgnoreCase),
+            "starts_with" => actual.StartsWith(expected, StringComparison.OrdinalIgnoreCase),
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// Human-readable description of a match mode for failure messages.
+    /// </summary>
+    private static string MatchModeDescription(string matchMode)
+    {
+        return matchMode switch
+        {
+            "equals" => "=",
+            "contains" => "to contain",
+            "not_equals" => "!=",
+            "regex" => "to match pattern",
+            "starts_with" => "to start with",
+            _ => "="
+        };
+    }
 }
 
 /// <summary>Macro metadata returned by the list command.</summary>
