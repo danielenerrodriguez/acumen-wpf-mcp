@@ -785,6 +785,25 @@ public class MacroEngine : IDisposable
         CancellationToken cancellation = default,
         Action<string>? onLog = null)
     {
+        // Expand any include steps against the loaded macro library.
+        // This is needed because definitions passed here (e.g., from drag-and-drop,
+        // CLI run-file, or executeMacroYaml) haven't gone through Reload()/ExpandIncludes().
+        if (macro.Steps.Any(s => string.Equals(s.Action, "include", StringComparison.OrdinalIgnoreCase)))
+        {
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { displayName };
+            var expanded = ExpandMacroSteps(displayName, macro, visited);
+            if (expanded == null)
+            {
+                // ExpandMacroSteps recorded the error in _loadErrors — pull the last one for the message
+                var lastError = _loadErrors.LastOrDefault();
+                var errorMsg = lastError != null
+                    ? $"Failed to expand includes: {lastError.Error}"
+                    : "Failed to expand include steps (unknown error)";
+                return new MacroResult(false, 0, 0, errorMsg);
+            }
+            macro.Steps = expanded;
+        }
+
         return await ExecuteInternalAsync(macro, displayName, parameters, engine, cache, cancellation, onLog);
     }
 
