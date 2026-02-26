@@ -489,7 +489,13 @@ public class UiaEngine
         if (!IsAttached) return (false, "Not attached");
         try
         {
-            var handle = _attachedProcess!.MainWindowHandle;
+            // Refresh cached MainWindowHandle — .NET caches it and it can go stale
+            // if the target app recreated its main window (e.g., after a modal dialog).
+            _attachedProcess!.Refresh();
+            var handle = _attachedProcess.MainWindowHandle;
+            if (handle == IntPtr.Zero)
+                return (false, "No main window handle (process may have no visible window)");
+
             ShowWindow(handle, SW_RESTORE);
 
             // Temporarily remove the foreground lock timeout so SetForegroundWindow
@@ -497,11 +503,39 @@ public class UiaEngine
             // (like Alt) that break macros using send_keys. Works because we're elevated.
             SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, IntPtr.Zero, 0);
 
-            SetForegroundWindow(handle);
-            BringWindowToTop(handle);
+            // AttachThreadInput trick: temporarily merge our thread's input queue
+            // with the target window's thread so SetForegroundWindow succeeds reliably.
+            // Without this, Windows may just flash the taskbar instead of activating.
+            var targetThreadId = GetWindowThreadProcessId(handle, out _);
+            var currentThreadId = GetCurrentThreadId();
+            bool attached = targetThreadId != currentThreadId
+                && AttachThreadInput(currentThreadId, targetThreadId, true);
+
+            try
+            {
+                SetForegroundWindow(handle);
+                BringWindowToTop(handle);
+            }
+            finally
+            {
+                if (attached)
+                    AttachThreadInput(currentThreadId, targetThreadId, false);
+            }
 
             Thread.Sleep(Constants.FocusDelayMs);
-            return (true, "Window focused");
+
+            // Verify focus actually landed on the target window
+            var fg = GetForegroundWindow();
+            if (fg == handle)
+                return (true, "Window focused");
+
+            // Retry once — timing-sensitive race between detach and foreground check
+            SetForegroundWindow(handle);
+            Thread.Sleep(100);
+            fg = GetForegroundWindow();
+            return fg == handle
+                ? (true, "Window focused (retry)")
+                : (false, "SetForegroundWindow called but window is not in foreground — taskbar may be flashing");
         }
         catch (Exception ex) { return (false, $"Failed to focus: {ex.Message}"); }
     }
