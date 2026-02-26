@@ -69,5 +69,7 @@ steps:
   - action: send_keys
     keys: Enter
 
-  - action: wait
-    seconds: 2
+  # Wait for export to complete
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 30

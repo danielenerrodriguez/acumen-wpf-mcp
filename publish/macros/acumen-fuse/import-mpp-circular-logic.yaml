@@ -52,10 +52,20 @@ steps:
   - action: send_keys
     keys: Alt,S,R,I
 
-  # 6. Wait for import to complete (tabs become enabled)
-  - action: wait_for_enabled
-    automation_id: uxRibbons
+  # 6. Verify import loaded data — tree root should show activity count > 0
+  - action: find_by_path
+    path:
+      - 'SearchProp:AutomationId~PART_TreeView'
+      - 'SearchProp:ControlType~TreeItem'
+      - 'SearchProp:ControlType~Text'
+    save_as: rootLabel
     timeout: 30
+  - action: verify
+    ref: rootLabel
+    property: name
+    match_mode: not_equals
+    expected: "Workbook1 (0)"
+    message: "MPP import verification failed — no activities were loaded"
 
   # 7. Switch to S2 Logic tab
   - action: find

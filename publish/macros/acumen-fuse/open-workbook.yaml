@@ -31,5 +31,6 @@ steps:
     timeout: 15
 
   # Wait for the workbook to load
-  - action: wait
-    seconds: 3
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 30

@@ -1,7 +1,7 @@
 # Acumen Fuse Knowledge Base
 # For use by AI agents navigating Deltek Acumen Fuse via WPF MCP tools
 # Version: 8.12.0 x64
-# Last updated: 2026-02-25 (verified Forensics Create Analysis wizard, added forensics-create-analysis macro, documented wizard steps and automation IDs)
+# Last updated: 2026-02-26 (updated workflows for verify steps with match_mode, fixed stale macro refs for deleted macros, added verify best practices)
 
 kind: knowledge-base
 
@@ -60,6 +60,8 @@ update_instructions:
       - "Prefer wait_for_enabled over static wait steps when waiting for import/processing to complete — use automation_id: uxRibbons with timeout: 30 to poll until tabs become enabled"
       - "IMPORT MACRO PATTERN: Use keytips for file dialog open (Alt,S,O,A) and Import All (Alt,S,R,I) — these are fast with no UI tree search. Use find+click for post-import navigation (tab switching, button clicks) — these are reliable. Always include wait: 2 before Import All keytips to let the file load into the project tree. The reference implementation is import-mpp-circular-logic.yaml."
       - "AVOID using find+click for Import All — the find operation searches the full UI tree which is slow on Fuse's complex interface. Keytips (Alt,S,R,I) are faster and equally reliable when preceded by a wait: 2 and focus step."
+      - "IMPORT VERIFICATION PATTERN: All import macros should end with a find_by_path to the Projects tree root TextBlock (path: ['SearchProp:AutomationId~PART_TreeView', 'SearchProp:ControlType~TreeItem', 'SearchProp:ControlType~Text']) followed by a verify step with property: name, match_mode: not_equals, expected: 'Workbook1 (0)'. This confirms activities were actually loaded. The find_by_path with its retry timeout serves as both the wait and the verification — no separate wait_for_enabled is needed after import."
+      - "OPERATION COMPLETION PATTERN: For macros that run analysis (F9, risk, forensics) or file operations (save, export, open), end with wait_for_enabled on automation_id: uxRibbons instead of blind wait steps. This polls until tabs become enabled, adapting to operation duration."
 
   # Inline annotation conventions for AI agents
   annotations:
@@ -1647,7 +1649,7 @@ workflows:
     description: "Create a new empty workbook"
     status: verified
     last_tested: "2026-02-25"
-    existing_macro: new-workbook.yaml
+    notes: "The new-workbook.yaml macro was removed. Use these steps inline in other macros instead."
     steps:
       - "Alt,F,N (File > New)"
       - "wait 1s for save prompt"
@@ -1657,30 +1659,32 @@ workflows:
   open_workbook:
     description: "Open an existing workbook file"
     status: verified
-    last_tested: "2026-02-24"
+    last_tested: "2026-02-26"
     existing_macro: open-workbook.yaml
     steps:
       - "Alt,F,O (File > Open)"
       - "Navigate file dialog to select .afw workbook file (standard Win32 dialog, uses AutomationId 1148)"
       - "Handle save prompt if existing workbook is open"
+      - "wait_for_enabled on uxRibbons (polls until workbook is fully loaded)"
     result: "Workbook loads with all projects/snapshots. Window title changes to workbook name."
-    notes: "Open dialog uses standard Win32 file dialog — wpf_file_dialog works."
+    notes: "Open dialog uses standard Win32 file dialog — wpf_file_dialog works. Uses wait_for_enabled instead of blind wait to detect load completion."
 
   save_workbook:
     description: "Save the current workbook"
     status: verified
-    last_tested: "2026-02-24"
+    last_tested: "2026-02-26"
     existing_macro: save-workbook.yaml
     steps:
       - "Alt,F,S (File > Save)"
       - "If new workbook: Save As dialog appears (DirectUI, uses FileNameControlHost, NOT 1148)"
+      - "wait_for_enabled on uxRibbons (polls until save completes)"
     result: "Workbook saved to disk"
-    notes: "If the workbook has already been saved once, no dialog appears — just saves in place."
+    notes: "If the workbook has already been saved once, no dialog appears — just saves in place. Uses wait_for_enabled instead of blind wait."
 
   save_workbook_as:
     description: "Save the current workbook to a new file location"
     status: verified
-    last_tested: "2026-02-24"
+    last_tested: "2026-02-26"
     existing_macro: save-workbook-as.yaml
     steps:
       - "Alt,F,A,D (File > Save As > Deltek Acumen Workbook)"
@@ -1716,7 +1720,7 @@ workflows:
   close_workbook:
     description: "Close the current workbook without saving"
     status: verified
-    last_tested: "2026-02-25"
+    last_tested: "2026-02-26"
     existing_macro: close-workbook.yaml
     steps:
       - "Alt,F,C (File > Close)"
@@ -1726,7 +1730,7 @@ workflows:
   import_xer:
     description: "Import a Primavera P6 XER file"
     status: verified
-    last_tested: "2026-02-25"
+    last_tested: "2026-02-26"
     existing_macro: import-xer.yaml
     steps:
       - "Focus main window"
@@ -1735,33 +1739,38 @@ workflows:
       - "Wait 2 seconds for file to load into project tree"
       - "Focus main window"
       - "Alt,S,R,I (Import > Import All) — keytips, fast"
-      - "wait_for_enabled on uxRibbons (polls until tabs are enabled = import complete)"
+      - "find_by_path to Projects tree root TextBlock (PART_TreeView > TreeItem > Text) with retry timeout"
+      - "verify property=name, match_mode=not_equals, expected='Workbook1 (0)' — confirms activities were loaded"
     notes: >
       Uses keytips for both file dialog open and Import All (fast, no tree search).
       The wait: 2 before Import All is critical — gives the app time to load the file
-      into the project tree before keytips fire. Pattern matches import-mpp-circular-logic.yaml.
+      into the project tree before keytips fire. The find_by_path + verify replaces
+      wait_for_enabled as both the wait and the verification — find_by_path retries
+      until the element is found, and verify confirms the label changed from the empty state.
     issues:
       - "wpf_screenshot does not capture the file dialog (separate OS window) — agent must trust the keytip sequence worked"
 
   import_xer_and_analyze:
     description: "Import XER file and run Fuse diagnostics — full end-to-end workflow"
     status: verified
-    last_tested: "2026-02-25"
+    last_tested: "2026-02-26"
     existing_macro: import-xer-and-analyze.yaml
     steps:
       - "Run import_xer workflow steps (inline, keytips for file dialog + Import All)"
-      - "wait_for_enabled on uxRibbons (polls until import complete)"
+      - "find_by_path + verify (not_equals 'Workbook1 (0)') — confirms import loaded activities"
       - "find+click uxRibbons tab (switch to Diagnostics — reliable post-import)"
       - "F9 (run Fuse analysis)"
+      - "wait_for_enabled on uxRibbons (polls until analysis complete)"
     notes: >
       Uses the standard import pattern: keytips for file dialog/Import All (fast),
-      find+click for post-import tab switching (reliable). wait_for_enabled detects
-      import completion adaptively. Pattern matches import-mpp-circular-logic.yaml.
+      find_by_path + verify for import verification (replaces wait_for_enabled after import),
+      find+click for post-import tab switching (reliable), wait_for_enabled after F9
+      for analysis completion.
 
   import_msp:
     description: "Import a Microsoft Project file"
     status: verified
-    last_tested: "2026-02-25"
+    last_tested: "2026-02-26"
     existing_macro: import-mpp-circular-logic.yaml
     steps:
       - "Focus main window"
@@ -1771,12 +1780,13 @@ workflows:
       - "Wait 2 seconds for file to load into project tree"
       - "Focus main window"
       - "Alt,S,R,I (Import > Import All) — keytips, fast"
-      - "wait_for_enabled on uxRibbons (polls until tabs are enabled = import complete)"
+      - "find_by_path + verify (not_equals 'Workbook1 (0)') — confirms import loaded activities"
     notes: >
       REFERENCE IMPLEMENTATION for import macros. Uses find+click to open the MSP
       file dialog (MicrosoftProjectMenuTool opens dialog directly, unlike OraclePrimaveraMenuTool
-      which is a dropdown). Uses keytips for Import All (fast). Post-import navigation
-      uses find+click (reliable). All other import macros should follow this pattern.
+      which is a dropdown). Uses keytips for Import All (fast). Post-import verification
+      uses find_by_path + verify with match_mode: not_equals to confirm activities loaded.
+      All other import macros should follow this pattern.
 
   import_excel:
     description: "Import from Microsoft Excel"
@@ -1795,26 +1805,25 @@ workflows:
   run_fuse_analysis:
     description: "Run the Fuse diagnostics analysis"
     status: verified
-    last_tested: "2026-02-24"
+    last_tested: "2026-02-26"
     existing_macro: run-fuse-analysis.yaml
     prerequisites: "Project must be imported with activities"
     steps:
       - "Switch to S2 // Diagnostics tab (click uxRibbons tab)"
       - "Click FuseMenuTool > Run Fuse Analysis (or press F9)"
-      - "Wait for analysis to complete (watch status bar)"
+      - "wait_for_enabled on uxRibbons (polls until analysis complete)"
     shortcut: F9
     notes: >
       Analysis runs very fast on small files (54 activities < 1 second).
       Results are cached — subsequent runs even faster.
       27 analysis sub-tabs populate after analysis (Schedule Quality, Characteristics, Duration, Logic, etc.).
-      Wait step reduced from 10s to 3s to avoid MCP timeout.
+      Uses wait_for_enabled instead of blind wait to detect analysis completion adaptively.
 
   run_forensic_analysis:
     description: "Import two projects and run a forensic comparison between them"
     status: verified
     last_tested: "2026-02-25"
-    existing_macro: forensics-create-analysis.yaml
-    prerequisites: "None — the macro creates a new workbook first, discarding unsaved changes automatically."
+    prerequisites: "None — the workflow creates a new workbook first, discarding unsaved changes automatically."
     steps:
       - "Create new workbook: Alt,F,N then Tab,Tab,Tab,Enter to dismiss save prompt (harmless if no prompt)"
       - "Import both XER files via Alt,S,O,A (add file) — do NOT import between adds"
@@ -1828,6 +1837,8 @@ workflows:
       - "Step 4 - Field Selection: Check fields to compare in ListBox (AutomationId=Fields), click Finish"
       - "Analysis runs and populates the EnhancedForensicsView with results"
     notes: >
+      The forensics-create-analysis.yaml and forensics-filter-demo.yaml macros were removed.
+      Use these workflow steps inline or recreate as needed.
       The wizard is a modal Window titled 'Create Analysis'. It has 4 steps (3 if no subprojects).
       Navigation: Back/Next/Finish/Cancel buttons. Finish only appears on the last step (Field Selection).
       Multiple XER files can be added before running a single Import All — this is more efficient.
@@ -1867,7 +1878,7 @@ workflows:
   export_to_excel:
     description: "Export diagnostics results to Excel"
     status: verified
-    last_tested: "2026-02-24"
+    last_tested: "2026-02-26"
     existing_macro: export-to-excel.yaml
     prerequisites: "Fuse analysis must have been run"
     steps:
@@ -1875,15 +1886,17 @@ workflows:
       - "Click PublishAnalysisMenuTool > 'To Microsoft Excel®' (NOT 'To Excel')"
       - "Save As dialog: uses DirectUI FileNameControlHost (NOT standard 1148)"
       - "Type filepath, press Enter"
+      - "wait_for_enabled on uxRibbons (polls until export completes)"
     notes: >
       Confirmed: the Publish dropdown menu item is named 'To Microsoft Excel®'
       (with registered trademark symbol), not 'To Excel'.
       Export Save dialog uses DirectUI (FileNameControlHost), same as workbook Save As.
+      Uses wait_for_enabled instead of blind wait to detect export completion.
 
   run_risk_analysis:
     description: "Run Monte Carlo risk analysis on imported project"
     status: verified
-    last_tested: "2026-02-24"
+    last_tested: "2026-02-26"
     existing_macro: import-xer-and-risk-analysis.yaml
     prerequisites: >
       Project must be imported AND workbook must be saved to disk first.

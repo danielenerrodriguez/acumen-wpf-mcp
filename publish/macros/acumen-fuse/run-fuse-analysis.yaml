@@ -36,5 +36,6 @@ steps:
     keys: F9
 
   # Wait for analysis to complete
-  - action: wait
-    seconds: 3
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 60

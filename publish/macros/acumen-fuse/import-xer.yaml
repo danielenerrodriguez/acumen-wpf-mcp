@@ -39,12 +39,7 @@ steps:
   - action: send_keys
     keys: Alt,S,R,I
 
-  # 5. Wait for import to complete (tabs become enabled)
-  - action: wait_for_enabled
-    automation_id: uxRibbons
-    timeout: 30
-
-  # 6. Verify import loaded data — tree root should show activity count > 0
+  # 5. Verify import loaded data — tree root should show activity count > 0
   - action: find_by_path
     path:
       - 'SearchProp:AutomationId~PART_TreeView'

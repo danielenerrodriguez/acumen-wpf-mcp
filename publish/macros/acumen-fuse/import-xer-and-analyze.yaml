@@ -39,17 +39,29 @@ steps:
   - action: send_keys
     keys: Alt,S,R,I
 
-  # 5. Wait for import to complete (tabs become enabled)
-  - action: wait_for_enabled
-    automation_id: uxRibbons
+  # 5. Verify import loaded data — tree root should show activity count > 0
+  - action: find_by_path
+    path:
+      - 'SearchProp:AutomationId~PART_TreeView'
+      - 'SearchProp:ControlType~TreeItem'
+      - 'SearchProp:ControlType~Text'
+    save_as: rootLabel
     timeout: 30
+  - action: verify
+    ref: rootLabel
+    property: name
+    match_mode: not_equals
+    expected: "Workbook1 (0)"
+    message: "Import verification failed — no activities were loaded"
 
   # 6. Switch to Diagnostics tab and run analysis
-  - action: find
-    automation_id: uxRibbons
-    timeout: 5
-    save_as: diagnosticsTab
-  - action: click
-    ref: diagnosticsTab
+  - action: focus
+  - action: send_keys
+    keys: Alt,2
   - action: send_keys
     keys: F9
+
+  # 7. Wait for analysis to complete
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 60

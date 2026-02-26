@@ -164,6 +164,15 @@ steps:
 ### File Watcher
 `MacroEngine` watches the macros folder with FileSystemWatcher (500ms debounce). Auto-reloads on create/modify/delete/rename. `LoadErrors` property tracks YAML parse failures.
 
+### Macro Change Protocol
+When macros are created, modified, deleted, or renamed, always update the product knowledge base (`publish/macros/{product}/_knowledge.yaml`) to reflect the changes:
+- Update `workflows` section: add/remove/update `existing_macro` references, step descriptions, and `last_tested` dates
+- Update `saving_workflows.best_practices` if new patterns or conventions are established
+- Update the `Last updated` header comment with today's date and a brief description
+- Remove stale references to deleted macros
+- Add new workflow entries for newly created macros
+- Validate the YAML parses without errors after editing
+
 ## Conventions (DLTKEngineering)
 
 - Repo naming: `[team]-[repo]`, lowercase+hyphens

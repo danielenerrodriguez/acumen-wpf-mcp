@@ -21,3 +21,8 @@ steps:
   - action: focus
   - action: send_keys
     keys: Alt,F,S
+
+  # Wait for save to complete
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 30

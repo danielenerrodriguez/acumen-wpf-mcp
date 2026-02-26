@@ -46,5 +46,7 @@ steps:
   - action: send_keys
     keys: Left,Enter
 
-  - action: wait
-    seconds: 1
+  # Wait for save to complete
+  - action: wait_for_enabled
+    automation_id: uxRibbons
+    timeout: 15
