@@ -167,11 +167,12 @@ steps:
       filePath: "{{inputFile}}"   # Maps child's filePath param to parent's inputFile param
 ```
 - Referenced macro's steps are **inlined at load time** during `MacroEngine.Reload()` — the result is a flat list of steps with zero runtime overhead
+- `ExecuteDefinitionAsync()` also expands includes at runtime for macros that bypass `Reload()` (drag-and-drop, CLI run-file, `executeMacroYaml`)
 - The `params` field remaps parameter names: `{{childParam}}` in included steps becomes `{{parentParam}}` (or a literal value)
 - Supports nested includes (A includes B which includes C)
 - Detects circular includes and reports load errors
 - **Safe for MCP tool calls** — no nested execution, no extra timeouts
-- Include steps that survive to runtime (e.g., in `executeMacroYaml`) return an error
+- Works in all execution paths: MCP tools, web dashboard, CLI, drag-and-drop shortcuts
 
 **`action: macro`** — Runtime nested execution (for web dashboard/CLI/drag-and-drop only):
 ```yaml
@@ -517,3 +518,4 @@ Covers all 21 action types: `launch`, `wait_for_window`, `wait_for_enabled`, `at
 - **Sample file gotcha**: `Initial  Plan.xer` has a double space in the filename.
 - **Blazor Server in WPF host — "Assembly already defined"**: When hosting Blazor from a `UseWPF` project, `WebApplicationOptions.ApplicationName` must be set to the RCL assembly name (e.g., `typeof(App).Assembly.GetName().Name`) and `AddAdditionalAssemblies` must NOT re-add the same assembly used in `MapRazorComponents<App>()`.
 - **WSL2 cannot reach Windows localhost ports**: Kestrel running on Windows binds to `0.0.0.0` but WSL2 (VM-based) can't connect to `localhost:5112`. Windows browsers can. This is a WSL2 networking limitation, not a code bug.
+- **Pipe deadlock on slow commands (KNOWN BUG)**: `UiaProxyClient.CallAsync()` holds a `SemaphoreSlim(1,1)` lock during the entire request/response cycle. All `Tools.cs` calls pass **no CancellationToken**. When a slow server command (e.g., macro with file dialog + import exceeding ~15-20s) blocks on `ReadLineAsync`, the lock is held indefinitely and all subsequent MCP tool calls deadlock on `_lock.WaitAsync()`. This requires restarting the MCP server to recover. Two tests in `UiaProxyProtocolTests.cs` reproduce this: `CallAsync_NoCancellationToken_SlowServer_BlocksSubsequentCalls` (deadlock) and `CallAsync_SlowServer_LateResponse_PipeStaysInSync` (pipe stays in sync when server eventually responds).

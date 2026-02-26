@@ -161,6 +161,29 @@ steps:
 | `children` | List children of element | `ref`, `save_as` |
 | `properties` | Get element properties | `ref` |
 | `verify` | Verify an element property value | `ref`, `property`, `expected`, `match_mode` (equals/contains/not_equals/regex/starts_with), `message` |
+| `include` | Inline steps from another macro (load-time) | `macro_name`, `params` |
+| `macro` | Run another macro as a nested call (runtime) | `macro_name`, `params` |
+
+### Macro Reuse
+
+Macros can include steps from other macros, enabling reusable building blocks.
+
+**`action: include`** (recommended) — Steps are **inlined at load time**, producing a flat step list with zero runtime overhead:
+```yaml
+steps:
+  - action: include
+    macro_name: acumen-fuse/launch      # Include all steps from this macro
+    params:
+      exePath: "{{exePath}}"            # Remap parameters
+  - action: send_keys
+    keys: "Alt,F"
+```
+
+- Supports nested includes (A includes B includes C)
+- Detects circular includes
+- Works in all execution paths: MCP, web dashboard, CLI, drag-and-drop
+
+**`action: macro`** — Executes a macro at **runtime** as a nested call. Uses the nested macro's own timeout. Not recommended for MCP tool calls (nested execution time can exceed the ~15-20s MCP transport timeout).
 
 ### Parameter Substitution
 
@@ -304,11 +327,12 @@ The elevated server hosts a **Blazor Server dashboard** at `http://localhost:511
 
 ### Features
 
-- **Element Tree** — Browse the UI automation tree of the attached application
-- **Properties Panel** — View all properties of a selected element with colored values
-- **Actions Panel** — Click, type, send keys, and run other actions directly from the browser
-- **Macro Runner** — List, select, and run macros with parameter input
-- **Log Panel** — Live log viewer with auto-scroll (includes macro step-by-step execution logs)
+- **Element Tree** — Browse the UI automation tree with collapse/expand controls and watch-mode highlighting
+- **Properties Panel** — View all properties of a selected element with change highlighting during watch mode
+- **Actions Panel** — Click, right-click, type, send keys, set value, find elements, verify properties, and focus
+- **Process Attach** — Select and attach to any windowed process from a dropdown
+- **Macro Runner** — List, select, and run macros with parameter input; double-click to open YAML in editor
+- **Log Panel** — Live log viewer with auto-scroll and clickable element references
 - **Watch Mode** — Toggle focus/hover/keypress recording from the dashboard
 
 ### Theming
@@ -322,7 +346,7 @@ The dashboard supports **dual light/dark themes**:
 
 ### Access
 
-Open `http://localhost:5112` in a Windows browser while the elevated server is running. WSL2 browsers cannot reach this port due to VM networking limitations.
+The server auto-opens your default browser after 3 seconds if no client is already connected. You can also navigate to `http://localhost:5112` manually. WSL2 browsers cannot reach this port due to VM networking limitations.
 
 ## Watch Mode
 
@@ -391,7 +415,7 @@ On first use, approve the UAC prompt to elevate the server. It stays running for
 
 | Tool | Description |
 |------|-------------|
-| `wpf_attach` | Attach to a WPF process by name or PID |
+| `wpf_attach` | Attach to a WPF process by name or PID; optionally launch if not running |
 | `wpf_status` | Check attachment status (process name, PID, window title) |
 | `wpf_snapshot` | Get the UI automation tree (configurable depth) |
 | `wpf_find` | Find an element by AutomationId, Name, ClassName, or ControlType |
@@ -468,10 +492,10 @@ MCP Client (e.g., OpenCode)
 WpfMcp.exe --mcp-connect     (non-elevated, MCP protocol)
   |  named pipe (WpfMcp_UIA)
   v
-WpfMcp.exe                    (elevated, executes UIA commands + web dashboard)
-  |  System.Windows.Automation
-  v
-Target WPF Application
+WpfMcp.exe                    (elevated, executes UIA commands)
+  |  System.Windows.Automation    |  http://*:5112
+  v                               v
+Target WPF Application         Browser (Blazor Server dashboard)
 ```
 
 The `--mcp-connect` process auto-launches the elevated server if it isn't already running. The elevated server persists across client reconnections (1 hour idle timeout) and remembers the last attached process for auto-reattach.
@@ -491,7 +515,7 @@ Shortcuts and drag-and-drop use the same architecture — the non-elevated clien
 │  WpfMcp.exe --mcp-connect              (non-elevated process)   │
 │                                                                 │
 │  Program.cs         Mode routing, auto-launches elevated server │
-│  Tools.cs           20 MCP tool definitions                     │
+│  Tools.cs           23 MCP tool definitions                     │
 │  UiaProxyClient     Sends JSON requests over named pipe         │
 │  ElementCache       Thread-safe LRU ref cache (e1, e2, max 500) │
 │  Constants          Shared config (pipe name, timeouts, etc.)   │
@@ -511,11 +535,15 @@ Shortcuts and drag-and-drop use the same architecture — the non-elevated clien
 │    ├─ SendKeys      SendInput API (modifiers + key combos)      │
 │    ├─ TypeText      VkKeyScan per char + keybd_event            │
 │    └─ Screenshot    GetWindowRect + Graphics.CopyFromScreen     │
+│  MacroEngine        Load/validate/execute/save macros + watcher │
+│  WebServer          Blazor Server dashboard on http://*:5112    │
+│  AppState           Shared state for pipe server + web dashboard│
 │  ElementCache       Server-side ref cache (persists across      │
 │                     client reconnections)                       │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │ System.Windows.Automation (COM/UIA)
-                           v
+└──────────────────────┬─────────────────────┬────────────────────┘
+                       │                     │ http://*:5112
+                       │ UIA (COM)           v  (Blazor Server)
+                       v                   Browser
 ┌─────────────────────────────────────────────────────────────────┐
 │  Target WPF Application (e.g., Deltek Acumen Fuse)              │
 │  Automation peers exposed via WPF's built-in UIA support        │
@@ -545,19 +573,21 @@ Output: `WpfMcp\bin\Release\net9.0-windows\WpfMcp.exe`
 ### Running Tests
 
 ```
-dotnet test    # 150 tests
+dotnet test    # 168 tests
 ```
 
 ### CI/CD
 
 GitHub Actions (`.github/workflows/build-release.yml`) runs on every push to `master`:
 
-1. Builds and runs all tests on `windows-latest`
-2. Publishes a self-contained single-file exe (no .NET runtime required)
-3. Bundles `macros/`, `export-shortcuts.cmd`, `launch-cli.cmd`, and the exe into `WpfMcp.zip`
-4. Creates a GitHub Release with the zip attached
+1. Restores NuGet packages in locked mode for deterministic builds
+2. Builds and runs all tests on `windows-latest`
+3. Publishes a self-contained single-file exe (no .NET runtime required)
+4. Signs the executable (when `SIGNING_CERTIFICATE` secret is configured)
+5. Bundles `macros/`, `export-shortcuts.cmd`, `launch-cli.cmd`, and the exe into `WpfMcp.zip`
+6. Creates a GitHub Release with the zip attached (version tags use `v{yyyy.MM.dd}.{N}` format)
 
-Pull requests trigger build and test only (no release).
+Pull requests trigger build and test only (no release). Manual runs supported via `workflow_dispatch`.
 
 ### Usage Modes
 
@@ -567,6 +597,7 @@ Pull requests trigger build and test only (no release).
 | MCP (proxied) | `--mcp-connect` | AI agent mode — stdio MCP server proxying to elevated server |
 | MCP (direct) | `--mcp` | Testing only — stdio MCP server without elevation |
 | CLI | `--cli` | Interactive command prompt for manual testing |
+| Run file | `run macro.yaml [k=v ...]` | Execute a YAML macro with optional key=value parameters |
 | Drag-and-drop | `WpfMcp.exe macro.yaml` | Run a YAML macro file directly |
 | Export all | `--export-all` | Generate shortcuts for all macros |
 
@@ -578,7 +609,7 @@ C:\WpfMcp\
   WpfMcp/
     Program.cs                          Entry point, mode routing, auto-launch logic
     Constants.cs                        Shared constants, path resolution, command names
-    Tools.cs                            20 MCP tool definitions
+    Tools.cs                            23 MCP tool definitions
     UiaEngine.cs                        Core UI Automation engine (STA thread, SendInput)
     UiaProxy.cs                         Proxy client/server for named pipe communication
     MacroDefinition.cs                  YAML POCOs for macros, knowledge bases, result records
@@ -598,7 +629,7 @@ C:\WpfMcp\
     Components/
       App.razor                         Root: Tailwind config, color tokens, theme JS, custom CSS
       Layout/MainLayout.razor           Header bar with theme toggle and status polling
-      Pages/Dashboard.razor             4-zone panel layout (tree, properties, actions, log)
+      Pages/Dashboard.razor             5-zone panel layout (tree, properties, actions, macros, log)
       Shared/                           ElementTree, TreeNode, PropertiesPanel, ActionsPanel,
                                         MacroRunner, LogPanel
   publish/
@@ -606,13 +637,13 @@ C:\WpfMcp\
     Shortcuts/                          Generated .lnk shortcuts (gitignored)
     export-shortcuts.cmd                Generates .lnk shortcuts for all macros
     launch-cli.cmd                      Opens interactive CLI mode
-  WpfMcp.Tests/                         150 xUnit tests
-    MacroEngineTests.cs                 98 tests — macro loading, validation, execution, saving, verify match modes
+  WpfMcp.Tests/                         168 xUnit tests
+    MacroEngineTests.cs                 114 tests — macro loading, validation, execution, saving, includes, verify match modes
     MacroExportTests.cs                 18 tests — shortcut export, ShortcutCreator
     MacroSerializerTests.cs             6 tests — YAML serialization round-trips
     WpfToolsTests.cs                    9 tests — MCP tool input validation
     ProxyResponseFormattingTests.cs     9 tests — proxy response formatting
-    UiaProxyProtocolTests.cs            7 tests — named pipe protocol
+    UiaProxyProtocolTests.cs            9 tests — named pipe protocol + deadlock reproduction
     UiaProxyClientTests.cs              3 tests — proxy client edge cases
 ```
 
@@ -629,6 +660,12 @@ Call `wpf_attach` with the process name. After the first attach, the server reme
 
 **Server shuts down after 1 hour**
 The elevated server has an idle timeout. It auto-relaunches when the next client starts.
+
+**MCP server hangs after running a slow macro**
+Long-running macros (e.g., file imports exceeding ~15-20s) can deadlock the MCP proxy pipe. All subsequent tool calls will hang. Restart the MCP server to recover. This is a known bug — the pipe client holds a lock with no cancellation token during the entire request/response cycle.
+
+**Dashboard won't open / port 5112 in use**
+The server auto-launches the browser after 3 seconds. If you dismissed it, navigate to `http://localhost:5112` manually. If the port is in use, kill the conflicting process (`taskkill /IM WpfMcp.exe /F`) and restart.
 
 **Build errors about Infragistics NuGet source**
 The `nuget.config` file clears external sources. Make sure it's present in the project root.
