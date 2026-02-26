@@ -586,7 +586,8 @@ GitHub Actions (`.github/workflows/build-release.yml`) runs on every push to `ma
 3. Publishes a self-contained single-file exe (no .NET runtime required)
 4. Signs the executable (when `SIGNING_CERTIFICATE` secret is configured)
 5. Bundles `macros/`, `export-shortcuts.cmd`, `launch-cli.cmd`, and the exe into `WpfMcp.zip`
-6. Creates a GitHub Release with the zip attached (version tags use `v{yyyy.MM.dd}.{N}` format)
+6. Generates a changelog from commit messages since the previous release tag
+7. Creates a GitHub Release with the zip attached, changelog, and auto-generated release notes (version tags use `v{yyyy.MM.dd}.{N}` format)
 
 Pull requests trigger build and test only (no release). Manual runs supported via `workflow_dispatch`.
 

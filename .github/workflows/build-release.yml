@@ -82,17 +82,44 @@ jobs:
           echo "tag=v$date.$build" >> $env:GITHUB_OUTPUT
           echo "name=Release $date.$build" >> $env:GITHUB_OUTPUT
 
+      - name: Generate changelog
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        id: changelog
+        run: |
+          # Find the previous release tag (most recent tag sorted by date)
+          $prevTag = git tag --sort=-creatordate | Select-Object -First 1
+          if ($prevTag) {
+            $log = git log --oneline --no-merges "$prevTag..HEAD"
+          } else {
+            # No previous tag — use last 20 commits
+            $log = git log --oneline --no-merges -20
+          }
+
+          # Build changelog markdown
+          if ($log) {
+            $lines = @($log) | ForEach-Object {
+              if ($_.Length -gt 8) {
+                $hash = $_.Substring(0, 7)
+                $msg = $_.Substring(8)
+                "- ``$hash`` $msg"
+              } else {
+                "- $_"
+              }
+            }
+            $body = "## Changes`n`n" + ($lines -join "`n")
+          } else {
+            $body = "## Changes`n`nNo new commits since last release."
+          }
+
+          # Write to file (avoids multiline output escaping issues)
+          $body | Out-File -FilePath changelog.md -Encoding utf8
+
       - name: Create Release
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.name }}
-          body: |
-            Automated release from `master` branch.
-
-            Self-contained single exe — no .NET runtime required.
-            Extract the zip and run `export-shortcuts.cmd` to generate desktop shortcuts for all macros.
-
-            Double-click `WpfMcp.exe` to start the elevated server with web dashboard on `http://localhost:5112`.
+          body_path: changelog.md
+          generate_release_notes: true
           files: dist/WpfMcp.zip
