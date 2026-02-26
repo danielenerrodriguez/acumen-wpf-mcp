@@ -1533,6 +1533,392 @@ steps:
         Assert.Equal(_tempDir, engine.MacrosPath);
     }
 
+    // --- Include step expansion tests ---
+
+    [Fact]
+    public void Include_BasicExpansion_FlattensSteps()
+    {
+        // Child macro with 2 steps
+        WriteMacro("child.yaml", @"
+name: Child
+description: A reusable child macro
+steps:
+  - action: focus
+  - action: send_keys
+    keys: Alt,F
+");
+        // Parent macro includes child
+        WriteMacro("parent.yaml", @"
+name: Parent
+description: Uses include
+steps:
+  - action: wait
+    seconds: 1
+  - action: include
+    macro_name: child
+  - action: send_keys
+    keys: Enter
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var parent = engine.Get("parent");
+        Assert.NotNull(parent);
+        // Include step should be replaced with child's 2 steps: wait + focus + send_keys(Alt,F) + send_keys(Enter)
+        Assert.Equal(4, parent!.Steps.Count);
+        Assert.Equal("wait", parent.Steps[0].Action);
+        Assert.Equal("focus", parent.Steps[1].Action);
+        Assert.Equal("send_keys", parent.Steps[2].Action);
+        Assert.Equal("Alt,F", parent.Steps[2].Keys);
+        Assert.Equal("send_keys", parent.Steps[3].Action);
+        Assert.Equal("Enter", parent.Steps[3].Keys);
+    }
+
+    [Fact]
+    public void Include_ParameterMapping_RemapsChildParams()
+    {
+        WriteMacro("child.yaml", @"
+name: Child
+parameters:
+  - name: filePath
+    required: true
+steps:
+  - action: type
+    text: '{{filePath}}'
+");
+        // Parent uses a different param name and maps it
+        WriteMacro("parent.yaml", @"
+name: Parent
+parameters:
+  - name: inputFile
+    required: true
+steps:
+  - action: include
+    macro_name: child
+    params:
+      filePath: '{{inputFile}}'
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var parent = engine.Get("parent");
+        Assert.NotNull(parent);
+        Assert.Single(parent!.Steps);
+        Assert.Equal("type", parent.Steps[0].Action);
+        // {{filePath}} in child should now be {{inputFile}} in parent
+        Assert.Equal("{{inputFile}}", parent.Steps[0].Text);
+    }
+
+    [Fact]
+    public void Include_LiteralParamValue_SubstitutedDirectly()
+    {
+        WriteMacro("child.yaml", @"
+name: Child
+parameters:
+  - name: filePath
+    required: true
+steps:
+  - action: type
+    text: '{{filePath}}'
+");
+        WriteMacro("parent.yaml", @"
+name: Parent
+steps:
+  - action: include
+    macro_name: child
+    params:
+      filePath: 'C:\data\test.xer'
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var parent = engine.Get("parent");
+        Assert.NotNull(parent);
+        Assert.Single(parent!.Steps);
+        // Literal value should replace {{filePath}} directly
+        Assert.Equal(@"C:\data\test.xer", parent.Steps[0].Text);
+    }
+
+    [Fact]
+    public void Include_CircularDetection_ReportsLoadError()
+    {
+        WriteMacro("a.yaml", @"
+name: A
+steps:
+  - action: include
+    macro_name: b
+");
+        WriteMacro("b.yaml", @"
+name: B
+steps:
+  - action: include
+    macro_name: a
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        Assert.NotEmpty(engine.LoadErrors);
+        Assert.Contains(engine.LoadErrors, e => e.Error.Contains("Circular include"));
+    }
+
+    [Fact]
+    public void Include_NonexistentMacro_ReportsLoadError()
+    {
+        WriteMacro("parent.yaml", @"
+name: Parent
+steps:
+  - action: include
+    macro_name: does-not-exist
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        Assert.NotEmpty(engine.LoadErrors);
+        Assert.Contains(engine.LoadErrors, e => e.Error.Contains("unknown macro 'does-not-exist'"));
+    }
+
+    [Fact]
+    public void Include_NestedIncludes_FullyFlattened()
+    {
+        WriteMacro("c.yaml", @"
+name: C
+steps:
+  - action: focus
+");
+        WriteMacro("b.yaml", @"
+name: B
+steps:
+  - action: include
+    macro_name: c
+  - action: send_keys
+    keys: Alt,F
+");
+        WriteMacro("a.yaml", @"
+name: A
+steps:
+  - action: wait
+    seconds: 1
+  - action: include
+    macro_name: b
+  - action: send_keys
+    keys: Enter
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var a = engine.Get("a");
+        Assert.NotNull(a);
+        // A: wait + (B: (C: focus) + send_keys(Alt,F)) + send_keys(Enter) = 4 steps
+        Assert.Equal(4, a!.Steps.Count);
+        Assert.Equal("wait", a.Steps[0].Action);
+        Assert.Equal("focus", a.Steps[1].Action);
+        Assert.Equal("send_keys", a.Steps[2].Action);
+        Assert.Equal("Alt,F", a.Steps[2].Keys);
+        Assert.Equal("send_keys", a.Steps[3].Action);
+        Assert.Equal("Enter", a.Steps[3].Keys);
+    }
+
+    [Fact]
+    public void Include_MultipleIncludes_BothExpanded()
+    {
+        WriteMacro("launch-steps.yaml", @"
+name: Launch Steps
+steps:
+  - action: launch
+    exe_path: test.exe
+    if_not_running: true
+  - action: wait_for_window
+    title_contains: Test
+    timeout: 30
+");
+        WriteMacro("verify-steps.yaml", @"
+name: Verify Steps
+steps:
+  - action: find
+    automation_id: myElement
+    save_as: el
+  - action: verify
+    ref: el
+    property: name
+    expected: Done
+");
+        WriteMacro("parent.yaml", @"
+name: Parent
+steps:
+  - action: include
+    macro_name: launch-steps
+  - action: focus
+  - action: include
+    macro_name: verify-steps
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var parent = engine.Get("parent");
+        Assert.NotNull(parent);
+        // launch(2) + focus(1) + verify-steps(2) = 5
+        Assert.Equal(5, parent!.Steps.Count);
+        Assert.Equal("launch", parent.Steps[0].Action);
+        Assert.Equal("wait_for_window", parent.Steps[1].Action);
+        Assert.Equal("focus", parent.Steps[2].Action);
+        Assert.Equal("find", parent.Steps[3].Action);
+        Assert.Equal("verify", parent.Steps[4].Action);
+    }
+
+    [Fact]
+    public void Include_PreservesOriginalMacroSteps()
+    {
+        // Verify that the included macro's own step list isn't mutated
+        WriteMacro("child.yaml", @"
+name: Child
+parameters:
+  - name: val
+steps:
+  - action: type
+    text: '{{val}}'
+");
+        WriteMacro("parent.yaml", @"
+name: Parent
+steps:
+  - action: include
+    macro_name: child
+    params:
+      val: hello
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var child = engine.Get("child");
+        Assert.NotNull(child);
+        // Child's original step should still have {{val}}, not 'hello'
+        Assert.Equal("{{val}}", child!.Steps[0].Text);
+    }
+
+    [Fact]
+    public void Include_InSubfolder_ResolvesCorrectly()
+    {
+        WriteMacro("product/child.yaml", @"
+name: Child
+steps:
+  - action: focus
+  - action: send_keys
+    keys: F9
+");
+        WriteMacro("product/parent.yaml", @"
+name: Parent
+steps:
+  - action: include
+    macro_name: product/child
+  - action: wait
+    seconds: 1
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var parent = engine.Get("product/parent");
+        Assert.NotNull(parent);
+        Assert.Equal(3, parent!.Steps.Count);
+        Assert.Equal("focus", parent.Steps[0].Action);
+        Assert.Equal("send_keys", parent.Steps[1].Action);
+        Assert.Equal("wait", parent.Steps[2].Action);
+    }
+
+    [Fact]
+    public void Include_MissingMacroName_ReportsLoadError()
+    {
+        WriteMacro("parent.yaml", @"
+name: Parent
+steps:
+  - action: include
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        Assert.NotEmpty(engine.LoadErrors);
+        Assert.Contains(engine.LoadErrors, e => e.Error.Contains("missing 'macro_name'"));
+    }
+
+    [Fact]
+    public void Include_ValidateSteps_RequiresMacroName()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "include" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("macro_name", error);
+    }
+
+    [Fact]
+    public void Include_ValidateSteps_AcceptsValidInclude()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "include", ["macro_name"] = "some-macro" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void Include_FormatStepSummary_ShowsMacroName()
+    {
+        var step = new MacroStep { Action = "include", MacroName = "acumen-fuse/import-xer" };
+        var summary = MacroEngine.FormatStepSummary(step, new Dictionary<string, string>());
+        Assert.Contains("macro=acumen-fuse/import-xer", summary);
+    }
+
+    // --- Macro step fix tests ---
+
+    [Fact]
+    public async Task Macro_NestedStep_PassesOnLog()
+    {
+        // Nested macro: a simple focus step (will fail without engine but tests log flow)
+        WriteMacro("child.yaml", @"
+name: Child
+timeout: 10
+steps:
+  - action: wait
+    seconds: 0.1
+");
+        WriteMacro("parent.yaml", @"
+name: Parent
+timeout: 30
+steps:
+  - action: wait
+    seconds: 0.1
+  - action: macro
+    macro_name: child
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var logMessages = new List<string>();
+        var result = await engine.ExecuteAsync("parent",
+            onLog: msg => logMessages.Add(msg));
+        Assert.True(result.Success);
+        // Should have parent step logs AND nested child step logs with prefix
+        Assert.Contains(logMessages, m => m.Contains("Step 2 >") && m.Contains("Step 1/1"));
+    }
+
+    [Fact]
+    public async Task Macro_NestedStep_UsesNestedMacroTimeout()
+    {
+        // Child macro has a 30s timeout — the macro step should NOT use the 5s default
+        WriteMacro("child.yaml", @"
+name: Child
+timeout: 30
+steps:
+  - action: wait
+    seconds: 0.1
+");
+        WriteMacro("parent.yaml", @"
+name: Parent
+timeout: 60
+steps:
+  - action: macro
+    macro_name: child
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var result = await engine.ExecuteAsync("parent");
+        // Should succeed — child's wait is only 0.1s, well within 30s timeout
+        Assert.True(result.Success);
+    }
+
+    [Fact]
+    public async Task Macro_NestedStep_NotFound_ReturnsError()
+    {
+        WriteMacro("parent.yaml", @"
+name: Parent
+steps:
+  - action: macro
+    macro_name: nonexistent
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var result = await engine.ExecuteAsync("parent");
+        Assert.False(result.Success);
+        Assert.Contains("not found", result.Message);
+    }
+
     // --- Helper to write a knowledge base ---
 
     private void WriteKnowledgeBase(string productFolder, string processName)

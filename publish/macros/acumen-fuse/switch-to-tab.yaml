@@ -16,15 +16,11 @@ parameters:
     default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
 
 steps:
-  # Ensure Fuse is running and ready (inlined from acumen-fuse/launch)
-  - action: launch
-    exe_path: '{{exePath}}'
-    if_not_running: true
-    timeout: 60
-  - action: wait_for_window
-    title_contains: ' - Deltek Acumen'
-    timeout: 90
-    retry_interval: 2
+  # Ensure Fuse is running and ready
+  - action: include
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
 
   - action: focus
   - action: find
