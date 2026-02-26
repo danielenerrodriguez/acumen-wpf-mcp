@@ -173,7 +173,9 @@ public static class UiaProxyServer
         }
 
         Console.WriteLine($"  Pipe:       {Constants.PipeName}");
-        Console.WriteLine($"  Idle:       {Constants.ServerIdleTimeoutMinutes} min auto-shutdown");
+        Console.WriteLine(Constants.ServerIdleTimeoutMinutes > 0
+            ? $"  Idle:       {Constants.ServerIdleTimeoutMinutes} min auto-shutdown"
+            : "  Idle:       disabled (running indefinitely)");
         if (dashboardUrl is not null)
             Console.WriteLine($"  Dashboard:  {dashboardUrl}");
         Console.WriteLine();
@@ -209,23 +211,32 @@ public static class UiaProxyServer
                     inBufferSize: 0, outBufferSize: 0, pipeSecurity);
 
                 // Wait for client with idle timeout (only when no clients are connected)
-                using var idleCts = new CancellationTokenSource(TimeSpan.FromMinutes(Constants.ServerIdleTimeoutMinutes));
-                try
+                // If idle timeout is 0, wait indefinitely (--no-idle mode)
+                if (Constants.ServerIdleTimeoutMinutes > 0)
                 {
-                    await pipe.WaitForConnectionAsync(idleCts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    pipe.Dispose();
-                    // Clean up completed client tasks
-                    activeClients.RemoveAll(t => t.IsCompleted);
-                    if (activeClients.Count > 0)
+                    using var idleCts = new CancellationTokenSource(TimeSpan.FromMinutes(Constants.ServerIdleTimeoutMinutes));
+                    try
                     {
-                        // Still have active clients — keep waiting
-                        continue;
+                        await pipe.WaitForConnectionAsync(idleCts.Token);
                     }
-                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Idle timeout. Shutting down.");
-                    return;
+                    catch (OperationCanceledException)
+                    {
+                        pipe.Dispose();
+                        // Clean up completed client tasks
+                        activeClients.RemoveAll(t => t.IsCompleted);
+                        if (activeClients.Count > 0)
+                        {
+                            // Still have active clients — keep waiting
+                            continue;
+                        }
+                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Idle timeout. Shutting down.");
+                        return;
+                    }
+                }
+                else
+                {
+                    // No idle timeout — wait indefinitely for connections
+                    await pipe.WaitForConnectionAsync();
                 }
 
                 var clientId = Interlocked.Increment(ref _clientCount);

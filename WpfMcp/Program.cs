@@ -6,16 +6,26 @@ using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 using WpfMcp;
 
-// Parse --macros-path and --shortcuts-path arguments (used by both server and client modes)
+// Parse shared arguments (used by both server and client modes)
 string? macrosPath = null;
 string? shortcutsPath = null;
+int? idleTimeoutMinutes = null;
+bool noIdle = args.Contains("--no-idle");
 for (int i = 0; i < args.Length - 1; i++)
 {
     if (args[i] == "--macros-path")
         macrosPath = args[i + 1];
     else if (args[i] == "--shortcuts-path")
         shortcutsPath = args[i + 1];
+    else if (args[i] == "--idle-timeout" && int.TryParse(args[i + 1], out var minutes) && minutes >= 0)
+        idleTimeoutMinutes = minutes;
 }
+
+// Apply idle timeout: --no-idle takes precedence, then --idle-timeout, then default (60)
+if (noIdle)
+    Constants.ServerIdleTimeoutMinutes = 0;
+else if (idleTimeoutMinutes.HasValue)
+    Constants.ServerIdleTimeoutMinutes = idleTimeoutMinutes.Value;
 
 // Drag-and-drop: first arg is a .yaml file dropped onto the exe
 if (args.Length > 0
@@ -85,6 +95,10 @@ if (!IsElevated())
         var serverArgs = "--server";
         if (macrosPath != null)
             serverArgs += $" --macros-path \"{macrosPath}\"";
+        if (noIdle)
+            serverArgs += " --no-idle";
+        else if (idleTimeoutMinutes.HasValue)
+            serverArgs += $" --idle-timeout {idleTimeoutMinutes.Value}";
         Process.Start(new ProcessStartInfo
         {
             FileName = exePath,
@@ -289,6 +303,10 @@ bool LaunchElevatedServer()
         var serverArgs = "--server";
         if (macrosPath != null)
             serverArgs += $" --macros-path \"{macrosPath}\"";
+        if (noIdle)
+            serverArgs += " --no-idle";
+        else if (idleTimeoutMinutes.HasValue)
+            serverArgs += $" --idle-timeout {idleTimeoutMinutes.Value}";
 
         var psi = new ProcessStartInfo
         {

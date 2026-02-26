@@ -29,6 +29,7 @@ WpfMcp/
   WpfMcp.exe                ← double-click to start server + web dashboard
   export-shortcuts.cmd      ← generates .lnk shortcuts for all macros
   launch-cli.cmd            ← opens interactive CLI mode
+  run-indefinite.cmd        ← starts server with no idle timeout (runs forever)
   macros/
     acumen-fuse/
       import-xer.yaml
@@ -279,7 +280,7 @@ Shortcuts do **not** require "Run as administrator". Elevation is handled intern
 
 - **First run**: UAC prompt appears once to start the elevated server
 - **Subsequent runs**: Connects to the existing server silently
-- **After 1 hour idle**: Server shuts down, next run prompts again
+- **After 1 hour idle** (default): Server shuts down, next run prompts again. Use `--no-idle` or `--idle-timeout <minutes>` to change
 
 ### Path Resolution
 
@@ -409,7 +410,7 @@ Configure your MCP client to launch:
 }
 ```
 
-On first use, approve the UAC prompt to elevate the server. It stays running for 1 hour of idle time.
+On first use, approve the UAC prompt to elevate the server. It stays running for 1 hour of idle time (configurable with `--idle-timeout` or `--no-idle`).
 
 ### MCP Tools
 
@@ -498,7 +499,7 @@ WpfMcp.exe                    (elevated, executes UIA commands)
 Target WPF Application         Browser (Blazor Server dashboard)
 ```
 
-The `--mcp-connect` process auto-launches the elevated server if it isn't already running. The elevated server persists across client reconnections (1 hour idle timeout) and remembers the last attached process for auto-reattach.
+The `--mcp-connect` process auto-launches the elevated server if it isn't already running. The elevated server persists across client reconnections (default 1 hour idle timeout, configurable with `--idle-timeout` or `--no-idle`) and remembers the last attached process for auto-reattach.
 
 Shortcuts and drag-and-drop use the same architecture — the non-elevated client process connects to the elevated server, only triggering UAC if the server isn't already running.
 
@@ -600,6 +601,8 @@ Pull requests trigger build and test only (no release). Manual runs supported vi
 | Run file | `run macro.yaml [k=v ...]` | Execute a YAML macro with optional key=value parameters |
 | Drag-and-drop | `WpfMcp.exe macro.yaml` | Run a YAML macro file directly |
 | Export all | `--export-all` | Generate shortcuts for all macros |
+| No idle | `--no-idle` | Disable idle auto-shutdown (server runs indefinitely) |
+| Custom idle | `--idle-timeout <min>` | Set idle timeout in minutes (default: 60, 0 = no idle) |
 
 ### Project Structure
 
@@ -637,6 +640,7 @@ C:\WpfMcp\
     Shortcuts/                          Generated .lnk shortcuts (gitignored)
     export-shortcuts.cmd                Generates .lnk shortcuts for all macros
     launch-cli.cmd                      Opens interactive CLI mode
+    run-indefinite.cmd                  Starts server with --no-idle (runs forever)
   WpfMcp.Tests/                         168 xUnit tests
     MacroEngineTests.cs                 114 tests — macro loading, validation, execution, saving, includes, verify match modes
     MacroExportTests.cs                 18 tests — shortcut export, ShortcutCreator
@@ -659,7 +663,7 @@ The server process is not elevated. Kill it and re-launch — approve the elevat
 Call `wpf_attach` with the process name. After the first attach, the server remembers the process and auto-reattaches on reconnection.
 
 **Server shuts down after 1 hour**
-The elevated server has an idle timeout. It auto-relaunches when the next client starts.
+The elevated server has a default 1-hour idle timeout. Use `--idle-timeout <minutes>` to change it, or `--no-idle` to disable auto-shutdown entirely. Run `run-indefinite.cmd` for a server that never shuts down. The server auto-relaunches when the next client starts.
 
 **MCP server hangs after running a slow macro**
 Long-running macros (e.g., file imports exceeding ~15-20s) can deadlock the MCP proxy pipe. All subsequent tool calls will hang. Restart the MCP server to recover. This is a known bug — the pipe client holds a lock with no cancellation token during the entire request/response cycle.

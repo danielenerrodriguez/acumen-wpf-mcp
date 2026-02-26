@@ -46,7 +46,11 @@ public static class Constants
     public const int ServerStartupPollMs = 1000;
     public const int ServerPostStartDelayMs = 500;
     public const int PipeConnectTimeoutMs = 10000;
-    public const int ServerIdleTimeoutMinutes = 60;
+    /// <summary>
+    /// Server idle timeout in minutes. 0 = run indefinitely (no auto-shutdown).
+    /// Set via --idle-timeout or --no-idle command-line arguments.
+    /// </summary>
+    public static int ServerIdleTimeoutMinutes { get; set; } = 60;
     public const int ServerErrorRetryMs = 1000;
 
     // UIA interaction delays
