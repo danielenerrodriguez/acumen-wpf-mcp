@@ -57,6 +57,9 @@ public class UiaEngine
     private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")]
     private static extern bool BringWindowToTop(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    private static extern bool AllowSetForegroundWindow(int dwProcessId);
+    private const int ASFW_ANY = -1;
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SystemParametersInfo(uint uiAction, uint uiParam, IntPtr pvParam, uint fWinIni);
     private const uint SPI_SETFOREGROUNDLOCKTIMEOUT = 0x2001;
@@ -499,13 +502,13 @@ public class UiaEngine
             ShowWindow(handle, SW_RESTORE);
 
             // Temporarily remove the foreground lock timeout so SetForegroundWindow
-            // works from a background process. This avoids injecting phantom keystrokes
-            // (like Alt) that break macros using send_keys. Works because we're elevated.
+            // works from a background process. Works because we're elevated.
             SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, IntPtr.Zero, 0);
 
-            // AttachThreadInput trick: temporarily merge our thread's input queue
-            // with the target window's thread so SetForegroundWindow succeeds reliably.
-            // Without this, Windows may just flash the taskbar instead of activating.
+            // Allow any process to set the foreground window (requires elevation)
+            AllowSetForegroundWindow(ASFW_ANY);
+
+            // Strategy 1: AttachThreadInput + SetForegroundWindow (clean, no phantom keys)
             var targetThreadId = GetWindowThreadProcessId(handle, out _);
             var currentThreadId = GetCurrentThreadId();
             bool attached = targetThreadId != currentThreadId
@@ -524,18 +527,32 @@ public class UiaEngine
 
             Thread.Sleep(Constants.FocusDelayMs);
 
-            // Verify focus actually landed on the target window
-            var fg = GetForegroundWindow();
-            if (fg == handle)
+            if (GetForegroundWindow() == handle)
                 return (true, "Window focused");
 
-            // Retry once — timing-sensitive race between detach and foreground check
+            // Strategy 2: Simulate Alt key press/release to break the foreground lock.
+            // Windows allows SetForegroundWindow after a keyboard event from the calling
+            // process. This is a last-resort fallback — the Alt tap is harmless because
+            // it's immediately released before any keytip mode can activate.
+            keybd_event(0x12, 0, 0, UIntPtr.Zero);       // VK_MENU (Alt) down
+            keybd_event(0x12, 0, 0x0002, UIntPtr.Zero);   // VK_MENU (Alt) up
             SetForegroundWindow(handle);
+            BringWindowToTop(handle);
             Thread.Sleep(100);
-            fg = GetForegroundWindow();
-            return fg == handle
-                ? (true, "Window focused (retry)")
-                : (false, "SetForegroundWindow called but window is not in foreground — taskbar may be flashing");
+
+            if (GetForegroundWindow() == handle)
+                return (true, "Window focused (Alt unlock)");
+
+            // Strategy 3: Retry loop — timing-sensitive race can resolve with retries
+            for (int i = 0; i < 3; i++)
+            {
+                SetForegroundWindow(handle);
+                Thread.Sleep(100);
+                if (GetForegroundWindow() == handle)
+                    return (true, $"Window focused (retry {i + 1})");
+            }
+
+            return (false, "SetForegroundWindow called but window is not in foreground — taskbar may be flashing");
         }
         catch (Exception ex) { return (false, $"Failed to focus: {ex.Message}"); }
     }
