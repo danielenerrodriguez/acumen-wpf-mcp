@@ -1,4 +1,5 @@
 using System.IO;
+using System.Reflection;
 using System.Text.Json;
 
 namespace WpfMcp;
@@ -37,6 +38,12 @@ public static class Constants
     public const string MutexName = "Global\\WpfMcp_Server_Running";
     public const string ServerName = "wpf-uia";
     public const string ServerVersion = "1.0.0";
+
+    /// <summary>UTC build timestamp baked into the assembly at compile time.</summary>
+    public static string BuildTime { get; } =
+        typeof(Constants).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == "BuildTime")?.Value ?? "unknown";
 
     // Web dashboard
     public const int WebPort = 5112;

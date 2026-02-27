@@ -20,6 +20,14 @@
     <InformationalVersion>1.0.0</InformationalVersion>
   </PropertyGroup>
 
+  <!-- Embed build timestamp into assembly metadata (read at runtime via reflection) -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>BuildTime</_Parameter1>
+      <_Parameter2>$([System.DateTime]::Now.ToString("yyyy-MM-dd HH:mm"))</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="WpfMcp.Tests" />
   </ItemGroup>

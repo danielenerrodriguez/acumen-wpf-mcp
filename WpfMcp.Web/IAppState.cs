@@ -12,6 +12,10 @@ public interface IAppState
     string? WindowTitle { get; }
     int? ProcessId { get; }
 
+    // --- Server info ---
+    string ServerVersion { get; }
+    string BuildTime { get; }
+
     // --- Element tree ---
     Task<List<ElementInfo>> GetRootChildrenAsync();
     Task<List<ElementInfo>> GetChildrenAsync(string refKey);

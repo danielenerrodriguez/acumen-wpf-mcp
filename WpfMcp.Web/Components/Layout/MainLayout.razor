@@ -38,6 +38,11 @@
     <div class="flex-1 overflow-hidden">
         @Body
     </div>
+
+    @* Footer status bar *@
+    <footer class="shrink-0 flex items-center justify-end px-4 py-1 bg-surface dark:bg-dm-light border-t border-gray-200 dark:border-dm-border text-[10px] text-gray-400 dark:text-dm-muted">
+        <span>v@(State.ServerVersion) &middot; Built @(State.BuildTime)</span>
+    </footer>
 </div>
 
 <script suppress-error="BL9992">

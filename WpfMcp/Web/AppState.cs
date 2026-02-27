@@ -69,6 +69,11 @@ internal sealed class AppState : IAppState
     public string? WindowTitle => _engine.IsAttached ? _engine.WindowTitle : null;
     public int? ProcessId => _engine.IsAttached ? _engine.ProcessId : null;
 
+    // --- Server info ---
+
+    public string ServerVersion => Constants.ServerVersion;
+    public string BuildTime => Constants.BuildTime;
+
     public IReadOnlyList<LogEntry> RecentLogs
     {
         get { lock (_logLock) return _recentLogs.ToList(); }
