@@ -782,6 +782,169 @@ public class MacroEngine : IDisposable
     }
 
     /// <summary>
+    /// Update parameter default values in a macro's YAML file using targeted text replacement.
+    /// Preserves comments, formatting, and structure — only touches `default:` lines.
+    /// Returns the list of parameter names that were actually updated (empty if no changes).
+    /// </summary>
+    public List<string> UpdateParameterDefaults(string macroName, Dictionary<string, string> newValues)
+    {
+        var updated = new List<string>();
+        if (newValues.Count == 0) return updated;
+
+        var filePath = GetMacroFilePath(macroName);
+        if (filePath == null) return updated;
+
+        // Load current macro to compare existing defaults
+        var macro = Get(macroName);
+        if (macro == null) return updated;
+
+        // Build a map of parameter name → new value (only where changed)
+        var changes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var param in macro.Parameters)
+        {
+            if (!newValues.TryGetValue(param.Name, out var newVal)) continue;
+            if (string.IsNullOrEmpty(newVal)) continue;
+            // Skip if the value hasn't changed
+            if (string.Equals(param.Default, newVal, StringComparison.Ordinal)) continue;
+            changes[param.Name] = newVal;
+        }
+
+        if (changes.Count == 0) return updated;
+
+        var lines = File.ReadAllLines(filePath).ToList();
+        var result = UpdateParameterDefaultLines(lines, changes);
+        updated = result.Updated;
+
+        if (updated.Count > 0)
+        {
+            File.WriteAllLines(filePath, result.Lines, Encoding.UTF8);
+        }
+
+        return updated;
+    }
+
+    /// <summary>
+    /// Pure logic: update default lines in a list of YAML lines. Separated for testability.
+    /// </summary>
+    internal static (List<string> Lines, List<string> Updated) UpdateParameterDefaultLines(
+        List<string> lines, Dictionary<string, string> changes)
+    {
+        var updated = new List<string>();
+        var result = new List<string>(lines);
+
+        // State machine: scan through the parameters block
+        bool inParameters = false;
+        string? currentParamName = null;
+        int currentParamIndent = -1;
+        bool foundDefaultForCurrent = false;
+        int lastFieldLineForCurrent = -1; // last known field line (name/description/required/default)
+
+        for (int i = 0; i < result.Count; i++)
+        {
+            var line = result[i];
+            var trimmed = line.TrimStart();
+            var indent = line.Length - trimmed.Length;
+
+            // Detect the "parameters:" block
+            if (trimmed == "parameters:")
+            {
+                inParameters = true;
+                continue;
+            }
+
+            // Detect end of parameters block (a top-level key like "steps:")
+            if (inParameters && indent == 0 && trimmed.Length > 0 && !trimmed.StartsWith('#'))
+            {
+                // Before leaving parameters, handle pending insert if needed
+                if (currentParamName != null && !foundDefaultForCurrent &&
+                    changes.TryGetValue(currentParamName, out var pendingVal))
+                {
+                    var insertLine = new string(' ', currentParamIndent + 2) +
+                                     "default: " + QuoteYamlValue(pendingVal);
+                    result.Insert(lastFieldLineForCurrent + 1, insertLine);
+                    updated.Add(currentParamName);
+                    i++; // adjust index since we inserted a line
+                }
+
+                inParameters = false;
+                currentParamName = null;
+                continue;
+            }
+
+            if (!inParameters) continue;
+
+            // Detect a new parameter entry: "  - name: paramName"
+            if (trimmed.StartsWith("- name:"))
+            {
+                // Before moving to next param, handle pending insert for previous param
+                if (currentParamName != null && !foundDefaultForCurrent &&
+                    changes.TryGetValue(currentParamName, out var pendingVal))
+                {
+                    var insertLine = new string(' ', currentParamIndent + 2) +
+                                     "default: " + QuoteYamlValue(pendingVal);
+                    result.Insert(lastFieldLineForCurrent + 1, insertLine);
+                    updated.Add(currentParamName);
+                    i++; // adjust index since we inserted a line
+                }
+
+                var nameValue = trimmed["- name:".Length..].Trim();
+                currentParamName = nameValue;
+                currentParamIndent = indent;
+                foundDefaultForCurrent = false;
+                lastFieldLineForCurrent = i;
+                continue;
+            }
+
+            if (currentParamName == null) continue;
+
+            // We're inside a parameter entry — check for fields
+            // Fields are indented more than the "- name:" line (typically by 2 spaces)
+            if (indent > currentParamIndent && !trimmed.StartsWith('-') && !trimmed.StartsWith('#'))
+            {
+                // Track the last field line for potential insertion
+                lastFieldLineForCurrent = i;
+
+                if (trimmed.StartsWith("default:"))
+                {
+                    foundDefaultForCurrent = true;
+
+                    if (changes.TryGetValue(currentParamName, out var newVal))
+                    {
+                        // Replace the default line, preserving indentation
+                        var prefix = line[..indent];
+                        result[i] = prefix + "default: " + QuoteYamlValue(newVal);
+                        updated.Add(currentParamName);
+                    }
+                }
+            }
+        }
+
+        // Handle the last parameter if we reached end of file while still in parameters
+        if (inParameters && currentParamName != null && !foundDefaultForCurrent &&
+            changes.TryGetValue(currentParamName, out var lastVal))
+        {
+            var insertLine = new string(' ', currentParamIndent + 2) +
+                             "default: " + QuoteYamlValue(lastVal);
+            result.Insert(lastFieldLineForCurrent + 1, insertLine);
+            updated.Add(currentParamName);
+        }
+
+        return (result, updated);
+    }
+
+    /// <summary>
+    /// Quote a value for YAML output. Uses single quotes to be consistent with
+    /// existing hand-crafted macro files. Only omits quotes for simple values.
+    /// </summary>
+    internal static string QuoteYamlValue(string value)
+    {
+        // Always single-quote paths and values with special chars to be safe
+        // Escape embedded single quotes by doubling them (YAML spec)
+        var escaped = value.Replace("'", "''");
+        return $"'{escaped}'";
+    }
+
+    /// <summary>
     /// Execute a macro definition directly (for drag-drop / run-file scenarios).
     /// </summary>
     public async Task<MacroResult> ExecuteDefinitionAsync(

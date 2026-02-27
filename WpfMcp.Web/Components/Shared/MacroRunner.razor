@@ -50,6 +50,7 @@
                         <div class="space-y-1">
                             @foreach (var p in _selected.Parameters)
                             {
+                                var browseKind = GetBrowseKind(p.Name);
                                 <div class="flex items-center gap-2">
                                     <label class="text-gray-500 dark:text-gray-400 w-28 shrink-0 truncate font-medium" title="@p.Description">
                                         @p.Name@(p.Required ? "*" : "")
@@ -57,6 +58,17 @@
                                     <input @bind="_paramValues[p.Name]" @bind:event="oninput"
                                            placeholder="@(p.Default ?? p.Description)"
                                            class="input-field flex-1" />
+                                    @if (browseKind != BrowseKind.None)
+                                    {
+                                        <button @onclick="() => BrowseForPath(p.Name, browseKind)"
+                                                disabled="@_browsing"
+                                                title="@(browseKind == BrowseKind.Folder ? "Browse for folder..." : "Browse for file...")"
+                                                class="btn-secondary px-1.5 py-1 shrink-0 @(_browsing ? "opacity-50 cursor-not-allowed" : "")">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                                <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+                                            </svg>
+                                        </button>
+                                    }
                                 </div>
                             }
                         </div>
@@ -87,7 +99,10 @@
     private MacroSummary? _selected;
     private Dictionary<string, string> _paramValues = new();
     private bool _running;
+    private bool _browsing;
     private HashSet<string> _newMacroNames = new();
+
+    private enum BrowseKind { None, File, Folder }
 
     protected override void OnInitialized()
     {
@@ -107,6 +122,24 @@
             _newMacroNames = new HashSet<string>(
                 (_macros?.Select(m => m.Name) ?? Enumerable.Empty<string>())
                 .Where(n => !oldNames.Contains(n)));
+
+            // Re-select the current macro to pick up updated defaults (e.g., after auto-save)
+            if (_selected != null)
+            {
+                var refreshed = _macros?.FirstOrDefault(m => m.Name == _selected.Name);
+                if (refreshed != null)
+                {
+                    // Preserve user-entered values, but update the selected macro reference
+                    var oldValues = new Dictionary<string, string>(_paramValues);
+                    _selected = refreshed;
+                    _paramValues = new();
+                    foreach (var p in refreshed.Parameters)
+                    {
+                        // Keep user's current value if they've typed something; otherwise use new default
+                        _paramValues[p.Name] = oldValues.TryGetValue(p.Name, out var v) ? v : (p.Default ?? "");
+                    }
+                }
+            }
 
             StateHasChanged();
 
@@ -175,5 +208,48 @@
     private void CancelMacro()
     {
         State.CancelMacro();
+    }
+
+    /// <summary>
+    /// Detect whether a parameter name suggests a file or folder path.
+    /// </summary>
+    private static BrowseKind GetBrowseKind(string paramName)
+    {
+        var lower = paramName.ToLowerInvariant();
+        if (lower.Contains("dir") || lower.Contains("folder"))
+            return BrowseKind.Folder;
+        if (lower.Contains("path") || lower.Contains("file"))
+            return BrowseKind.File;
+        return BrowseKind.None;
+    }
+
+    /// <summary>
+    /// Open a file/folder browse dialog and populate the parameter input with the selected path.
+    /// </summary>
+    private async Task BrowseForPath(string paramName, BrowseKind kind)
+    {
+        if (_browsing) return;
+        _browsing = true;
+        StateHasChanged();
+
+        try
+        {
+            var currentValue = _paramValues.TryGetValue(paramName, out var v) ? v : null;
+
+            var selected = kind == BrowseKind.Folder
+                ? await State.BrowseForFolderAsync(currentValue)
+                : await State.BrowseForFileAsync(currentValue);
+
+            if (!string.IsNullOrEmpty(selected))
+            {
+                _paramValues[paramName] = selected;
+            }
+        }
+        catch { }
+        finally
+        {
+            _browsing = false;
+            StateHasChanged();
+        }
     }
 }

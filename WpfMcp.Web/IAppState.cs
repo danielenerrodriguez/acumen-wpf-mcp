@@ -57,6 +57,18 @@ public interface IAppState
     /// <summary>Open a macro YAML file in the user's default editor (VS Code, Notepad, etc.).</summary>
     ActionResult OpenMacroFile(string macroName);
 
+    /// <summary>
+    /// Launch a Windows file browse dialog (OpenFileDialog) and return the selected path.
+    /// Returns null if the user cancelled.
+    /// </summary>
+    Task<string?> BrowseForFileAsync(string? initialPath);
+
+    /// <summary>
+    /// Launch a Windows folder browse dialog (FolderBrowserDialog) and return the selected path.
+    /// Returns null if the user cancelled.
+    /// </summary>
+    Task<string?> BrowseForFolderAsync(string? initialPath);
+
     // --- Processes ---
     /// <summary>List processes that have a visible main window.</summary>
     List<ProcessInfo> ListWindowedProcesses();

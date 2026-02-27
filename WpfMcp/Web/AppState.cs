@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Windows.Automation;
 using WpfMcp.Web;
 
@@ -393,6 +394,104 @@ internal sealed class AppState : IAppState
         }
     }
 
+    public async Task<string?> BrowseForFileAsync(string? initialPath)
+    {
+        return await Task.Run(() => RunFileDialog(initialPath, folderMode: false));
+    }
+
+    public async Task<string?> BrowseForFolderAsync(string? initialPath)
+    {
+        return await Task.Run(() => RunFileDialog(initialPath, folderMode: true));
+    }
+
+    /// <summary>
+    /// Launch a PowerShell process that shows a WinForms file/folder dialog and returns the selected path.
+    /// Runs on a background thread to avoid blocking the Blazor circuit.
+    /// </summary>
+    private static string? RunFileDialog(string? initialPath, bool folderMode)
+    {
+        string? initialDir = null;
+        string? fileName = null;
+
+        if (!string.IsNullOrWhiteSpace(initialPath))
+        {
+            try
+            {
+                if (File.Exists(initialPath))
+                {
+                    initialDir = Path.GetDirectoryName(initialPath);
+                    fileName = Path.GetFileName(initialPath);
+                }
+                else if (Directory.Exists(initialPath))
+                {
+                    initialDir = initialPath;
+                }
+                else
+                {
+                    // Path doesn't exist — try using the directory portion
+                    var dir = Path.GetDirectoryName(initialPath);
+                    if (dir != null && Directory.Exists(dir))
+                    {
+                        initialDir = dir;
+                        fileName = Path.GetFileName(initialPath);
+                    }
+                }
+            }
+            catch
+            {
+                // Invalid path format — ignore
+            }
+        }
+
+        var escapedDir = (initialDir ?? "").Replace("'", "''");
+        var escapedFile = (fileName ?? "").Replace("'", "''");
+
+        string script;
+        if (folderMode)
+        {
+            script = string.Join("; ",
+                "Add-Type -AssemblyName System.Windows.Forms",
+                "$d = New-Object System.Windows.Forms.FolderBrowserDialog",
+                $"$d.SelectedPath = '{escapedDir}'",
+                "$d.ShowNewFolderButton = $true",
+                "if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath } else { '' }");
+        }
+        else
+        {
+            script = string.Join("; ",
+                "Add-Type -AssemblyName System.Windows.Forms",
+                "$d = New-Object System.Windows.Forms.OpenFileDialog",
+                $"$d.InitialDirectory = '{escapedDir}'",
+                $"$d.FileName = '{escapedFile}'",
+                "if ($d.ShowDialog() -eq 'OK') { $d.FileName } else { '' }");
+        }
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -NonInteractive -Command \"{script.Replace("\"", "\\\"")}\"",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+
+            using var proc = Process.Start(psi);
+            if (proc == null) return null;
+
+            var output = proc.StandardOutput.ReadToEnd().Trim();
+            proc.WaitForExit(30000);
+
+            return string.IsNullOrEmpty(output) ? null : output;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public async Task<MacroRunResult> RunMacroAsync(string name, Dictionary<string, string> parameters)
     {
         Log(Web.LogLevel.Info, $"Running macro '{name}'...");
@@ -407,6 +506,18 @@ internal sealed class AppState : IAppState
                 Log(Web.LogLevel.Success, $"Macro '{name}' completed ({result.StepsExecuted}/{result.TotalSteps} steps)");
             else
                 Log(Web.LogLevel.Error, $"Macro '{name}' failed: {result.Message}");
+
+            // Auto-save parameter defaults to YAML when values differ from current defaults
+            try
+            {
+                var updated = _macroEngine.Value.UpdateParameterDefaults(name, parameters);
+                if (updated.Count > 0)
+                    Log(Web.LogLevel.Info, $"Updated defaults for {name}: {string.Join(", ", updated)}");
+            }
+            catch (Exception ex)
+            {
+                Log(Web.LogLevel.Warning, $"Failed to save parameter defaults: {ex.Message}");
+            }
 
             return new MacroRunResult(result.Success, result.Message, result.StepsExecuted, result.TotalSteps, result.Error);
         }

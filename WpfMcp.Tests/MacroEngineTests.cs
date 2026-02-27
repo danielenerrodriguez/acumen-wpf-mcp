@@ -2360,6 +2360,271 @@ steps:
         Assert.Contains(logs, l => l.Contains("CANCELLED"));
     }
 
+    // --- UpdateParameterDefaults ---
+
+    [Fact]
+    public void UpdateParameterDefaults_UpdatesExistingDefault()
+    {
+        WriteMacro("test/update-defaults.yaml", @"
+name: Update Defaults Test
+description: Test updating defaults
+parameters:
+  - name: filePath
+    description: Path to file
+    required: false
+    default: 'C:\old\path.xer'
+  - name: exePath
+    description: Path to exe
+    required: false
+    default: 'C:\old\exe.exe'
+steps:
+  - action: focus
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var updated = engine.UpdateParameterDefaults("test/update-defaults",
+            new Dictionary<string, string>
+            {
+                ["filePath"] = @"C:\new\file.xer",
+                ["exePath"] = @"C:\new\app.exe"
+            });
+
+        Assert.Equal(2, updated.Count);
+        Assert.Contains("filePath", updated);
+        Assert.Contains("exePath", updated);
+
+        // Verify the file was updated
+        var content = File.ReadAllText(Path.Combine(_tempDir, "test", "update-defaults.yaml"));
+        Assert.Contains(@"default: 'C:\new\file.xer'", content);
+        Assert.Contains(@"default: 'C:\new\app.exe'", content);
+        Assert.DoesNotContain(@"C:\old\path.xer", content);
+    }
+
+    [Fact]
+    public void UpdateParameterDefaults_InsertsDefault_WhenNone()
+    {
+        WriteMacro("test/insert-defaults.yaml", @"
+name: Insert Defaults Test
+description: Test inserting defaults
+parameters:
+  - name: filePath
+    description: Path to file
+    required: true
+steps:
+  - action: focus
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var updated = engine.UpdateParameterDefaults("test/insert-defaults",
+            new Dictionary<string, string>
+            {
+                ["filePath"] = @"C:\new\file.xer"
+            });
+
+        Assert.Single(updated);
+        Assert.Equal("filePath", updated[0]);
+
+        var content = File.ReadAllText(Path.Combine(_tempDir, "test", "insert-defaults.yaml"));
+        Assert.Contains(@"default: 'C:\new\file.xer'", content);
+    }
+
+    [Fact]
+    public void UpdateParameterDefaults_PreservesComments()
+    {
+        var yaml = @"name: Comments Test
+description: Test that comments are preserved
+# Important parameter section
+parameters:
+  - name: filePath
+    description: Path to file
+    required: false
+    default: 'C:\old\path.xer'
+  # This is the exe path
+  - name: exePath
+    description: Path to exe
+    required: false
+    default: 'C:\old\exe.exe'
+steps:
+  # Step 1: Focus the window
+  - action: focus
+";
+        WriteMacro("test/comments.yaml", yaml);
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var updated = engine.UpdateParameterDefaults("test/comments",
+            new Dictionary<string, string>
+            {
+                ["filePath"] = @"C:\new\file.xer"
+            });
+
+        Assert.Single(updated);
+
+        var content = File.ReadAllText(Path.Combine(_tempDir, "test", "comments.yaml"));
+        Assert.Contains("# Important parameter section", content);
+        Assert.Contains("# This is the exe path", content);
+        Assert.Contains("# Step 1: Focus the window", content);
+        Assert.Contains(@"default: 'C:\new\file.xer'", content);
+        // exePath default should be unchanged
+        Assert.Contains(@"default: 'C:\old\exe.exe'", content);
+    }
+
+    [Fact]
+    public void UpdateParameterDefaults_NoOpWhenUnchanged()
+    {
+        var yaml = @"name: NoOp Test
+description: Test no-op when unchanged
+parameters:
+  - name: filePath
+    description: Path to file
+    required: false
+    default: 'C:\same\path.xer'
+steps:
+  - action: focus
+";
+        WriteMacro("test/noop.yaml", yaml);
+        var originalModified = File.GetLastWriteTimeUtc(Path.Combine(_tempDir, "test", "noop.yaml"));
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        // Pass the same value as the current default
+        var updated = engine.UpdateParameterDefaults("test/noop",
+            new Dictionary<string, string>
+            {
+                ["filePath"] = @"C:\same\path.xer"
+            });
+
+        Assert.Empty(updated);
+    }
+
+    [Fact]
+    public void UpdateParameterDefaults_HandlesSpecialCharsInValue()
+    {
+        WriteMacro("test/special-chars.yaml", @"
+name: Special Chars Test
+description: Test special characters
+parameters:
+  - name: filePath
+    description: Path with spaces and quotes
+    required: false
+    default: 'C:\simple.xer'
+steps:
+  - action: focus
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var updated = engine.UpdateParameterDefaults("test/special-chars",
+            new Dictionary<string, string>
+            {
+                ["filePath"] = @"C:\Program Files\Deltek's App\Initial  Plan.xer"
+            });
+
+        Assert.Single(updated);
+
+        var content = File.ReadAllText(Path.Combine(_tempDir, "test", "special-chars.yaml"));
+        // Single quotes in values are escaped by doubling them
+        Assert.Contains(@"default: 'C:\Program Files\Deltek''s App\Initial  Plan.xer'", content);
+    }
+
+    [Fact]
+    public void UpdateParameterDefaults_SkipsEmptyValues()
+    {
+        WriteMacro("test/skip-empty.yaml", @"
+name: Skip Empty Test
+description: Test skipping empty values
+parameters:
+  - name: filePath
+    description: Path to file
+    required: false
+    default: 'C:\original.xer'
+steps:
+  - action: focus
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+
+        var updated = engine.UpdateParameterDefaults("test/skip-empty",
+            new Dictionary<string, string>
+            {
+                ["filePath"] = ""
+            });
+
+        Assert.Empty(updated);
+
+        var content = File.ReadAllText(Path.Combine(_tempDir, "test", "skip-empty.yaml"));
+        Assert.Contains(@"default: 'C:\original.xer'", content);
+    }
+
+    [Fact]
+    public void UpdateParameterDefaultLines_UpdatesOnlyTargetedParam()
+    {
+        var lines = new List<string>
+        {
+            "name: Test",
+            "parameters:",
+            "  - name: filePath",
+            "    description: Path to file",
+            "    required: false",
+            "    default: 'C:\\old.xer'",
+            "  - name: exePath",
+            "    description: Path to exe",
+            "    default: 'C:\\old.exe'",
+            "steps:",
+            "  - action: focus"
+        };
+
+        var changes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["filePath"] = @"C:\new.xer"
+        };
+
+        var (result, updated) = MacroEngine.UpdateParameterDefaultLines(lines, changes);
+
+        Assert.Single(updated);
+        Assert.Equal("filePath", updated[0]);
+        Assert.Contains(result, l => l.Contains(@"'C:\new.xer'"));
+        Assert.Contains(result, l => l.Contains(@"'C:\old.exe'")); // unchanged
+    }
+
+    [Fact]
+    public void UpdateParameterDefaultLines_InsertsDefaultAfterLastField()
+    {
+        var lines = new List<string>
+        {
+            "name: Test",
+            "parameters:",
+            "  - name: filePath",
+            "    description: Path to file",
+            "    required: true",
+            "steps:",
+            "  - action: focus"
+        };
+
+        var changes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["filePath"] = @"C:\new.xer"
+        };
+
+        var (result, updated) = MacroEngine.UpdateParameterDefaultLines(lines, changes);
+
+        Assert.Single(updated);
+        // Verify the default line was inserted after "required: true"
+        var defaultIdx = result.FindIndex(l => l.Contains("default:"));
+        var requiredIdx = result.FindIndex(l => l.Contains("required:"));
+        Assert.True(defaultIdx == requiredIdx + 1, "default should be inserted right after required");
+    }
+
+    [Fact]
+    public void QuoteYamlValue_EscapesSingleQuotes()
+    {
+        var result = MacroEngine.QuoteYamlValue("Deltek's App");
+        Assert.Equal("'Deltek''s App'", result);
+    }
+
+    [Fact]
+    public void QuoteYamlValue_WrapsSimpleValue()
+    {
+        var result = MacroEngine.QuoteYamlValue(@"C:\simple.xer");
+        Assert.Equal(@"'C:\simple.xer'", result);
+    }
+
     // --- Helper to write a knowledge base ---
 
     private void WriteKnowledgeBase(string productFolder, string processName)
