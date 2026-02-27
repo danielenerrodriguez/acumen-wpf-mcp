@@ -1,0 +1,33 @@
+name: Uninstall Acumen
+description: >-
+  Finds installed Acumen versions from the registry, lets the user pick which
+  to uninstall (if multiple are found), generates a silent response file, and
+  performs a silent uninstall. No wizard UI is shown.
+timeout: 300
+steps:
+  # Step 1: Query registry for installed Acumen versions, let user pick, return GUID
+  - action: run_script
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$items = @(Get-ItemProperty ''HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'',''HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'' -EA SilentlyContinue | Where-Object { $_.DisplayName -like ''Deltek Acumen*'' } | Sort-Object DisplayName -Descending); if ($items.Count -eq 0) { Write-Error ''No Acumen installations found''; exit 1 }; if ($items.Count -eq 1) { $sel = $items[0] } else { $sel = $items | Select-Object DisplayName,PSChildName | Out-GridView -Title ''Select Acumen version to uninstall'' -OutputMode Single }; if (-not $sel) { Write-Error ''No version selected''; exit 1 }; Write-Output $sel.PSChildName"'
+    save_output_as: productGuid
+    timeout: 120
+
+  # Step 2: Look up the version number for the selected product
+  - action: run_script
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$item = Get-ItemProperty ''HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{{productGuid}}'' -EA SilentlyContinue; if (-not $item) { $item = Get-ItemProperty ''HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{{productGuid}}'' -EA SilentlyContinue }; Write-Output $item.DisplayVersion"'
+    save_output_as: productVersion
+    timeout: 15
+
+  # Step 3: Generate a silent response file for the uninstall
+  - action: run_script
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$g = ''{{productGuid}}''; $v = ''{{productVersion}}''; $lines = @(''[InstallShield Silent]'',''Version=v7.00'',''File=Response File'',''[File Transfer]'',''OverwrittenReadOnly=NoToAll'',\"[$g-DlgOrder]\",\"Dlg0=$g-MessageBox-0\",''Count=2'',\"Dlg1=$g-SdFinish-0\",\"[$g-MessageBox-0]\",''Result=6'',''[Application]'',''Name=Acumen'',\"Version=$v\",''Company=Deltek'',''Lang=0409'',\"[$g-SdFinish-0]\",''Result=1'',''bOpt1=0'',''bOpt2=0''); $path = Join-Path $env:TEMP ''uninstall-acumen.iss''; $lines | Set-Content -Path $path -Encoding ASCII; Write-Output $path"'
+    save_output_as: issPath
+    timeout: 15
+
+  # Step 4: Run the silent uninstall
+  - action: run_script
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$setupDir = ''C:\Program Files (x86)\InstallShield Installation Information\{{productGuid}}''; $setupExe = Join-Path $setupDir ''setup.exe''; if (-not (Test-Path $setupExe)) { Write-Error ''InstallShield setup.exe not found''; exit 1 }; $proc = Start-Process -FilePath $setupExe -ArgumentList ''-runfromtemp -l0x0409 -removeonly -s -SMS -f1{{issPath}}'' -Wait -PassThru; exit $proc.ExitCode"'
+    timeout: 300

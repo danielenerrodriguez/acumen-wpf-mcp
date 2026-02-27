@@ -1,0 +1,26 @@
+name: Fresh Install Acumen
+description: >-
+  Installs Acumen from an installer .exe. If no installer path is provided,
+  opens a file browser dialog for the user to pick the installer. Runs the
+  installer with the user clicking through the wizard (InstallShield does not
+  support fully silent install without a pre-recorded response file).
+timeout: 600
+parameters:
+  - name: installerPath
+    description: Full path to the Acumen installer .exe (leave empty for file picker)
+    required: false
+    default: ""
+steps:
+  # Step 1: If no installer path provided, open a file picker dialog
+  - action: run_script
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -STA -Command "$p = ''{{installerPath}}''; if ($p -and (Test-Path $p)) { Write-Output $p; exit 0 }; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = ''Select Acumen Installer''; $d.Filter = ''Installer (*.exe)|*.exe|All files (*.*)|*.*''; $d.InitialDirectory = [Environment]::GetFolderPath(''Desktop''); if ($d.ShowDialog() -eq ''OK'') { Write-Output $d.FileName } else { Write-Error ''No file selected''; exit 1 }"'
+    save_output_as: installerExe
+    timeout: 120
+
+  # Step 2: Launch the installer (interactive — user clicks through the wizard)
+  - action: run_script
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$proc = Start-Process -FilePath ''{{installerExe}}'' -Wait -PassThru; exit $proc.ExitCode"'
+    ignore_exit_code: true
+    timeout: 600
