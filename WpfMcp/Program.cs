@@ -401,9 +401,18 @@ async Task RunDragDropMacroAsync(string yamlPath, string[]? cliParams = null)
         return;
     }
 
+    // Create a temp log file for real-time progress display
+    var logFile = Path.Combine(Path.GetTempPath(), $"wpfmcp-macro-{Guid.NewGuid():N}.log");
+
     // Execute via proxy
     Console.WriteLine($"Executing '{displayName}'...");
     Console.WriteLine();
+
+    // Start background task to tail the log file for real-time output
+    using var logCts = new CancellationTokenSource();
+    var logTailState = new LogTailState();
+    var logTask = TailLogFileAsync(logFile, logTailState, logCts.Token);
+
     try
     {
         var proxyArgs = new Dictionary<string, object?>
@@ -411,9 +420,15 @@ async Task RunDragDropMacroAsync(string yamlPath, string[]? cliParams = null)
             ["yaml"] = yamlContent,
             ["parameters"] = macroParams.Count > 0
                 ? System.Text.Json.JsonSerializer.Serialize(macroParams)
-                : null
+                : null,
+            ["logFile"] = logFile
         };
         var response = await proxy.CallAsync("executeMacroYaml", proxyArgs);
+
+        // Stop tailing and flush remaining lines
+        logCts.Cancel();
+        try { await logTask; } catch (OperationCanceledException) { }
+        FlushLogFile(logFile, logTailState);
 
         var ok = response.GetProperty("ok").GetBoolean();
         if (ok)
@@ -421,6 +436,7 @@ async Task RunDragDropMacroAsync(string yamlPath, string[]? cliParams = null)
             var result = response.GetProperty("result");
             var steps = result.GetProperty("StepsExecuted").GetInt32();
             var total = result.GetProperty("TotalSteps").GetInt32();
+            Console.WriteLine();
             Console.WriteLine($"SUCCESS: {displayName} completed ({steps}/{total} steps)");
             return; // Auto-close on success
         }
@@ -428,6 +444,7 @@ async Task RunDragDropMacroAsync(string yamlPath, string[]? cliParams = null)
         {
             var result = response.GetProperty("result");
             var msg = result.GetProperty("Message").GetString();
+            Console.WriteLine();
             Console.WriteLine($"FAILED: {msg}");
             if (result.TryGetProperty("Error", out var err) && err.ValueKind == System.Text.Json.JsonValueKind.String)
                 Console.WriteLine($"  Error: {err.GetString()}");
@@ -438,7 +455,15 @@ async Task RunDragDropMacroAsync(string yamlPath, string[]? cliParams = null)
     }
     catch (Exception ex)
     {
+        logCts.Cancel();
+        try { await logTask; } catch (OperationCanceledException) { }
+        FlushLogFile(logFile, logTailState);
         Console.WriteLine($"ERROR: {ex.Message}");
+    }
+    finally
+    {
+        // Clean up temp log file
+        try { File.Delete(logFile); } catch { }
     }
 
     WaitForKeypress(); // Only pause on failure so user can read the error
@@ -450,3 +475,65 @@ static void WaitForKeypress()
     Console.WriteLine("Press any key to exit...");
     Console.ReadKey(intercept: true);
 }
+
+/// <summary>
+/// Background task that tails a log file and prints new lines to the console in real-time.
+/// The server writes macro step log messages to this file; we poll and display them as they appear.
+/// </summary>
+static async Task TailLogFileAsync(string logFile, LogTailState state, CancellationToken ct)
+{
+    try
+    {
+        // Wait briefly for the file to be created by the server
+        while (!File.Exists(logFile) && !ct.IsCancellationRequested)
+            await Task.Delay(100, ct);
+
+        while (!ct.IsCancellationRequested)
+        {
+            ReadNewLines(logFile, state);
+            await Task.Delay(200, ct);
+        }
+    }
+    catch (OperationCanceledException)
+    {
+        // Expected when the macro completes
+    }
+}
+
+/// <summary>Reads and prints new lines from the log file starting at the tracked position.</summary>
+static void ReadNewLines(string logFile, LogTailState state)
+{
+    try
+    {
+        if (!File.Exists(logFile)) return;
+
+        using var fs = new FileStream(logFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        if (fs.Length <= state.LastPosition) return;
+
+        fs.Seek(state.LastPosition, SeekOrigin.Begin);
+        using var reader = new StreamReader(fs);
+        while (!reader.EndOfStream)
+        {
+            var line = reader.ReadLine();
+            if (line != null)
+                Console.WriteLine(line);
+        }
+        state.LastPosition = fs.Position;
+    }
+    catch (IOException)
+    {
+        // File may be briefly locked by the server — retry on next poll
+    }
+}
+
+/// <summary>
+/// Reads and prints any remaining lines from the log file that the tail task may have missed.
+/// Called after the macro completes to ensure all log output is displayed.
+/// </summary>
+static void FlushLogFile(string logFile, LogTailState state)
+{
+    ReadNewLines(logFile, state);
+}
+
+/// <summary>Tracks the file position for the log tail task so the flush can pick up where it left off.</summary>
+class LogTailState { public long LastPosition; }

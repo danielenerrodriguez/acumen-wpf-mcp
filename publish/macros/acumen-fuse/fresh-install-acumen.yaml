@@ -1,10 +1,11 @@
 name: Fresh Install Acumen
 description: >-
   Installs Acumen from an installer .exe. If no installer path is provided,
-  opens a file browser dialog for the user to pick the installer. Extracts the
-  product GUID, generates a silent response file, and performs a fully silent
-  install with default settings.
-timeout: 600
+  opens a file browser dialog for the user to pick the installer. Dynamically
+  extracts the product GUID from the installer, generates a silent response
+  file, and performs a fully silent install with default settings. Works with
+  any Acumen version — no hardcoded GUIDs.
+timeout: 900
 parameters:
   - name: installerPath
     description: Full path to the Acumen installer .exe (leave empty for file picker)
@@ -22,35 +23,52 @@ steps:
     save_output_as: installerExe
     timeout: 120
 
-  # Step 2: Extract the product GUID from the installer
-  # Run the installer with /? to get help (exits immediately) then check
-  # the InstallShield temp extraction for setup.ini containing the GUID.
-  # Alternatively, parse the version from the filename and use known GUIDs.
+  # Step 2: Extract the product GUID from the installer using /extract_all
+  # InstallShield extractors support /extract_all:<dir> which extracts contents
+  # without running the install. setup.ini contains ProductGUID.
   - action: run_script
     command: "powershell.exe"
-    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$exe = ''{{installerExe}}''; $name = [System.IO.Path]::GetFileNameWithoutExtension($exe); $verMatch = [regex]::Match($name, ''(\d+)(\d{2})''); if ($verMatch.Success) { $major = $verMatch.Groups[1].Value; $minor = $verMatch.Groups[2].Value; $verStr = \"$major.$minor\" } else { $verStr = ''unknown'' }; Write-Output $verStr"'
-    save_output_as: versionHint
-    timeout: 15
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$d = Join-Path ([IO.Path]::GetTempPath()) (''acumen-extract-'' + [guid]::NewGuid().ToString(''N'').Substring(0,8)); New-Item $d -ItemType Directory -Force | Out-Null; $p = Start-Process -FilePath ''{{installerExe}}'' -ArgumentList \"/extract_all:$d\" -Wait -PassThru -NoNewWindow; $ini = Get-ChildItem $d -Filter ''setup.ini'' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $ini) { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue; Write-Error ''setup.ini not found in extracted files''; exit 1 }; $c = Get-Content $ini.FullName -Raw; $m = [regex]::Match($c, ''ProductGUID=([A-Fa-f0-9-]+)''); Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue; if ($m.Success) { Write-Output $m.Groups[1].Value } else { Write-Error ''ProductGUID not found in setup.ini''; exit 1 }"'
+    save_output_as: productGuid
+    timeout: 30
 
-  # Step 3: Determine install directory
+  # Step 3: Check if this version is already installed
+  - action: run_script
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$guid = ''{{productGuid}}''; $paths = @(\"HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{$guid}\",\"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{$guid}\"); foreach ($p in $paths) { if (Test-Path $p) { $props = Get-ItemProperty $p; Write-Error \"Acumen is already installed: $($props.DisplayName) $($props.DisplayVersion). Uninstall first.\"; exit 1 } }; Write-Output ''not-installed''"'
+    save_output_as: installCheck
+    timeout: 10
+
+  # Step 4: Extract version hint from installer filename
+  - action: run_script
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$name = [IO.Path]::GetFileNameWithoutExtension(''{{installerExe}}''); $m = [regex]::Match($name, ''(\d+)(\d{2})''); if ($m.Success) { Write-Output \"$($m.Groups[1].Value).$($m.Groups[2].Value)\" } else { Write-Output ''unknown'' }"'
+    save_output_as: versionHint
+    timeout: 10
+
+  # Step 5: Determine install directory
   - action: run_script
     command: "powershell.exe"
     arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$d = ''{{installDir}}''; if ($d) { Write-Output $d } else { Write-Output ''C:\Program Files\Deltek\Acumen {{versionHint}}'' }"'
     save_output_as: targetDir
     timeout: 10
 
-  # Step 4: Generate silent response file
-  # Uses a generic approach — runs the installer silently and it will
-  # use the response file to answer all dialogs automatically.
+  # Step 6: Generate silent response file using the extracted GUID
   - action: run_script
     command: "powershell.exe"
-    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$dir = ''{{targetDir}}''; $lines = @(''[InstallShield Silent]'',''Version=v7.00'',''File=Response File'',''[File Transfer]'',''OverwrittenReadOnly=NoToAll'',''[{85A78158-2315-4AE9-8910-E1D495C4F8BC}-DlgOrder]'',''Dlg0={85A78158-2315-4AE9-8910-E1D495C4F8BC}-MessageBox-0'',''Count=5'',''Dlg1={85A78158-2315-4AE9-8910-E1D495C4F8BC}-SdWelcome-0'',''Dlg2={85A78158-2315-4AE9-8910-E1D495C4F8BC}-SdAskDestPath2-0'',''Dlg3={85A78158-2315-4AE9-8910-E1D495C4F8BC}-SdStartCopy-0'',''Dlg4={85A78158-2315-4AE9-8910-E1D495C4F8BC}-SdFinish-0'',''[{85A78158-2315-4AE9-8910-E1D495C4F8BC}-MessageBox-0]'',''Result=1'',''[{85A78158-2315-4AE9-8910-E1D495C4F8BC}-SdWelcome-0]'',''Result=1'',''[{85A78158-2315-4AE9-8910-E1D495C4F8BC}-SdAskDestPath2-0]'',\"szDir=$dir\",''Result=1'',''[{85A78158-2315-4AE9-8910-E1D495C4F8BC}-SdStartCopy-0]'',''Result=1'',''[Application]'',''Name=Acumen'',''Version=8.12.0'',''Company=Deltek'',''Lang=0409'',''[{85A78158-2315-4AE9-8910-E1D495C4F8BC}-SdFinish-0]'',''Result=1'',''bOpt1=0'',''bOpt2=0''); $path = Join-Path $env:TEMP ''install-acumen.iss''; $lines | Set-Content -Path $path -Encoding ASCII; Write-Output $path"'
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$g = ''{{{productGuid}}}''; $dir = ''{{targetDir}}''; $lines = @(''[InstallShield Silent]'',''Version=v7.00'',''File=Response File'',''[File Transfer]'',''OverwrittenReadOnly=NoToAll'',(''['' + $g + ''-DlgOrder]''),(''Dlg0='' + $g + ''-MessageBox-0''),''Count=5'',(''Dlg1='' + $g + ''-SdWelcome-0''),(''Dlg2='' + $g + ''-SdAskDestPath2-0''),(''Dlg3='' + $g + ''-SdStartCopy-0''),(''Dlg4='' + $g + ''-SdFinish-0''),(''['' + $g + ''-MessageBox-0]''),''Result=1'',(''['' + $g + ''-SdWelcome-0]''),''Result=1'',(''['' + $g + ''-SdAskDestPath2-0]''),(''szDir='' + $dir),''Result=1'',(''['' + $g + ''-SdStartCopy-0]''),''Result=1'',''[Application]'',''Name=Acumen'',''Version={{versionHint}}.0'',''Company=Deltek'',''Lang=0409'',(''['' + $g + ''-SdFinish-0]''),''Result=1'',''bOpt1=0'',''bOpt2=0''); $path = Join-Path ([IO.Path]::GetTempPath()) ''install-acumen.iss''; $lines | Set-Content -Path $path -Encoding ASCII; Write-Output $path"'
     save_output_as: issPath
     timeout: 15
 
-  # Step 5: Run the silent install
+  # Step 7: Launch the silent install (fire-and-forget, no -Wait)
   - action: run_script
     command: "powershell.exe"
-    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$proc = Start-Process -FilePath ''{{installerExe}}'' -ArgumentList ''-s -SMS -f1{{issPath}}'' -Wait -PassThru; exit $proc.ExitCode"'
-    ignore_exit_code: true
-    timeout: 60
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath ''{{installerExe}}'' -ArgumentList ''-s -SMS -f1{{issPath}}''; Write-Output ''launched''"'
+    timeout: 30
+
+  # Step 8: Poll registry until the product GUID appears with a DisplayVersion (confirms install completed)
+  - action: run_script
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$guid = ''{{productGuid}}''; $paths = @(\"HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{$guid}\",\"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{$guid}\"); for ($i = 0; $i -lt 120; $i++) { foreach ($p in $paths) { if (Test-Path $p) { $props = Get-ItemProperty $p; if ($props.DisplayVersion) { Write-Output \"Installed: $($props.DisplayName) $($props.DisplayVersion)\"; exit 0 } } }; Start-Sleep -Seconds 5 }; Write-Error ''Timed out waiting for install to complete (10 minutes)''; exit 1"'
+    save_output_as: installResult
+    timeout: 620

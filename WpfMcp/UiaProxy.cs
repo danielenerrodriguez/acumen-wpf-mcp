@@ -141,6 +141,34 @@ public static class UiaProxyServer
     private static int? GetIntArg(JsonElement args, string name) =>
         args.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : (int?)null;
 
+    /// <summary>
+    /// Creates a log callback that writes to stderr and optionally to a shared log file.
+    /// The log file is used by drag-and-drop/shortcut clients for real-time progress display.
+    /// </summary>
+    private static Action<string> CreateLogCallback(string? logFilePath)
+    {
+        if (string.IsNullOrEmpty(logFilePath))
+            return msg => Console.Error.WriteLine(msg);
+
+        // Use a lock object to synchronize file writes (the callback may be called from different threads)
+        var fileLock = new object();
+        return msg =>
+        {
+            Console.Error.WriteLine(msg);
+            try
+            {
+                lock (fileLock)
+                {
+                    File.AppendAllText(logFilePath, msg + Environment.NewLine);
+                }
+            }
+            catch
+            {
+                // Best-effort file logging — don't fail the macro if file write fails
+            }
+        };
+    }
+
     public static async Task RunAsync(string? macrosPath = null)
     {
         _macrosPath = macrosPath;
@@ -507,9 +535,10 @@ public static class UiaProxyServer
                             }
                         }
 
+                        var logFile = GetStringArg(args, "logFile");
                         var macroResult = _macroEngine.Value.ExecuteAsync(
                             macroName, parsedParams, engine, _cache,
-                            onLog: msg => Console.Error.WriteLine(msg)).GetAwaiter().GetResult();
+                            onLog: CreateLogCallback(logFile)).GetAwaiter().GetResult();
                         return JsonSerializer.Serialize(new { ok = macroResult.Success, result = macroResult });
                     }
                     case Constants.Commands.ExecuteMacroYaml:
@@ -547,9 +576,10 @@ public static class UiaProxyServer
                         }
 
                         var displayName = macroDef.Name ?? "inline-macro";
+                        var execLogFile = GetStringArg(args, "logFile");
                         var execResult = _macroEngine.Value.ExecuteDefinitionAsync(
                             macroDef, displayName, execParams, engine, _cache,
-                            onLog: msg => Console.Error.WriteLine(msg)).GetAwaiter().GetResult();
+                            onLog: CreateLogCallback(execLogFile)).GetAwaiter().GetResult();
                         return JsonSerializer.Serialize(new { ok = execResult.Success, result = execResult });
                     }
                     case Constants.Commands.Launch:

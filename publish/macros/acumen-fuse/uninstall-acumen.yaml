@@ -2,13 +2,14 @@ name: Uninstall Acumen
 description: >-
   Finds installed Acumen versions from the registry, lets the user pick which
   to uninstall (if multiple are found), generates a silent response file, and
-  performs a silent uninstall. No wizard UI is shown.
-timeout: 300
+  performs a silent uninstall. Polls the registry to detect completion rather
+  than relying on a fixed timeout.
+timeout: 600
 steps:
   # Step 1: Query registry for installed Acumen versions, let user pick, return GUID
   - action: run_script
     command: "powershell.exe"
-    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$items = @(Get-ItemProperty ''HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'',''HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'' -EA SilentlyContinue | Where-Object { $_.DisplayName -like ''Deltek Acumen*'' } | Sort-Object DisplayName -Descending); if ($items.Count -eq 0) { Write-Error ''No Acumen installations found''; exit 1 }; if ($items.Count -eq 1) { $sel = $items[0] } else { $sel = $items | Select-Object DisplayName,PSChildName | Out-GridView -Title ''Select Acumen version to uninstall'' -OutputMode Single }; if (-not $sel) { Write-Error ''No version selected''; exit 1 }; Write-Output $sel.PSChildName"'
+    arguments: '-NoProfile -ExecutionPolicy Bypass -STA -Command "$items = @(Get-ItemProperty ''HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'',''HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'' -EA SilentlyContinue | Where-Object { $_.DisplayName -like ''Deltek Acumen*'' } | Sort-Object DisplayName -Descending); if ($items.Count -eq 0) { Write-Error ''No Acumen installations found''; exit 1 }; if ($items.Count -eq 1) { $sel = $items[0] } else { Add-Type -AssemblyName System.Windows.Forms; $form = New-Object System.Windows.Forms.Form; $form.Text = ''Uninstall Acumen''; $form.Width = 400; $form.Height = 200; $form.StartPosition = ''CenterScreen''; $form.FormBorderStyle = ''FixedDialog''; $form.MaximizeBox = $false; $label = New-Object System.Windows.Forms.Label; $label.Text = ''Select version to uninstall:''; $label.Location = New-Object System.Drawing.Point(15,15); $label.AutoSize = $true; $form.Controls.Add($label); $combo = New-Object System.Windows.Forms.ComboBox; $combo.Location = New-Object System.Drawing.Point(15,40); $combo.Width = 350; $combo.DropDownStyle = ''DropDownList''; foreach ($it in $items) { $combo.Items.Add($it.DisplayName + '' ('' + $it.DisplayVersion + '')'') | Out-Null }; $combo.SelectedIndex = 0; $form.Controls.Add($combo); $ok = New-Object System.Windows.Forms.Button; $ok.Text = ''Uninstall''; $ok.Location = New-Object System.Drawing.Point(200,80); $ok.DialogResult = ''OK''; $form.AcceptButton = $ok; $form.Controls.Add($ok); $cancel = New-Object System.Windows.Forms.Button; $cancel.Text = ''Cancel''; $cancel.Location = New-Object System.Drawing.Point(290,80); $cancel.DialogResult = ''Cancel''; $form.CancelButton = $cancel; $form.Controls.Add($cancel); if ($form.ShowDialog() -eq ''OK'') { $sel = $items[$combo.SelectedIndex] } else { Write-Error ''Cancelled''; exit 1 } }; if (-not $sel) { Write-Error ''No version selected''; exit 1 }; Write-Output $sel.PSChildName"'
     save_output_as: productGuid
     timeout: 120
 
@@ -22,12 +23,19 @@ steps:
   # Step 3: Generate a silent response file for the uninstall
   - action: run_script
     command: "powershell.exe"
-    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$g = ''{{productGuid}}''; $v = ''{{productVersion}}''; $lines = @(''[InstallShield Silent]'',''Version=v7.00'',''File=Response File'',''[File Transfer]'',''OverwrittenReadOnly=NoToAll'',\"[$g-DlgOrder]\",\"Dlg0=$g-MessageBox-0\",''Count=2'',\"Dlg1=$g-SdFinish-0\",\"[$g-MessageBox-0]\",''Result=6'',''[Application]'',''Name=Acumen'',\"Version=$v\",''Company=Deltek'',''Lang=0409'',\"[$g-SdFinish-0]\",''Result=1'',''bOpt1=0'',''bOpt2=0''); $path = Join-Path $env:TEMP ''uninstall-acumen.iss''; $lines | Set-Content -Path $path -Encoding ASCII; Write-Output $path"'
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$g = ''{{productGuid}}''; $v = ''{{productVersion}}''; $lines = @(''[InstallShield Silent]'',''Version=v7.00'',''File=Response File'',''[File Transfer]'',''OverwrittenReadOnly=NoToAll'',(''['' + $g + ''-DlgOrder]''),(''Dlg0='' + $g + ''-MessageBox-0''),''Count=2'',(''Dlg1='' + $g + ''-SdFinish-0''),(''['' + $g + ''-MessageBox-0]''),''Result=6'',''[Application]'',''Name=Acumen'',(''Version='' + $v),''Company=Deltek'',''Lang=0409'',(''['' + $g + ''-SdFinish-0]''),''Result=1'',''bOpt1=0'',''bOpt2=0''); $path = Join-Path ([IO.Path]::GetTempPath()) ''uninstall-acumen.iss''; $lines | Set-Content -Path $path -Encoding ASCII; Write-Output $path"'
     save_output_as: issPath
     timeout: 15
 
-  # Step 4: Run the silent uninstall
+  # Step 4: Launch the silent uninstall (fire-and-forget, no -Wait)
   - action: run_script
     command: "powershell.exe"
-    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$setupDir = ''C:\Program Files (x86)\InstallShield Installation Information\{{productGuid}}''; $setupExe = Join-Path $setupDir ''setup.exe''; if (-not (Test-Path $setupExe)) { Write-Error ''InstallShield setup.exe not found''; exit 1 }; $proc = Start-Process -FilePath $setupExe -ArgumentList ''-runfromtemp -l0x0409 -removeonly -s -SMS -f1{{issPath}}'' -Wait -PassThru; exit $proc.ExitCode"'
-    timeout: 45
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$setupDir = ''C:\Program Files (x86)\InstallShield Installation Information\{{productGuid}}''; $setupExe = Join-Path $setupDir ''setup.exe''; if (-not (Test-Path $setupExe)) { Write-Error ''InstallShield setup.exe not found''; exit 1 }; Start-Process -FilePath $setupExe -ArgumentList ''-runfromtemp -l0x0409 -removeonly -s -SMS -f1{{issPath}}''; Write-Output ''launched''"'
+    timeout: 30
+
+  # Step 5: Poll registry until the product is gone (confirms uninstall completed)
+  - action: run_script
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$guid = ''{{productGuid}}''; $regPaths = @(''HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\'' + $guid, ''HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\'' + $guid); for ($i = 0; $i -lt 120; $i++) { $found = $false; foreach ($rp in $regPaths) { if (Test-Path $rp) { $found = $true; break } }; if (-not $found) { Write-Output ''uninstalled''; exit 0 }; Start-Sleep -Seconds 5 }; Write-Error ''Timed out waiting for uninstall to complete''; exit 1"'
+    save_output_as: uninstallResult
+    timeout: 620
