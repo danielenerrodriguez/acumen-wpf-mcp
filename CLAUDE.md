@@ -55,7 +55,7 @@ cmd.exe /c "taskkill /IM WpfMcp.exe /F 2>nul"
 # Build
 cmd.exe /c "cd /d C:\WpfMcp && dotnet build WpfMcp.slnx"
 
-# Test (189 tests)
+# Test (202 tests)
 cmd.exe /c "cd /d C:\WpfMcp && dotnet test WpfMcp.Tests"
 
 # Release build + local publish
@@ -277,7 +277,7 @@ data_formats: { ... }           # Supported import/export formats
 | `WpfMcp/UiaEngine.cs` | Core UI Automation engine (STA thread, SendInput, launch, wait, `ReadElementProperty()`) |
 | `WpfMcp/UiaProxy.cs` | Proxy client/server over named pipe + web dashboard startup |
 | `WpfMcp/MacroDefinition.cs` | YAML POCOs for macros + `KnowledgeBase` + `SaveMacroResult` + `ExportMacroResult` records |
-| `WpfMcp/MacroEngine.cs` | Load/validate/execute/save/export macros, FileSystemWatcher, knowledge base loading |
+| `WpfMcp/MacroEngine.cs` | Load/validate/execute/save/export macros, FileSystemWatcher, knowledge base loading, `UpdateParameterDefaults()` |
 | `WpfMcp/MacroSerializer.cs` | YAML serialization (`ToYaml`, `SaveToFile`) |
 | `WpfMcp/CliMode.cs` | Interactive CLI for manual testing (`read-prop`, `verify` commands) |
 | `WpfMcp/ElementCache.cs` | Thread-safe LRU element reference cache (e1, e2, ..., max 500) |
@@ -286,7 +286,7 @@ data_formats: { ... }           # Supported import/export formats
 | `WpfMcp/ShortcutCreator.cs` | COM-based `.lnk` shortcut creation via `WScript.Shell` |
 | `WpfMcp/Resources.cs` | MCP resources — `knowledge://{productName}` endpoint |
 | `WpfMcp/Web/WebServer.cs` | Kestrel startup for Blazor Server dashboard |
-| `WpfMcp/Web/AppState.cs` | `IAppState` implementation wrapping UiaEngine + ElementCache + MacroEngine |
+| `WpfMcp/Web/AppState.cs` | `IAppState` implementation wrapping UiaEngine + ElementCache + MacroEngine, `BrowseForFileAsync`/`BrowseForFolderAsync` |
 | `WpfMcp.Web/IAppState.cs` | Interface + DTOs for web dashboard (ElementInfo, ActionResult, etc.) |
 | `WpfMcp.Web/Components/` | Razor components: App, Routes, Layout, Dashboard, ElementTree, TreeNode, PropertiesPanel, ActionsPanel, MacroRunner, LogPanel |
 
@@ -555,6 +555,65 @@ Cancellation is not available through MCP tools or the proxy pipe. The proxy ser
 - `CliMode.cs` — `_macroCts` field, `Console.CancelKeyPress` handler, token passed in `macro`/`run`/bare-YAML paths
 - `MacroEngine.cs` — `ExecuteInternalAsync` pre-step check and `OperationCanceledException` catch now distinguish user cancel vs timeout; `run_script` rethrows if parent token cancelled (so step loop reports correct reason)
 - `MacroEngineTests.cs` — 4 cancellation tests (already-cancelled token, cancel during wait step, cancel during run_script, cancel log message)
+
+## Auto-Save Parameter Defaults
+
+When a user runs a macro from the web dashboard with modified parameter values, those values are automatically saved back to the YAML file as new `default:` values. This means the next time someone opens the macro, the inputs are pre-filled with the last-used values.
+
+### Architecture
+1. `AppState.RunMacroAsync()` calls `MacroEngine.UpdateParameterDefaults(macroName, parameters)` after successful execution
+2. `UpdateParameterDefaults()` compares user-provided values against current defaults — skips if unchanged or empty
+3. `UpdateParameterDefaultLines()` (static, pure logic, testable) performs targeted text replacement:
+   - State machine scans for `- name: paramName` entries in the `parameters:` block
+   - Replaces existing `default:` lines in-place, or inserts a new `default:` line after the last field
+   - **Preserves all comments, formatting, and structure** — no YAML round-trip through YamlDotNet
+4. `QuoteYamlValue()` always single-quotes values (consistent with existing files), escapes embedded quotes by doubling (`'` → `''`)
+5. FileSystemWatcher picks up the file change → `Reload()` → `OnMacrosChanged` fires → `MacroRunner.HandleMacrosChanged` re-selects the macro with updated defaults while preserving any user-entered values in the UI
+6. Log entry confirms: `Updated defaults for {macroName}: {param1}, {param2}`
+
+### Edge Cases
+- Parameter has no `default:` line yet → inserted after the last field (`required:`, `description:`, etc.)
+- Parameter value contains single quotes → escaped by doubling (`Deltek's` → `'Deltek''s'`)
+- Value unchanged from current default → no file write, no log
+- Empty parameter value → skipped (not saved as default)
+- Parameters block ends at EOF (no `steps:` line) → handled by end-of-file check
+
+### Files Modified
+- `MacroEngine.cs` — `UpdateParameterDefaults()`, `UpdateParameterDefaultLines()`, `QuoteYamlValue()`
+- `Web/AppState.cs` — post-run save call in `RunMacroAsync`, log on update
+- `MacroRunner.razor` — `HandleMacrosChanged` preserves user input while updating defaults
+- `MacroEngineTests.cs` — 10 tests (update existing, insert new, preserve comments, no-op, special chars, skip empty, static line logic, quote escaping)
+
+## File/Folder Browse Dialogs
+
+Path-like parameters in the web dashboard's Macro Runner show a browse button (folder icon) that opens a native Windows file/folder dialog.
+
+### Heuristic
+`MacroRunner.GetBrowseKind(paramName)` detects the browse type from the parameter name (case-insensitive):
+- Contains `dir` or `folder` → `BrowseKind.Folder` (FolderBrowserDialog)
+- Contains `path` or `file` → `BrowseKind.File` (OpenFileDialog)
+- Neither → no browse button
+
+### How It Works
+1. User clicks the folder icon button next to a parameter input
+2. `MacroRunner.BrowseForPath()` calls `State.BrowseForFileAsync(currentValue)` or `State.BrowseForFolderAsync(currentValue)`
+3. `AppState.RunFileDialog()` runs on `Task.Run` (background thread) to avoid blocking the Blazor circuit
+4. Launches `powershell.exe -NoProfile -NonInteractive -Command "..."` with a WinForms dialog script:
+   - `System.Windows.Forms.OpenFileDialog` for files
+   - `System.Windows.Forms.FolderBrowserDialog` for folders
+5. **Initial directory** is extracted from the current input value:
+   - If the value is an existing file path → uses its directory, pre-fills filename
+   - If the value is an existing directory → uses it directly
+   - If neither exists → tries the parent directory portion
+   - If all fail → dialog opens at the system default
+6. PowerShell process runs with `CreateNoWindow = true`, 30-second timeout, captures stdout
+7. Selected path (or `null` if cancelled) is returned and populates the input field
+8. `_browsing` flag prevents multiple simultaneous dialogs
+
+### Files Modified
+- `IAppState.cs` — `BrowseForFileAsync(string? initialPath)`, `BrowseForFolderAsync(string? initialPath)` interface methods
+- `Web/AppState.cs` — `BrowseForFileAsync`, `BrowseForFolderAsync`, `RunFileDialog` (private static helper)
+- `MacroRunner.razor` — `BrowseKind` enum, `GetBrowseKind()`, `BrowseForPath()`, SVG folder icon button with disabled state
 
 ## Discoveries & Gotchas
 

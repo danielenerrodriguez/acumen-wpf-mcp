@@ -201,6 +201,7 @@ public static class UiaProxyServer
         }
 
         Console.WriteLine($"  Pipe:       {Constants.PipeName}");
+        Console.WriteLine($"  Macros:     {_macroEngine.Value.MacrosPath}");
         Console.WriteLine(Constants.ServerIdleTimeoutMinutes > 0
             ? $"  Idle:       {Constants.ServerIdleTimeoutMinutes} min auto-shutdown"
             : "  Idle:       disabled (running indefinitely)");

@@ -199,6 +199,10 @@ Use `{{paramName}}` placeholders in any string property. Parameters are resolved
 - Default values in the YAML definition
 - Interactive prompts (when running via shortcut or drag-and-drop)
 
+**Auto-save defaults**: When running from the web dashboard, parameter values are automatically saved back to the YAML file as new `default:` values. The next time the macro is opened, inputs pre-fill with the last-used values.
+
+**Browse buttons**: Path-like parameters (names containing `path`, `file`, `dir`, or `folder`) show a browse button that opens a native Windows file/folder dialog, starting in the directory of the current input value.
+
 ### Timeouts and Retry
 
 - **Macro-level timeout** (`timeout` at root): Maximum seconds for the entire macro. Default: 60.
@@ -339,7 +343,7 @@ The elevated server hosts a **Blazor Server dashboard** at `http://localhost:511
 - **Properties Panel** — View all properties of a selected element with change highlighting during watch mode
 - **Actions Panel** — Click, right-click, type, send keys, set value, find elements, verify properties, and focus
 - **Process Attach** — Select and attach to any windowed process from a dropdown
-- **Macro Runner** — List, select, and run macros with parameter input; cancel running macros; double-click to open YAML in editor
+- **Macro Runner** — List, select, and run macros with parameter input; cancel running macros; double-click to open YAML in editor; browse buttons for path parameters; auto-saves parameter defaults after run
 - **Log Panel** — Live log viewer with auto-scroll and clickable element references
 - **Watch Mode** — Toggle focus/hover/keypress recording from the dashboard
 
@@ -581,7 +585,7 @@ Output: `WpfMcp\bin\Release\net9.0-windows\WpfMcp.exe`
 ### Running Tests
 
 ```
-dotnet test    # 189 tests
+dotnet test    # 202 tests
 ```
 
 ### CI/CD
@@ -649,8 +653,8 @@ C:\WpfMcp\
     export-shortcuts.cmd                Generates .lnk shortcuts for all macros
     launch-cli.cmd                      Opens interactive CLI mode
     run-indefinite.cmd                  Starts server with --no-idle (runs forever)
-  WpfMcp.Tests/                         189 xUnit tests
-    MacroEngineTests.cs                 118 tests — macro loading, validation, execution, saving, includes, verify match modes, cancellation
+  WpfMcp.Tests/                         202 xUnit tests
+    MacroEngineTests.cs                 128 tests — macro loading, validation, execution, saving, includes, verify match modes, cancellation, parameter default updates
     MacroExportTests.cs                 18 tests — shortcut export, ShortcutCreator
     MacroSerializerTests.cs             6 tests — YAML serialization round-trips
     WpfToolsTests.cs                    9 tests — MCP tool input validation
