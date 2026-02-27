@@ -837,6 +837,11 @@ public class MacroEngine : IDisposable
     internal static string FormatStepSummary(MacroStep step, Dictionary<string, string> parameters)
     {
         var action = step.Action.ToLowerInvariant();
+
+        // If the step has a human-readable description, use it instead of raw parameters
+        if (!string.IsNullOrEmpty(step.Description))
+            return $"{action} \u2014 {SubstituteParams(step.Description, parameters)}";
+
         var parts = new List<string>();
 
         // Include the most relevant fields per action type
@@ -906,7 +911,8 @@ public class MacroEngine : IDisposable
                 break;
             case "run_script":
                 if (step.Command != null) parts.Add($"command={SubstituteParams(step.Command, parameters)}");
-                if (step.Arguments != null) parts.Add($"args={SubstituteParams(step.Arguments, parameters)}");
+                // Intentionally skip step.Arguments — it's typically a long PowerShell one-liner
+                // that makes logs unreadable. Use step.Description for human-readable context.
                 if (step.SaveOutputAs != null) parts.Add($"save_output_as={step.SaveOutputAs}");
                 if (step.IgnoreExitCode == true) parts.Add("ignore_exit_code");
                 break;

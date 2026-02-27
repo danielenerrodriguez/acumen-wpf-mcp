@@ -49,6 +49,10 @@ public class MacroStep
     [YamlMember(Alias = "action")]
     public string Action { get; set; } = "";
 
+    /// <summary>Optional human-readable description of what this step does. Shown in logs instead of raw parameters.</summary>
+    [YamlMember(Alias = "description")]
+    public string? Description { get; set; }
+
     // --- find / find_by_path ---
     [YamlMember(Alias = "automation_id")]
     public string? AutomationId { get; set; }

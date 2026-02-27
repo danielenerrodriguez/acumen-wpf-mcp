@@ -153,11 +153,20 @@ steps:
     match_mode: equals       # equals (default), contains, not_equals, regex, starts_with
     message: "Optional custom failure message"
   - action: run_script
+    description: "Run greeting script"  # optional — shown in logs instead of raw arguments
     command: "powershell.exe"
     arguments: "-NoProfile -Command \"echo hello\""
     save_output_as: scriptOutput   # stores trimmed stdout as {{scriptOutput}} for subsequent steps
     ignore_exit_code: true         # non-zero exit code won't fail the step (default: false)
 ```
+
+### Step `description` Field
+Any step can have an optional `description` field. When present, logs show the description instead of raw parameter values:
+```
+[Macro] Step 3/8: run_script — Check if already installed     , WITH description
+[Macro] Step 3/8: run_script (command=powershell.exe, save_output_as=installCheck)  , WITHOUT description
+```
+Especially useful for `run_script` steps where arguments are long PowerShell one-liners. The `run_script` summary intentionally omits the `arguments` field even without a description — only `command` and `save_output_as` are shown.
 
 ### Step Types
 `launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys` (alias), `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `verify`, `include`, `macro`, `run_script`
@@ -507,7 +516,7 @@ Per-step logging for macro execution, visible in both terminal (stderr) and web 
 ```
 
 ### FormatStepSummary Coverage
-Covers all 22 action types: `launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys`, `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `verify`, `run_script`. Each type extracts relevant fields (e.g., `automation_id` for `find`, `keys` for `send_keys`, `property`+`expected`+`match_mode` for `verify`, `command`+`args`+`save_output_as` for `run_script`).
+If a step has a `description` field, the summary is `"{action} — {description}"` (parameter substitution applied). Otherwise, covers all 22 action types: `launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys`, `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `verify`, `run_script`. Each type extracts relevant fields (e.g., `automation_id` for `find`, `keys` for `send_keys`, `property`+`expected`+`match_mode` for `verify`, `command`+`save_output_as` for `run_script`).
 
 ### Files Modified
 - `MacroEngine.cs` — `onLog` parameter on execute methods, `FormatStepSummary()` static helper, step loop pre/post logging

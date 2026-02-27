@@ -1994,7 +1994,7 @@ steps:
     }
 
     [Fact]
-    public void RunScript_FormatStepSummary_ShowsCommandAndArgs()
+    public void RunScript_FormatStepSummary_ShowsCommandOnly()
     {
         var step = new MacroStep
         {
@@ -2004,7 +2004,8 @@ steps:
         };
         var summary = MacroEngine.FormatStepSummary(step, new Dictionary<string, string>());
         Assert.Contains("command=powershell.exe", summary);
-        Assert.Contains("args=-NoProfile -Command test", summary);
+        // Arguments are intentionally excluded to keep logs readable
+        Assert.DoesNotContain("args=", summary);
     }
 
     [Fact]
@@ -2049,7 +2050,51 @@ steps:
         };
         var summary = MacroEngine.FormatStepSummary(step, parameters);
         Assert.Contains("command=powershell.exe", summary);
-        Assert.Contains("args=-File test.ps1", summary);
+        // Arguments are excluded from summary
+        Assert.DoesNotContain("args=", summary);
+    }
+
+    [Fact]
+    public void FormatStepSummary_UsesDescriptionWhenPresent()
+    {
+        var step = new MacroStep
+        {
+            Action = "run_script",
+            Command = "powershell.exe",
+            Arguments = "-NoProfile -Command \"some very long script...\"",
+            Description = "Check if already installed"
+        };
+        var summary = MacroEngine.FormatStepSummary(step, new Dictionary<string, string>());
+        Assert.Equal("run_script \u2014 Check if already installed", summary);
+        Assert.DoesNotContain("powershell", summary);
+    }
+
+    [Fact]
+    public void FormatStepSummary_DescriptionSubstitutesParams()
+    {
+        var step = new MacroStep
+        {
+            Action = "run_script",
+            Command = "powershell.exe",
+            Description = "Install version {{version}}"
+        };
+        var parameters = new Dictionary<string, string> { ["version"] = "8.12" };
+        var summary = MacroEngine.FormatStepSummary(step, parameters);
+        Assert.Equal("run_script \u2014 Install version 8.12", summary);
+    }
+
+    [Fact]
+    public void FormatStepSummary_DescriptionWorksForAllActionTypes()
+    {
+        var step = new MacroStep
+        {
+            Action = "find",
+            AutomationId = "someId",
+            Description = "Find the main panel"
+        };
+        var summary = MacroEngine.FormatStepSummary(step, new Dictionary<string, string>());
+        Assert.Equal("find \u2014 Find the main panel", summary);
+        Assert.DoesNotContain("automation_id", summary);
     }
 
     [Fact]
