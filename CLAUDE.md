@@ -55,7 +55,7 @@ cmd.exe /c "taskkill /IM WpfMcp.exe /F 2>nul"
 # Build
 cmd.exe /c "cd /d C:\WpfMcp && dotnet build WpfMcp.slnx"
 
-# Test (185 tests)
+# Test (189 tests)
 cmd.exe /c "cd /d C:\WpfMcp && dotnet test WpfMcp.Tests"
 
 # Release build + local publish
@@ -514,6 +514,38 @@ Covers all 22 action types: `launch`, `wait_for_window`, `wait_for_enabled`, `at
 - `Web/AppState.cs` — passes log callback to `ExecuteAsync`
 - `UiaProxy.cs` — passes stderr callback for `runMacro` and `executeMacroYaml` commands
 - `Tools.cs` — passes stderr callback for direct-mode `wpf_macro` fallback
+
+## Macro Cancellation
+
+User-initiated cancellation of running macros from the web dashboard and CLI.
+
+### Architecture
+1. `MacroEngine` already accepts `CancellationToken cancellation` on all execute methods (`ExecuteAsync`, `ExecuteDefinitionAsync`, `ExecuteInternalAsync`)
+2. Cancellation is checked before each step and propagates through linked `CancellationTokenSource` chains (caller → macro timeout → step timeout)
+3. For `run_script` steps, cancellation kills the child process tree via `proc.Kill(entireProcessTree: true)`
+4. Log messages distinguish "CANCELLED" (user-initiated) from "TIMEOUT" (macro/step timeout) by checking `cancellation.IsCancellationRequested`
+
+### Web Dashboard
+- `AppState` owns a `CancellationTokenSource? _macroCts` field, created at the start of `RunMacroAsync()`, disposed in `finally`
+- `CancelMacro()` calls `_macroCts?.Cancel()` — thread-safe (CTS.Cancel is thread-safe)
+- `IsMacroRunning` property returns `_macroCts != null`
+- `MacroRunner.razor` shows a red **Cancel** button while a macro is running (replaces the "Run Macro" button)
+
+### CLI Mode
+- Static `CancellationTokenSource? _macroCts` field in `CliMode`
+- `Console.CancelKeyPress` handler: if a macro is running (`_macroCts != null`), cancels the CTS and sets `e.Cancel = true` to prevent process termination; otherwise lets Ctrl+C terminate normally
+- Token is passed to `ExecuteAsync` / `ExecuteDefinitionAsync` for `macro`, `run`, and bare YAML path execution
+
+### MCP / Proxy — NOT SUPPORTED
+Cancellation is not available through MCP tools or the proxy pipe. The proxy server handles commands synchronously (`.GetAwaiter().GetResult()`) which blocks the pipe reader thread — a `cancelMacro` command cannot be received while a macro is running. This is the same root cause as the documented pipe deadlock bug.
+
+### Files Modified
+- `IAppState.cs` — added `CancelMacro()`, `IsMacroRunning` to interface
+- `AppState.cs` — `_macroCts` field, `CancelMacro()`, `IsMacroRunning`, token passed in `RunMacroAsync`
+- `MacroRunner.razor` — conditional Cancel/Run button, `CancelMacro()` method
+- `CliMode.cs` — `_macroCts` field, `Console.CancelKeyPress` handler, token passed in `macro`/`run`/bare-YAML paths
+- `MacroEngine.cs` — `ExecuteInternalAsync` pre-step check and `OperationCanceledException` catch now distinguish user cancel vs timeout; `run_script` rethrows if parent token cancelled (so step loop reports correct reason)
+- `MacroEngineTests.cs` — 4 cancellation tests (already-cancelled token, cancel during wait step, cancel during run_script, cancel log message)
 
 ## Discoveries & Gotchas
 

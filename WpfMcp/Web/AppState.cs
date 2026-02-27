@@ -25,6 +25,20 @@ internal sealed class AppState : IAppState
     public event Action? OnWatchStateChanged;
     public event Action? OnMacrosChanged;
 
+    // Macro cancellation
+    private CancellationTokenSource? _macroCts;
+    public bool IsMacroRunning => _macroCts != null;
+
+    public void CancelMacro()
+    {
+        var cts = _macroCts;
+        if (cts != null)
+        {
+            Log(Web.LogLevel.Warning, "Cancelling macro...");
+            try { cts.Cancel(); } catch (ObjectDisposedException) { }
+        }
+    }
+
     // Watch session state
     private Timer? _watchTimer;
     private WatchSession? _currentSession;
@@ -377,9 +391,12 @@ internal sealed class AppState : IAppState
     public async Task<MacroRunResult> RunMacroAsync(string name, Dictionary<string, string> parameters)
     {
         Log(Web.LogLevel.Info, $"Running macro '{name}'...");
+        var cts = new CancellationTokenSource();
+        _macroCts = cts;
         try
         {
             var result = await _macroEngine.Value.ExecuteAsync(name, parameters, _engine, _cache,
+                cancellation: cts.Token,
                 onLog: msg => Log(Web.LogLevel.Info, msg));
             if (result.Success)
                 Log(Web.LogLevel.Success, $"Macro '{name}' completed ({result.StepsExecuted}/{result.TotalSteps} steps)");
@@ -392,6 +409,11 @@ internal sealed class AppState : IAppState
         {
             Log(Web.LogLevel.Error, $"Macro '{name}' error: {ex.Message}");
             return new MacroRunResult(false, ex.Message, 0, 0, ex.Message);
+        }
+        finally
+        {
+            _macroCts = null;
+            cts.Dispose();
         }
     }
 

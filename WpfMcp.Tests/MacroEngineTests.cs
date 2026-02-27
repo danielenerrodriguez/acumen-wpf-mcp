@@ -2221,6 +2221,100 @@ steps:
         Assert.True(result.Success, result.Message);
     }
 
+    // --- Cancellation ---
+
+    [Fact]
+    public async Task Execute_AlreadyCancelledToken_ReturnsImmediately()
+    {
+        WriteMacro("cancel-test.yaml", @"
+name: Cancel Test
+steps:
+  - action: run_script
+    command: cmd.exe
+    arguments: /c echo should-not-run
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // Already cancelled before execution starts
+
+        var result = await engine.ExecuteAsync("cancel-test", cancellation: cts.Token);
+        Assert.False(result.Success);
+        Assert.Contains("cancelled", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Cancelled", result.Error);
+        Assert.Equal(0, result.StepsExecuted);
+    }
+
+    [Fact]
+    public async Task Execute_CancelDuringWaitStep_StopsMacro()
+    {
+        WriteMacro("cancel-wait.yaml", @"
+name: Cancel Wait
+steps:
+  - action: run_script
+    command: cmd.exe
+    arguments: /c echo step1
+  - action: wait
+    seconds: 30
+  - action: run_script
+    command: cmd.exe
+    arguments: /c echo should-not-run
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        using var cts = new CancellationTokenSource();
+
+        // Cancel after 500ms — step 1 completes fast, step 2 (30s wait) gets cancelled
+        cts.CancelAfter(TimeSpan.FromMilliseconds(500));
+
+        var result = await engine.ExecuteAsync("cancel-wait", cancellation: cts.Token);
+        Assert.False(result.Success);
+        Assert.Contains("cancelled", result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, result.StepsExecuted); // Only step 1 completed
+    }
+
+    [Fact]
+    public async Task Execute_CancelDuringRunScript_KillsProcess()
+    {
+        // Use a long-running command (ping localhost with count=100)
+        WriteMacro("cancel-script.yaml", @"
+name: Cancel Script
+steps:
+  - action: run_script
+    command: cmd.exe
+    arguments: /c ping -n 100 127.0.0.1
+    timeout: 60
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        using var cts = new CancellationTokenSource();
+
+        // Cancel after 1s — the ping takes much longer
+        cts.CancelAfter(TimeSpan.FromSeconds(1));
+
+        var result = await engine.ExecuteAsync("cancel-script", cancellation: cts.Token);
+        Assert.False(result.Success);
+        Assert.Contains("cancelled", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Execute_CancelledLogMessage_ShowsCancelled()
+    {
+        WriteMacro("cancel-log.yaml", @"
+name: Cancel Log
+steps:
+  - action: wait
+    seconds: 30
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        using var cts = new CancellationTokenSource();
+        var logs = new List<string>();
+
+        cts.CancelAfter(TimeSpan.FromMilliseconds(200));
+
+        var result = await engine.ExecuteAsync("cancel-log", cancellation: cts.Token,
+            onLog: msg => logs.Add(msg));
+        Assert.False(result.Success);
+        Assert.Contains(logs, l => l.Contains("CANCELLED"));
+    }
+
     // --- Helper to write a knowledge base ---
 
     private void WriteKnowledgeBase(string productFolder, string processName)

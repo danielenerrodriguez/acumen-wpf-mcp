@@ -954,9 +954,17 @@ public class MacroEngine : IDisposable
 
             // Check for cancellation / macro timeout
             if (macroCts.IsCancellationRequested)
+            {
+                var isCancelled = cancellation.IsCancellationRequested;
+                var reason = isCancelled ? "Cancelled" : "Macro timeout exceeded";
+                var logLabel = isCancelled ? "CANCELLED" : "TIMEOUT";
+                onLog?.Invoke($"[Macro] Step {i + 1}/{macro.Steps.Count}: {logLabel}");
                 return new MacroResult(false, i, macro.Steps.Count,
-                    $"Macro '{macroName}' timed out after {macroTimeoutSec}s at step {i + 1} ({step.Action})",
-                    i, step.Action, "Macro timeout exceeded");
+                    isCancelled
+                        ? $"Macro '{macroName}' cancelled at step {i + 1} ({step.Action})"
+                        : $"Macro '{macroName}' timed out after {macroTimeoutSec}s at step {i + 1} ({step.Action})",
+                    i, step.Action, reason);
+            }
 
             // Check process is still alive (except for actions that don't require attachment)
             if (step.Action is not ("attach" or "wait" or "macro" or "include" or "launch" or "wait_for_window" or "run_script"))
@@ -986,10 +994,15 @@ public class MacroEngine : IDisposable
             }
             catch (OperationCanceledException)
             {
-                onLog?.Invoke($"[Macro] Step {i + 1}/{macro.Steps.Count}: TIMEOUT");
+                var isCancelled = cancellation.IsCancellationRequested;
+                var logLabel = isCancelled ? "CANCELLED" : "TIMEOUT";
+                var reason = isCancelled ? "Cancelled" : "Timeout";
+                onLog?.Invoke($"[Macro] Step {i + 1}/{macro.Steps.Count}: {logLabel}");
                 return new MacroResult(false, i, macro.Steps.Count,
-                    $"Macro '{macroName}' timed out at step {i + 1} ({step.Action})",
-                    i, step.Action, "Timeout");
+                    isCancelled
+                        ? $"Macro '{macroName}' cancelled at step {i + 1} ({step.Action})"
+                        : $"Macro '{macroName}' timed out at step {i + 1} ({step.Action})",
+                    i, step.Action, reason);
             }
             catch (Exception ex)
             {
@@ -1389,6 +1402,10 @@ public class MacroEngine : IDisposable
                     catch (OperationCanceledException)
                     {
                         try { proc.Kill(entireProcessTree: true); } catch { }
+                        // If the parent cancellation token was triggered (user cancel or macro timeout),
+                        // rethrow so the step loop can report the correct reason
+                        if (cancellation.IsCancellationRequested)
+                            throw;
                         return new StepResult(false,
                             $"run_script timed out after {stepTimeoutSec}s: {command}",
                             "Process timed out");

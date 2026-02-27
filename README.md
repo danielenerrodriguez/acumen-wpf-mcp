@@ -204,6 +204,7 @@ Use `{{paramName}}` placeholders in any string property. Parameters are resolved
 - **Macro-level timeout** (`timeout` at root): Maximum seconds for the entire macro. Default: 60.
 - **Step-level timeout** (`timeout` on a step): Maximum seconds for that step. Default: 5. For `find` and `find_by_path` actions, the step retries at `retry_interval` (default: 1s) until the timeout expires.
 - **Crash detection**: If the target process exits mid-macro, execution stops immediately with a clear error.
+- **Cancellation**: Running macros can be cancelled from the web dashboard (Cancel button) or CLI (`Ctrl+C`). Cancellation kills any running child processes (e.g., `run_script` steps) and stops at the current step.
 
 ### Examples
 
@@ -338,7 +339,7 @@ The elevated server hosts a **Blazor Server dashboard** at `http://localhost:511
 - **Properties Panel** — View all properties of a selected element with change highlighting during watch mode
 - **Actions Panel** — Click, right-click, type, send keys, set value, find elements, verify properties, and focus
 - **Process Attach** — Select and attach to any windowed process from a dropdown
-- **Macro Runner** — List, select, and run macros with parameter input; double-click to open YAML in editor
+- **Macro Runner** — List, select, and run macros with parameter input; cancel running macros; double-click to open YAML in editor
 - **Log Panel** — Live log viewer with auto-scroll and clickable element references
 - **Watch Mode** — Toggle focus/hover/keypress recording from the dashboard
 
@@ -580,7 +581,7 @@ Output: `WpfMcp\bin\Release\net9.0-windows\WpfMcp.exe`
 ### Running Tests
 
 ```
-dotnet test    # 168 tests
+dotnet test    # 189 tests
 ```
 
 ### CI/CD
@@ -648,8 +649,8 @@ C:\WpfMcp\
     export-shortcuts.cmd                Generates .lnk shortcuts for all macros
     launch-cli.cmd                      Opens interactive CLI mode
     run-indefinite.cmd                  Starts server with --no-idle (runs forever)
-  WpfMcp.Tests/                         168 xUnit tests
-    MacroEngineTests.cs                 114 tests — macro loading, validation, execution, saving, includes, verify match modes
+  WpfMcp.Tests/                         189 xUnit tests
+    MacroEngineTests.cs                 118 tests — macro loading, validation, execution, saving, includes, verify match modes, cancellation
     MacroExportTests.cs                 18 tests — shortcut export, ShortcutCreator
     MacroSerializerTests.cs             6 tests — YAML serialization round-trips
     WpfToolsTests.cs                    9 tests — MCP tool input validation

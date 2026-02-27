@@ -44,6 +44,12 @@ public interface IAppState
     List<MacroSummary> ListMacros();
     Task<MacroRunResult> RunMacroAsync(string name, Dictionary<string, string> parameters);
 
+    /// <summary>Cancel the currently running macro (no-op if nothing is running).</summary>
+    void CancelMacro();
+
+    /// <summary>Whether a macro is currently executing.</summary>
+    bool IsMacroRunning { get; }
+
     /// <summary>Open a macro YAML file in the user's default editor (VS Code, Notepad, etc.).</summary>
     ActionResult OpenMacroFile(string macroName);
 

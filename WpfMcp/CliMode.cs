@@ -8,6 +8,9 @@ namespace WpfMcp;
 /// </summary>
 public static class CliMode
 {
+    // Macro cancellation: set when a macro is running, cancelled by Ctrl+C
+    private static CancellationTokenSource? _macroCts;
+
     static void PrintResult((bool success, string message) result) =>
         Console.WriteLine(result.success ? $"OK: {result.message}" : $"Error: {result.message}");
 
@@ -53,6 +56,18 @@ public static class CliMode
         var commandLock = new SemaphoreSlim(1, 1);
         var appState = new AppState(engine, cache, new Lazy<MacroEngine>(() => macroEngine), commandLock);
 
+        // Ctrl+C handler: cancel running macro instead of killing the process
+        Console.CancelKeyPress += (_, e) =>
+        {
+            var cts = _macroCts;
+            if (cts != null)
+            {
+                e.Cancel = true; // Don't terminate the process
+                try { cts.Cancel(); } catch (ObjectDisposedException) { }
+            }
+            // If no macro running, let default Ctrl+C behavior terminate
+        };
+
         while (true)
         {
             Console.Write("wpf> ");
@@ -65,7 +80,16 @@ public static class CliMode
             var trimmedLine = line.Trim('"'); // Windows sometimes wraps dragged paths in quotes
             if (trimmedLine.EndsWith(".yaml", StringComparison.OrdinalIgnoreCase) && File.Exists(trimmedLine))
             {
-                await RunYamlFileAsync(trimmedLine, "", macroEngine, engine, cache);
+                using var cts = new CancellationTokenSource();
+                _macroCts = cts;
+                try
+                {
+                    await RunYamlFileAsync(trimmedLine, "", macroEngine, engine, cache, cts.Token);
+                }
+                finally
+                {
+                    _macroCts = null;
+                }
                 continue;
             }
 
@@ -317,16 +341,28 @@ public static class CliMode
                                 if (kv.Length == 2) macroParams[kv[0]] = kv[1];
                             }
                         }
-                        Console.WriteLine($"Running macro '{macroName}'...");
-                        var macroResult = await macroEngine.ExecuteAsync(macroName, macroParams, engine, cache);
-                        if (macroResult.Success)
-                            Console.WriteLine($"OK: {macroResult.Message}");
-                        else
+                        Console.WriteLine($"Running macro '{macroName}'... (Ctrl+C to cancel)");
+                        using (var cts = new CancellationTokenSource())
                         {
-                            Console.WriteLine($"FAILED: {macroResult.Message}");
-                            if (macroResult.Error != null)
-                                Console.WriteLine($"  Error: {macroResult.Error}");
-                            Console.WriteLine($"  Steps completed: {macroResult.StepsExecuted}/{macroResult.TotalSteps}");
+                            _macroCts = cts;
+                            try
+                            {
+                                var macroResult = await macroEngine.ExecuteAsync(macroName, macroParams, engine, cache,
+                                    cancellation: cts.Token);
+                                if (macroResult.Success)
+                                    Console.WriteLine($"OK: {macroResult.Message}");
+                                else
+                                {
+                                    Console.WriteLine($"FAILED: {macroResult.Message}");
+                                    if (macroResult.Error != null)
+                                        Console.WriteLine($"  Error: {macroResult.Error}");
+                                    Console.WriteLine($"  Steps completed: {macroResult.StepsExecuted}/{macroResult.TotalSteps}");
+                                }
+                            }
+                            finally
+                            {
+                                _macroCts = null;
+                            }
                         }
                         break;
 
@@ -340,7 +376,18 @@ public static class CliMode
                         var runParts = arg.Split(' ', 2, StringSplitOptions.TrimEntries);
                         var runPath = runParts[0].Trim('"');
                         var runParamsStr = runParts.Length > 1 ? runParts[1] : "";
-                        await RunYamlFileAsync(runPath, runParamsStr, macroEngine, engine, cache);
+                        using (var runCts = new CancellationTokenSource())
+                        {
+                            _macroCts = runCts;
+                            try
+                            {
+                                await RunYamlFileAsync(runPath, runParamsStr, macroEngine, engine, cache, runCts.Token);
+                            }
+                            finally
+                            {
+                                _macroCts = null;
+                            }
+                        }
                         break;
 
                     case "export":
@@ -465,7 +512,8 @@ public static class CliMode
     /// </summary>
     private static async Task RunYamlFileAsync(
         string yamlPath, string paramsStr,
-        MacroEngine macroEngine, UiaEngine engine, ElementCache cache)
+        MacroEngine macroEngine, UiaEngine engine, ElementCache cache,
+        CancellationToken cancellation = default)
     {
         if (!File.Exists(yamlPath))
         {
@@ -517,7 +565,8 @@ public static class CliMode
         var displayName = macro.Name ?? Path.GetFileNameWithoutExtension(yamlPath);
         Console.WriteLine($"Running '{displayName}' ({macro.Steps.Count} steps)...");
 
-        var result = await macroEngine.ExecuteDefinitionAsync(macro, displayName, runParams, engine, cache);
+        var result = await macroEngine.ExecuteDefinitionAsync(macro, displayName, runParams, engine, cache,
+            cancellation: cancellation);
         if (result.Success)
             Console.WriteLine($"OK: {result.Message}");
         else
