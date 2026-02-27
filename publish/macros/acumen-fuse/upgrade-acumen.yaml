@@ -1,0 +1,85 @@
+name: Upgrade Acumen
+description: >-
+  Upgrades an existing Acumen installation using either a base installer or a
+  CU (Cumulative Update) installer. Detects the installer type automatically.
+  Base installers use a silent response file (5-dialog). CU installers run
+  silently with no response file needed. Requires a matching Acumen version
+  to already be installed.
+timeout: 900
+parameters:
+  - name: installerPath
+    description: Full path to the Acumen installer or CU .exe (leave empty for file picker)
+    required: false
+    default: ""
+steps:
+  # Step 1: Select installer file
+  - action: run_script
+    description: Select installer file
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -STA -Command "$p = ''{{installerPath}}''; if ($p -and (Test-Path $p)) { Write-Output $p; exit 0 }; Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = ''Select Acumen Installer or CU''; $d.Filter = ''Installer (*.exe)|*.exe|All files (*.*)|*.*''; $d.InitialDirectory = [Environment]::GetFolderPath(''Desktop''); if ($d.ShowDialog() -eq ''OK'') { Write-Output $d.FileName } else { Write-Error ''No file selected''; exit 1 }"'
+    save_output_as: installerExe
+    timeout: 120
+
+  # Step 2: Detect installer type — try /extract_all to get GUID
+  # Base installers produce setup.ini with ProductGUID. CU installers extract zero files.
+  - action: run_script
+    description: Detect installer type (base or CU)
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$d = Join-Path ([IO.Path]::GetTempPath()) (''acumen-extract-'' + [guid]::NewGuid().ToString(''N'').Substring(0,8)); New-Item $d -ItemType Directory -Force | Out-Null; Start-Process -FilePath ''{{installerExe}}'' -ArgumentList \"/extract_all:$d\" -Wait -PassThru -NoNewWindow | Out-Null; $ini = Get-ChildItem $d -Filter ''setup.ini'' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1; if ($ini) { $c = Get-Content $ini.FullName -Raw; $m = [regex]::Match($c, ''ProductGUID=([A-Fa-f0-9-]+)''); Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue; if ($m.Success) { Write-Output (''base:'' + $m.Groups[1].Value) } else { Write-Output ''cu:'' } } else { Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue; Write-Output ''cu:'' }"'
+    save_output_as: installerType
+    timeout: 30
+
+  # Step 3: Extract version hint from filename (e.g., DeltekAcumen811 → 8.11)
+  - action: run_script
+    description: Extract version from filename
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$name = [IO.Path]::GetFileNameWithoutExtension(''{{installerExe}}''); $m = [regex]::Match($name, ''(\d+)(\d{2})''); if ($m.Success) { Write-Output \"$($m.Groups[1].Value).$($m.Groups[2].Value)\" } else { Write-Error ''Cannot determine version from filename''; exit 1 }"'
+    save_output_as: versionHint
+    timeout: 10
+
+  # Step 4: Find matching installed Acumen version and get its current state
+  - action: run_script
+    description: Find matching installed version
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$ver = ''{{versionHint}}''; $items = @(Get-ItemProperty ''HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'',''HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'' -EA SilentlyContinue | Where-Object { $_.DisplayName -like \"Deltek Acumen $ver*\" }); if ($items.Count -eq 0) { Write-Error \"No Acumen $ver installation found. Install the base version first.\"; exit 1 }; $item = $items[0]; Write-Output \"$($item.PSChildName)|$($item.DisplayVersion)|$($item.InstallLocation)\""'
+    save_output_as: installedInfo
+    timeout: 10
+
+  # Step 5: Parse installed info into separate variables
+  - action: run_script
+    description: Parse installed version details
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$parts = ''{{installedInfo}}''.Split(''|''); Write-Output $parts[0]"'
+    save_output_as: installedGuid
+    timeout: 5
+
+  - action: run_script
+    description: Get current version
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$parts = ''{{installedInfo}}''.Split(''|''); Write-Output $parts[1]"'
+    save_output_as: currentVersion
+    timeout: 5
+
+  - action: run_script
+    description: Get install directory
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$parts = ''{{installedInfo}}''.Split(''|''); Write-Output $parts[2]"'
+    save_output_as: installDir
+    timeout: 5
+
+  # Step 6: Run the upgrade — different path for base vs CU
+  - action: run_script
+    description: Run upgrade installer
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$type = ''{{installerType}}''; if ($type.StartsWith(''base:'')) { $guid = $type.Substring(5); $g = ''{'' + $guid + ''}''; $dir = ''{{installDir}}''; $lines = @(''[InstallShield Silent]'',''Version=v7.00'',''File=Response File'',''[File Transfer]'',''OverwrittenReadOnly=NoToAll'',(''['' + $g + ''-DlgOrder]''),(''Dlg0='' + $g + ''-MessageBox-0''),''Count=5'',(''Dlg1='' + $g + ''-SdWelcome-0''),(''Dlg2='' + $g + ''-SdAskDestPath2-0''),(''Dlg3='' + $g + ''-SdStartCopy-0''),(''Dlg4='' + $g + ''-SdFinish-0''),(''['' + $g + ''-MessageBox-0]''),''Result=1'',(''['' + $g + ''-SdWelcome-0]''),''Result=1'',(''['' + $g + ''-SdAskDestPath2-0]''),(''szDir='' + $dir),''Result=1'',(''['' + $g + ''-SdStartCopy-0]''),''Result=1'',''[Application]'',''Name=Acumen'',''Version={{versionHint}}.0'',''Company=Deltek'',''Lang=0409'',(''['' + $g + ''-SdFinish-0]''),''Result=1'',''bOpt1=0'',''bOpt2=0''); $issPath = Join-Path ([IO.Path]::GetTempPath()) ''upgrade-acumen.iss''; $lines | Set-Content -Path $issPath -Encoding ASCII; Start-Process -FilePath ''{{installerExe}}'' -ArgumentList \"-s -SMS -f1$issPath\"; Write-Output ''base-launched'' } else { Start-Process -FilePath ''{{installerExe}}'' -ArgumentList ''-s -SMS'' -Wait; Write-Output ''cu-done'' }"'
+    save_output_as: launchResult
+    timeout: 300
+
+  # Step 7: Wait for completion
+  # CU: already waited (-Wait in step 6). Base: poll registry for version change or setup.log.
+  - action: run_script
+    description: Verify upgrade completed
+    command: "powershell.exe"
+    arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$result = ''{{launchResult}}''; $guid = ''{{installedGuid}}''; $oldVer = ''{{currentVersion}}''; if ($result -eq ''cu-done'') { $logPath = Join-Path $env:TEMP ''setup.log''; if (Test-Path $logPath) { $content = Get-Content $logPath -Raw; if ($content -match ''ResultCode=0'') { Write-Output ''CU applied successfully''; exit 0 } else { Write-Error ''CU may have failed — check setup.log''; exit 1 } } else { Write-Output ''CU completed (no setup.log found)''; exit 0 } }; $paths = @(\"HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\$guid\",\"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\$guid\"); for ($i = 0; $i -lt 120; $i++) { foreach ($p in $paths) { if (Test-Path $p) { $props = Get-ItemProperty $p; if ($props.DisplayVersion -and $props.DisplayVersion -ne $oldVer) { Write-Output \"Upgraded: $($props.DisplayName) $oldVer -> $($props.DisplayVersion)\"; exit 0 } } }; Start-Sleep -Seconds 5 }; $logPath = Join-Path $env:TEMP ''setup.log''; if (Test-Path $logPath) { $content = Get-Content $logPath -Raw; if ($content -match ''ResultCode=0'') { Write-Output \"Upgrade applied (version unchanged in registry: $oldVer)\"; exit 0 } }; Write-Error ''Timed out waiting for upgrade to complete''; exit 1"'
+    save_output_as: upgradeResult
+    timeout: 620

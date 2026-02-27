@@ -1,7 +1,7 @@
 # Acumen Fuse Knowledge Base
 # For use by AI agents navigating Deltek Acumen Fuse via WPF MCP tools
 # Version: 8.12.0 x64
-# Last updated: 2026-02-26 (refactored all 12 macros to use action:include for launch/import-xer reuse, added timeout:30 to import-xer find_by_path)
+# Last updated: 2026-02-27 (added install/uninstall/upgrade Acumen workflows and macros using run_script steps with silent InstallShield)
 
 kind: knowledge-base
 
@@ -1918,6 +1918,63 @@ workflows:
       Both can be dismissed with Tab,Enter to select Ignore.
       The macro import-xer-and-risk-analysis.yaml handles the full end-to-end
       flow including new workbook, import, save, tab switch, and dialog dismissal.
+
+  fresh_install_acumen:
+    description: "Install Acumen from a base installer exe using silent InstallShield"
+    status: verified
+    last_tested: "2026-02-26"
+    existing_macro: fresh-install-acumen.yaml
+    steps:
+      - "File picker dialog to select installer .exe (or use installerPath parameter)"
+      - "Extract ProductGUID from installer via /extract_all + setup.ini parsing"
+      - "Check if already installed via registry lookup (exits early if found)"
+      - "Extract version hint from filename (e.g., DeltekAcumen812 → 8.12)"
+      - "Determine install directory from version hint"
+      - "Generate silent response file (.iss) with 5 InstallShield dialogs"
+      - "Launch installer fire-and-forget with -s -SMS -f1<response_file>"
+      - "Poll registry every 5 seconds until product GUID appears (up to 10 minutes)"
+    notes: >
+      Uses silent InstallShield mode because the installer UI does not expose UIA elements.
+      The response file has 5 dialogs: MessageBox, SdWelcome, SdAskDestPath2, SdStartCopy, SdFinish.
+      Registry key format is {GUID} (with braces) in HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\.
+      Fire-and-forget + registry polling avoids blocking on -Wait which could exceed step timeout.
+
+  uninstall_acumen:
+    description: "Uninstall an installed Acumen version using silent InstallShield"
+    status: verified
+    last_tested: "2026-02-26"
+    existing_macro: uninstall-acumen.yaml
+    steps:
+      - "WinForms version picker dialog listing installed Acumen versions from registry"
+      - "Look up selected version's GUID and install path from registry"
+      - "Generate silent uninstall response file (.iss) with 2 InstallShield dialogs"
+      - "Launch uninstaller fire-and-forget with -s -SMS -f1<response_file>"
+      - "Poll registry every 5 seconds until product GUID disappears (up to 10 minutes)"
+    notes: >
+      Uses WinForms ListBox dialog (not Out-GridView) to show installed versions.
+      Uninstall response file has 2 dialogs: MessageBox and SdFinish.
+      The uninstaller exe path comes from the registry's UninstallString property.
+      Fire-and-forget + registry polling pattern same as fresh install.
+
+  upgrade_acumen:
+    description: "Upgrade an existing Acumen installation using either a base installer or CU (Cumulative Update)"
+    status: untested
+    last_tested: "2026-02-27"
+    existing_macro: upgrade-acumen.yaml
+    steps:
+      - "File picker dialog to select installer or CU .exe"
+      - "Detect installer type via /extract_all — base produces setup.ini with ProductGUID, CU produces nothing"
+      - "Extract version hint from filename"
+      - "Find matching installed Acumen version in registry"
+      - "Parse installed info (GUID, version, install directory)"
+      - "Run upgrade — base uses response file + fire-and-forget; CU uses -s -SMS -Wait"
+      - "Verify completion — base polls registry for version change; CU checks setup.log for ResultCode=0"
+    notes: >
+      Handles both base installer upgrades and CU patches in a single macro.
+      CU installers do NOT change registry DisplayVersion or Fuse.exe file version.
+      CU completion is verified via %TEMP%\setup.log ResultCode=0.
+      Base upgrade uses the same 5-dialog response file as fresh install.
+      Requires a matching Acumen version already installed.
 
   schedule_cleanse:
     description: "Cleanse and fix schedule flaws"

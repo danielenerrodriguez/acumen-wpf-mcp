@@ -24,3 +24,6 @@ steps:
     title_contains: " - Deltek Acumen"
     timeout: 90
     retry_interval: 2
+
+  - action: wait
+    seconds: 2
