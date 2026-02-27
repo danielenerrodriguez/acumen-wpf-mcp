@@ -30,4 +30,4 @@ steps:
   - action: run_script
     command: "powershell.exe"
     arguments: '-NoProfile -ExecutionPolicy Bypass -Command "$setupDir = ''C:\Program Files (x86)\InstallShield Installation Information\{{productGuid}}''; $setupExe = Join-Path $setupDir ''setup.exe''; if (-not (Test-Path $setupExe)) { Write-Error ''InstallShield setup.exe not found''; exit 1 }; $proc = Start-Process -FilePath $setupExe -ArgumentList ''-runfromtemp -l0x0409 -removeonly -s -SMS -f1{{issPath}}'' -Wait -PassThru; exit $proc.ExitCode"'
-    timeout: 300
+    timeout: 45
