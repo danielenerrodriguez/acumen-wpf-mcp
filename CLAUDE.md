@@ -55,7 +55,7 @@ cmd.exe /c "taskkill /IM WpfMcp.exe /F 2>nul"
 # Build
 cmd.exe /c "cd /d C:\WpfMcp && dotnet build WpfMcp.slnx"
 
-# Test (166 tests)
+# Test (185 tests)
 cmd.exe /c "cd /d C:\WpfMcp && dotnet test WpfMcp.Tests"
 
 # Release build + local publish
@@ -152,10 +152,15 @@ steps:
     expected: "Done"
     match_mode: equals       # equals (default), contains, not_equals, regex, starts_with
     message: "Optional custom failure message"
+  - action: run_script
+    command: "powershell.exe"
+    arguments: "-NoProfile -Command \"echo hello\""
+    save_output_as: scriptOutput   # stores trimmed stdout as {{scriptOutput}} for subsequent steps
+    ignore_exit_code: true         # non-zero exit code won't fail the step (default: false)
 ```
 
 ### Step Types
-`launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys` (alias), `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `verify`, `include`, `macro`
+`launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys` (alias), `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `verify`, `include`, `macro`, `run_script`
 
 ### Macro Reusability: `include` vs `macro`
 
@@ -291,7 +296,7 @@ AI agents can save workflows they've performed as reusable macro YAML files usin
 ### Key Design Decisions
 - Steps passed as JSON string in, written as clean YAML out
 - Product folder auto-derived from attached process matching knowledge base `application.process_name`
-- Validation against 21 known action types with per-action required field checks
+- Validation against 22 known action types with per-action required field checks
 - `force` parameter (bool, default false) for overwrite protection
 - `SaveMacroResult` record returns `(Ok, FilePath, MacroName, Message)`
 
@@ -502,7 +507,7 @@ Per-step logging for macro execution, visible in both terminal (stderr) and web 
 ```
 
 ### FormatStepSummary Coverage
-Covers all 21 action types: `launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys`, `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `verify`. Each type extracts relevant fields (e.g., `automation_id` for `find`, `keys` for `send_keys`, `property`+`expected`+`match_mode` for `verify`).
+Covers all 22 action types: `launch`, `wait_for_window`, `wait_for_enabled`, `attach`, `focus`, `find`, `find_by_path`, `click`, `right_click`, `type`, `set_value`, `get_value`, `send_keys`, `keys`, `wait`, `snapshot`, `screenshot`, `properties`, `children`, `file_dialog`, `verify`, `run_script`. Each type extracts relevant fields (e.g., `automation_id` for `find`, `keys` for `send_keys`, `property`+`expected`+`match_mode` for `verify`, `command`+`args`+`save_output_as` for `run_script`).
 
 ### Files Modified
 - `MacroEngine.cs` — `onLog` parameter on execute methods, `FormatStepSummary()` static helper, step loop pre/post logging

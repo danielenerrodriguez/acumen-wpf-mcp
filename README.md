@@ -136,6 +136,11 @@ steps:
     expected: "Workbook1 (0)"
     match_mode: not_equals          # equals (default), contains, not_equals, regex, starts_with
     message: "Custom failure msg"   # Optional
+  - action: run_script
+    command: "powershell.exe"       # Run any command/script
+    arguments: "-NoProfile -Command \"Get-Date\""
+    save_output_as: dateOutput      # Capture stdout as {{dateOutput}}
+    ignore_exit_code: true          # Don't fail on non-zero exit
 ```
 
 ### Supported Actions
@@ -162,6 +167,7 @@ steps:
 | `children` | List children of element | `ref`, `save_as` |
 | `properties` | Get element properties | `ref` |
 | `verify` | Verify an element property value | `ref`, `property`, `expected`, `match_mode` (equals/contains/not_equals/regex/starts_with), `message` |
+| `run_script` | Run an external command/script, optionally capture output | `command`, `arguments`, `working_directory`, `save_output_as`, `ignore_exit_code`, `timeout` |
 | `include` | Inline steps from another macro (load-time) | `macro_name`, `params` |
 | `macro` | Run another macro as a nested call (runtime) | `macro_name`, `params` |
 

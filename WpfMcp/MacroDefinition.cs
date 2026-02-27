@@ -158,6 +158,19 @@ public class MacroStep
     [YamlMember(Alias = "match_mode")]
     public string? MatchMode { get; set; }
 
+    // --- run_script ---
+    /// <summary>Executable or script to run (for action: run_script). Distinct from ExePath which is for launching GUI apps.</summary>
+    [YamlMember(Alias = "command")]
+    public string? Command { get; set; }
+
+    /// <summary>Parameter name to store trimmed stdout into (for action: run_script). Makes output available as {{paramName}} in subsequent steps.</summary>
+    [YamlMember(Alias = "save_output_as")]
+    public string? SaveOutputAs { get; set; }
+
+    /// <summary>If true, non-zero exit code does not fail the step (for action: run_script). Default: false.</summary>
+    [YamlMember(Alias = "ignore_exit_code")]
+    public bool? IgnoreExitCode { get; set; }
+
     // --- timeouts ---
     /// <summary>Per-step timeout in seconds. 0 = use default.</summary>
     [YamlMember(Alias = "timeout")]

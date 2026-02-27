@@ -1919,6 +1919,308 @@ steps:
         Assert.Contains("not found", result.Message);
     }
 
+    // --- run_script step type ---
+
+    [Fact]
+    public void ValidateSteps_RunScriptWithoutCommand_ReturnsError()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "run_script" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.NotNull(error);
+        Assert.Contains("requires 'command'", error);
+    }
+
+    [Fact]
+    public void ValidateSteps_RunScriptWithCommand_ReturnsNull()
+    {
+        var steps = new List<Dictionary<string, object>>
+        {
+            new() { ["action"] = "run_script", ["command"] = "cmd.exe" }
+        };
+        var error = MacroEngine.ValidateSteps(steps);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void Load_RunScriptStep_ParsesAllFields()
+    {
+        WriteMacro("run-script-test.yaml", @"
+name: Run Script Test
+description: Tests run_script step parsing
+steps:
+  - action: run_script
+    command: powershell.exe
+    arguments: -NoProfile -Command ""echo hi""
+    working_directory: C:\temp
+    save_output_as: scriptResult
+    ignore_exit_code: true
+    timeout: 30
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("run-script-test");
+        Assert.NotNull(macro);
+        var step = macro!.Steps[0];
+        Assert.Equal("run_script", step.Action);
+        Assert.Equal("powershell.exe", step.Command);
+        Assert.Contains("-NoProfile", step.Arguments);
+        Assert.Equal(@"C:\temp", step.WorkingDirectory);
+        Assert.Equal("scriptResult", step.SaveOutputAs);
+        Assert.True(step.IgnoreExitCode);
+        Assert.Equal(30, step.StepTimeout);
+    }
+
+    [Fact]
+    public void Load_RunScriptStep_OptionalFieldsDefaultToNull()
+    {
+        WriteMacro("run-script-minimal.yaml", @"
+name: Minimal
+steps:
+  - action: run_script
+    command: cmd.exe
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var macro = engine.Get("run-script-minimal");
+        Assert.NotNull(macro);
+        var step = macro!.Steps[0];
+        Assert.Equal("run_script", step.Action);
+        Assert.Equal("cmd.exe", step.Command);
+        Assert.Null(step.Arguments);
+        Assert.Null(step.WorkingDirectory);
+        Assert.Null(step.SaveOutputAs);
+        Assert.Null(step.IgnoreExitCode);
+    }
+
+    [Fact]
+    public void RunScript_FormatStepSummary_ShowsCommandAndArgs()
+    {
+        var step = new MacroStep
+        {
+            Action = "run_script",
+            Command = "powershell.exe",
+            Arguments = "-NoProfile -Command test"
+        };
+        var summary = MacroEngine.FormatStepSummary(step, new Dictionary<string, string>());
+        Assert.Contains("command=powershell.exe", summary);
+        Assert.Contains("args=-NoProfile -Command test", summary);
+    }
+
+    [Fact]
+    public void RunScript_FormatStepSummary_ShowsSaveOutputAs()
+    {
+        var step = new MacroStep
+        {
+            Action = "run_script",
+            Command = "cmd.exe",
+            SaveOutputAs = "myOutput"
+        };
+        var summary = MacroEngine.FormatStepSummary(step, new Dictionary<string, string>());
+        Assert.Contains("save_output_as=myOutput", summary);
+    }
+
+    [Fact]
+    public void RunScript_FormatStepSummary_ShowsIgnoreExitCode()
+    {
+        var step = new MacroStep
+        {
+            Action = "run_script",
+            Command = "cmd.exe",
+            IgnoreExitCode = true
+        };
+        var summary = MacroEngine.FormatStepSummary(step, new Dictionary<string, string>());
+        Assert.Contains("ignore_exit_code", summary);
+    }
+
+    [Fact]
+    public void RunScript_FormatStepSummary_SubstitutesParams()
+    {
+        var step = new MacroStep
+        {
+            Action = "run_script",
+            Command = "{{myCmd}}",
+            Arguments = "{{myArgs}}"
+        };
+        var parameters = new Dictionary<string, string>
+        {
+            ["myCmd"] = "powershell.exe",
+            ["myArgs"] = "-File test.ps1"
+        };
+        var summary = MacroEngine.FormatStepSummary(step, parameters);
+        Assert.Contains("command=powershell.exe", summary);
+        Assert.Contains("args=-File test.ps1", summary);
+    }
+
+    [Fact]
+    public void Include_RunScript_RemapsCommandParams()
+    {
+        WriteMacro("child.yaml", @"
+name: Child
+parameters:
+  - name: scriptPath
+steps:
+  - action: run_script
+    command: '{{scriptPath}}'
+    arguments: --flag
+");
+        WriteMacro("parent.yaml", @"
+name: Parent
+parameters:
+  - name: myScript
+steps:
+  - action: include
+    macro_name: child
+    params:
+      scriptPath: '{{myScript}}'
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var parent = engine.Get("parent");
+        Assert.NotNull(parent);
+        Assert.Single(parent!.Steps);
+        Assert.Equal("run_script", parent.Steps[0].Action);
+        Assert.Equal("{{myScript}}", parent.Steps[0].Command);
+    }
+
+    [Fact]
+    public async Task Execute_RunScript_SuccessfulCommand_ReturnsSuccess()
+    {
+        WriteMacro("echo-test.yaml", @"
+name: Echo Test
+steps:
+  - action: run_script
+    command: cmd.exe
+    arguments: /c echo hello
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var logMessages = new List<string>();
+        var result = await engine.ExecuteAsync("echo-test", onLog: msg => logMessages.Add(msg));
+        Assert.True(result.Success, result.Message);
+        Assert.Contains(logMessages, m => m.Contains("Exit code 0"));
+    }
+
+    [Fact]
+    public async Task Execute_RunScript_MissingCommand_ReturnsError()
+    {
+        WriteMacro("no-cmd.yaml", @"
+name: No Cmd
+steps:
+  - action: run_script
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var result = await engine.ExecuteAsync("no-cmd");
+        Assert.False(result.Success);
+        Assert.Contains("command", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Execute_RunScript_NonZeroExit_ReturnsError()
+    {
+        WriteMacro("fail-exit.yaml", @"
+name: Fail Exit
+steps:
+  - action: run_script
+    command: cmd.exe
+    arguments: /c exit 1
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var result = await engine.ExecuteAsync("fail-exit");
+        Assert.False(result.Success);
+    }
+
+    [Fact]
+    public async Task Execute_RunScript_NonZeroExitWithIgnore_ReturnsSuccess()
+    {
+        WriteMacro("ignore-exit.yaml", @"
+name: Ignore Exit
+steps:
+  - action: run_script
+    command: cmd.exe
+    arguments: /c exit 42
+    ignore_exit_code: true
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var logMessages = new List<string>();
+        var result = await engine.ExecuteAsync("ignore-exit", onLog: msg => logMessages.Add(msg));
+        Assert.True(result.Success, result.Message);
+        Assert.Contains(logMessages, m => m.Contains("Exit code 42"));
+    }
+
+    [Fact]
+    public async Task Execute_RunScript_SaveOutputAs_CapturesStdout()
+    {
+        // Use two run_script steps: first captures output, second verifies
+        // the parameter is available (by using it in a command that would fail if empty)
+        WriteMacro("capture-test.yaml", @"
+name: Capture Test
+steps:
+  - action: run_script
+    command: cmd.exe
+    arguments: /c echo test_value_123
+    save_output_as: captured
+  - action: run_script
+    command: cmd.exe
+    arguments: /c echo got={{captured}}
+    save_output_as: verification
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var logMessages = new List<string>();
+        var result = await engine.ExecuteAsync("capture-test", onLog: msg => logMessages.Add(msg));
+        Assert.True(result.Success, result.Message);
+        // Check that the captured value was logged
+        Assert.Contains(logMessages, m => m.Contains("captured") && m.Contains("test_value_123"));
+        // Check that the second step used the captured value (visible in the step summary log)
+        Assert.Contains(logMessages, m => m.Contains("got=test_value_123"));
+    }
+
+    [Fact]
+    public async Task Execute_RunScript_InvalidCommand_ReturnsError()
+    {
+        WriteMacro("bad-cmd.yaml", @"
+name: Bad Cmd
+steps:
+  - action: run_script
+    command: this_command_does_not_exist_12345
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var result = await engine.ExecuteAsync("bad-cmd");
+        Assert.False(result.Success);
+        Assert.Contains("Failed to start", result.Message);
+    }
+
+    [Fact]
+    public async Task Execute_RunScript_Timeout_ReturnsError()
+    {
+        WriteMacro("timeout-test.yaml", @"
+name: Timeout Test
+steps:
+  - action: run_script
+    command: cmd.exe
+    arguments: /c ping -n 30 127.0.0.1
+    timeout: 2
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var result = await engine.ExecuteAsync("timeout-test");
+        Assert.False(result.Success);
+        Assert.Contains("timed out", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Execute_RunScript_DoesNotRequireAttachedProcess()
+    {
+        // run_script should work even when no process is attached
+        WriteMacro("no-attach.yaml", @"
+name: No Attach
+steps:
+  - action: run_script
+    command: cmd.exe
+    arguments: /c echo works
+");
+        using var engine = new MacroEngine(_tempDir, enableWatcher: false);
+        var result = await engine.ExecuteAsync("no-attach");
+        Assert.True(result.Success, result.Message);
+    }
+
     // --- Helper to write a knowledge base ---
 
     private void WriteKnowledgeBase(string productFolder, string processName)

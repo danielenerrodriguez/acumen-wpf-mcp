@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -240,6 +241,9 @@ public class MacroEngine : IDisposable
             MatchMode = source.MatchMode,
             StepTimeout = source.StepTimeout,
             RetryInterval = source.RetryInterval,
+            Command = source.Command,
+            SaveOutputAs = source.SaveOutputAs,
+            IgnoreExitCode = source.IgnoreExitCode,
         };
 
         if (paramMap == null || paramMap.Count == 0)
@@ -265,6 +269,7 @@ public class MacroEngine : IDisposable
         clone.ProcessName = RemapParam(clone.ProcessName, paramMap);
         clone.Ref = RemapParam(clone.Ref, paramMap);
         clone.SaveAs = RemapParam(clone.SaveAs, paramMap);
+        clone.Command = RemapParam(clone.Command, paramMap);
         if (clone.Path != null)
         {
             for (int i = 0; i < clone.Path.Count; i++)
@@ -473,7 +478,7 @@ public class MacroEngine : IDisposable
         "send_keys", "keys", "find", "find_by_path", "click", "right_click",
         "type", "set_value", "get_value", "wait", "wait_for_enabled", "macro", "include",
         "launch", "wait_for_window", "focus", "snapshot", "screenshot",
-        "properties", "children", "file_dialog", "attach", "verify"
+        "properties", "children", "file_dialog", "attach", "verify", "run_script"
     };
 
     /// <summary>
@@ -552,6 +557,9 @@ public class MacroEngine : IDisposable
                 if (!Has("ref")) return $"{StepPrefix()}: requires 'ref' field";
                 if (!Has("property")) return $"{StepPrefix()}: requires 'property' field";
                 if (!Has("expected")) return $"{StepPrefix()}: requires 'expected' field";
+                break;
+            case "run_script":
+                if (!Has("command")) return $"{StepPrefix()}: requires 'command' field";
                 break;
             // click, right_click, focus, snapshot, screenshot, properties, children, launch, get_value
             // have no strictly required fields
@@ -896,6 +904,12 @@ public class MacroEngine : IDisposable
             case "include":
                 if (step.MacroName != null) parts.Add($"macro={step.MacroName}");
                 break;
+            case "run_script":
+                if (step.Command != null) parts.Add($"command={SubstituteParams(step.Command, parameters)}");
+                if (step.Arguments != null) parts.Add($"args={SubstituteParams(step.Arguments, parameters)}");
+                if (step.SaveOutputAs != null) parts.Add($"save_output_as={step.SaveOutputAs}");
+                if (step.IgnoreExitCode == true) parts.Add("ignore_exit_code");
+                break;
         }
 
         return parts.Count > 0 ? $"{action} ({string.Join(", ", parts)})" : action;
@@ -945,7 +959,7 @@ public class MacroEngine : IDisposable
                     i, step.Action, "Macro timeout exceeded");
 
             // Check process is still alive (except for actions that don't require attachment)
-            if (step.Action is not ("attach" or "wait" or "macro" or "include" or "launch" or "wait_for_window"))
+            if (step.Action is not ("attach" or "wait" or "macro" or "include" or "launch" or "wait_for_window" or "run_script"))
             {
                 if (!engine.IsAttached)
                     return new MacroResult(false, i, macro.Steps.Count,
@@ -1327,6 +1341,82 @@ public class MacroEngine : IDisposable
                 }
             }
 
+            case "run_script":
+            {
+                var command = SubstituteParams(step.Command, parameters);
+                if (string.IsNullOrEmpty(command))
+                    return new StepResult(false, "run_script requires command");
+
+                var arguments = SubstituteParams(step.Arguments, parameters);
+                var workingDir = SubstituteParams(step.WorkingDirectory, parameters);
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = command,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                if (!string.IsNullOrEmpty(arguments))
+                    psi.Arguments = arguments;
+                if (!string.IsNullOrEmpty(workingDir))
+                    psi.WorkingDirectory = workingDir;
+
+                Process? proc;
+                try
+                {
+                    proc = Process.Start(psi);
+                }
+                catch (Exception ex)
+                {
+                    return new StepResult(false, $"Failed to start '{command}': {ex.Message}", ex.Message);
+                }
+
+                if (proc == null)
+                    return new StepResult(false, $"Failed to start process: {command}");
+
+                using (proc)
+                {
+                    // Read stdout/stderr asynchronously to avoid deadlocks
+                    var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+                    var stderrTask = proc.StandardError.ReadToEndAsync();
+
+                    try
+                    {
+                        await proc.WaitForExitAsync(stepCts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        try { proc.Kill(entireProcessTree: true); } catch { }
+                        return new StepResult(false,
+                            $"run_script timed out after {stepTimeoutSec}s: {command}",
+                            "Process timed out");
+                    }
+
+                    var stdout = (await stdoutTask).Trim();
+                    var stderr = (await stderrTask).Trim();
+
+                    // Capture output into parameters for subsequent steps
+                    if (!string.IsNullOrEmpty(step.SaveOutputAs))
+                    {
+                        parameters[step.SaveOutputAs] = stdout;
+                        onLog?.Invoke($"[Macro] Captured output \u2192 {{{{{step.SaveOutputAs}}}}} = \"{Truncate(stdout, 100)}\"");
+                    }
+
+                    if (proc.ExitCode != 0 && step.IgnoreExitCode != true)
+                    {
+                        var errMsg = !string.IsNullOrEmpty(stderr) ? stderr : $"Exit code {proc.ExitCode}";
+                        return new StepResult(false, errMsg, errMsg);
+                    }
+
+                    var summary = $"Exit code {proc.ExitCode}";
+                    if (stdout.Length > 0)
+                        summary += $", output: {Truncate(stdout, 200)}";
+                    return new StepResult(true, summary);
+                }
+            }
+
             case "macro":
             {
                 var nestedName = SubstituteParams(step.MacroName, parameters);
@@ -1425,6 +1515,13 @@ public class MacroEngine : IDisposable
             "starts_with" => actual.StartsWith(expected, StringComparison.OrdinalIgnoreCase),
             _ => null
         };
+    }
+
+    /// <summary>Truncate a string to a maximum length, appending "..." if truncated.</summary>
+    private static string Truncate(string value, int maxLength)
+    {
+        if (value.Length <= maxLength) return value;
+        return value[..maxLength] + "...";
     }
 
     /// <summary>
