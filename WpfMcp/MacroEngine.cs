@@ -48,6 +48,49 @@ public class MacroEngine : IDisposable
         get { lock (_reloadLock) return _knowledgeBases.Values.ToList(); }
     }
 
+    /// <summary>
+    /// Build the MCP server instructions string from loaded macros and knowledge bases.
+    /// Used by both the stdio MCP server (Program.cs) and the Streamable HTTP server (WebServer.cs).
+    /// </summary>
+    public string BuildServerInstructions()
+    {
+        var sb = new System.Text.StringBuilder();
+
+        var macros = List();
+        if (macros.Count > 0)
+        {
+            sb.AppendLine("# Available Macros");
+            sb.AppendLine();
+            foreach (var m in macros)
+            {
+                sb.Append($"- **{m.Name}**: {m.Description}");
+                if (m.Parameters.Count > 0)
+                {
+                    var paramList = string.Join(", ", m.Parameters.Select(p =>
+                        p.Required ? $"{p.Name} (required)" : $"{p.Name}={p.Default ?? "optional"}"));
+                    sb.Append($"  [{paramList}]");
+                }
+                sb.AppendLine();
+            }
+            sb.AppendLine();
+        }
+
+        var knowledgeBases = KnowledgeBases;
+        if (knowledgeBases.Count > 0)
+        {
+            foreach (var kb in knowledgeBases)
+            {
+                sb.AppendLine($"# Knowledge Base: {kb.ProductName}");
+                sb.AppendLine();
+                sb.AppendLine(kb.FullContent);
+                sb.AppendLine();
+            }
+        }
+
+        var result = sb.ToString().TrimEnd();
+        return result.Length > 0 ? result : "No macros or knowledge bases loaded.";
+    }
+
     public MacroEngine(string? macrosPath = null, bool enableWatcher = true)
     {
         _macrosPath = Constants.ResolveMacrosPath(macrosPath);

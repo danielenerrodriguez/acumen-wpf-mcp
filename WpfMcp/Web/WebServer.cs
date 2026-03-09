@@ -5,13 +5,17 @@ using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.AspNetCore;
+using ModelContextProtocol.Protocol;
+using ModelContextProtocol.Server;
 using WpfMcp.Web;
 using WpfMcp.Web.Components;
 
 namespace WpfMcp;
 
 /// <summary>
-/// Starts a Kestrel web server hosting the Blazor Server dashboard.
+/// Starts a Kestrel web server hosting the Blazor Server dashboard
+/// and (optionally) the MCP Streamable HTTP endpoint at /mcp.
 /// Runs alongside the named pipe server in the elevated --server process.
 /// </summary>
 internal static class WebServer
@@ -20,10 +24,14 @@ internal static class WebServer
     private static ClientTracker? _tracker;
 
     /// <summary>
-    /// Start the Blazor Server dashboard on a background thread.
+    /// Start the Blazor Server dashboard + MCP Streamable HTTP on a background thread.
     /// Returns once the server is listening. Does not block.
     /// </summary>
-    public static async Task StartAsync(IAppState appState, int port, CancellationToken ct = default)
+    /// <param name="appState">Shared app state for Blazor components.</param>
+    /// <param name="port">Port to bind Kestrel on all interfaces.</param>
+    /// <param name="serverInstructions">MCP server instructions (macros + knowledge bases). Pass null to disable MCP HTTP endpoint.</param>
+    /// <param name="ct">Cancellation token to stop the web server.</param>
+    public static async Task StartAsync(IAppState appState, int port, string? serverInstructions = null, CancellationToken ct = default)
     {
         var ready = new TaskCompletionSource();
         var tracker = new ClientTracker();
@@ -63,10 +71,42 @@ internal static class WebServer
                 // Track active Blazor circuits to know if a web client is connected
                 builder.Services.AddSingleton<CircuitHandler>(tracker);
 
+                // Register MCP Streamable HTTP transport if instructions are provided.
+                // This runs in the elevated process — tools execute in DIRECT mode
+                // (no proxy), sharing UiaEngine.Instance, ElementCache, and MacroEngine
+                // with the pipe server and Blazor dashboard.
+                if (serverInstructions != null)
+                {
+                    builder.Services
+                        .AddMcpServer(options =>
+                        {
+                            options.ServerInfo = new()
+                            {
+                                Name = Constants.ServerName,
+                                Version = Constants.ServerVersion
+                            };
+                            options.ServerInstructions = serverInstructions;
+                            options.Capabilities = new()
+                            {
+                                Logging = new LoggingCapability()
+                            };
+                        })
+                        .WithHttpTransport()
+                        .WithToolsFromAssembly()
+                        .WithResourcesFromAssembly();
+                }
+
                 var app = builder.Build();
 
                 app.UseStaticFiles();
                 app.UseAntiforgery();
+
+                // Map MCP Streamable HTTP endpoint at /mcp (before Blazor catch-all)
+                // Serves both Streamable HTTP (POST/GET) and legacy SSE at /mcp/sse
+                if (serverInstructions != null)
+                {
+                    app.MapMcp("/mcp");
+                }
 
                 // Map Blazor components — App lives in WpfMcp.Web RCL
                 // No AddAdditionalAssemblies needed since App IS in the RCL assembly

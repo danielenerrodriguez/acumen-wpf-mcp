@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Security.AccessControl;
@@ -123,6 +124,57 @@ public static class UiaProxyServer
     }
 
     /// <summary>Try to auto-reattach to the last known process.</summary>
+    /// <summary>
+    /// Ensure a Windows Firewall inbound rule exists for the given port.
+    /// Allows WSL2 (NAT mode) to connect to Kestrel without mirrored networking.
+    /// Idempotent — skips if the rule already exists. Requires elevation.
+    /// </summary>
+    private static void EnsureFirewallRule(int port)
+    {
+        const string ruleName = "WpfMcp-WSL";
+        try
+        {
+            // Check if rule already exists
+            var check = Process.Start(new ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = $"advfirewall firewall show rule name={ruleName}",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+            check?.WaitForExit(5000);
+            var output = check?.StandardOutput.ReadToEnd() ?? "";
+            if (output.Contains("Rule Name", StringComparison.OrdinalIgnoreCase)
+                && output.Contains(ruleName, StringComparison.OrdinalIgnoreCase))
+            {
+                return; // Rule already exists
+            }
+
+            // Add the rule
+            var add = Process.Start(new ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = $"advfirewall firewall add rule name={ruleName} dir=in action=allow protocol=tcp localport={port}",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+            add?.WaitForExit(5000);
+            var addOutput = add?.StandardOutput.ReadToEnd() ?? "";
+            if (addOutput.Contains("Ok", StringComparison.OrdinalIgnoreCase))
+                Console.WriteLine($"  Firewall:   Allowed port {port} (rule '{ruleName}')");
+            else
+                Console.WriteLine($"  Firewall:   Could not add rule — {addOutput.Trim()}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  Firewall:   Failed ({ex.Message})");
+        }
+    }
+
     private static void TryAutoReattach()
     {
         var engine = UiaEngine.Instance;
@@ -199,8 +251,26 @@ public static class UiaProxyServer
                 _cache,
                 _macroEngine,
                 _commandLock);
-            await WebServer.StartAsync(_appState, Constants.WebPort, webCts.Token);
+
+            // Build MCP server instructions for the Streamable HTTP endpoint.
+            // The HTTP endpoint runs in this elevated process — tools execute in direct mode.
+            string? serverInstructions = null;
+            try
+            {
+                serverInstructions = _macroEngine.Value.BuildServerInstructions();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  MCP HTTP: Failed to build instructions ({ex.Message})");
+            }
+
+            await WebServer.StartAsync(_appState, Constants.WebPort, serverInstructions, webCts.Token);
             dashboardUrl = $"http://localhost:{Constants.WebPort}";
+
+            // Ensure Windows Firewall allows inbound connections on the web port.
+            // Required for WSL2 (NAT mode) to reach the Kestrel server.
+            // This process is already elevated, so netsh works without UAC.
+            EnsureFirewallRule(Constants.WebPort);
 
             // Auto-reattach to last known process at startup so the web dashboard works immediately
             TryAutoReattach();
@@ -218,7 +288,10 @@ public static class UiaProxyServer
             ? $"  Idle:       {Constants.ServerIdleTimeoutMinutes} min auto-shutdown"
             : "  Idle:       disabled (running indefinitely)");
         if (dashboardUrl is not null)
+        {
             Console.WriteLine($"  Dashboard:  {dashboardUrl}");
+            Console.WriteLine($"  MCP HTTP:   {dashboardUrl}/mcp");
+        }
         Console.WriteLine();
         Console.WriteLine("  Status: READY — waiting for connections");
         Console.WriteLine();

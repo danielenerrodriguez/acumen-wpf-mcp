@@ -43,6 +43,15 @@
           "ModelContextProtocol.Core": "1.1.0"
         }
       },
+      "ModelContextProtocol.AspNetCore": {
+        "type": "Direct",
+        "requested": "[1.1.0, )",
+        "resolved": "1.1.0",
+        "contentHash": "I6jXZq7tTYzP9oWpZSnyUqveHWXOLykmPv9mrTyyYqwb0ZUgqVajp96Iu2opSeL/bjBfKV4Lwc2hZUXWCnAUnA==",
+        "dependencies": {
+          "ModelContextProtocol": "1.1.0"
+        }
+      },
       "System.Drawing.Common": {
         "type": "Direct",
         "requested": "[8.0.0, )",

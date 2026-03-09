@@ -174,43 +174,7 @@ static string BuildServerInstructions(string? macrosPathOverride)
     try
     {
         using var engine = new MacroEngine(macrosPathOverride, enableWatcher: false);
-        var sb = new System.Text.StringBuilder();
-
-        // Macro list
-        var macros = engine.List();
-        if (macros.Count > 0)
-        {
-            sb.AppendLine("# Available Macros");
-            sb.AppendLine();
-            foreach (var m in macros)
-            {
-                sb.Append($"- **{m.Name}**: {m.Description}");
-                if (m.Parameters.Count > 0)
-                {
-                    var paramList = string.Join(", ", m.Parameters.Select(p =>
-                        p.Required ? $"{p.Name} (required)" : $"{p.Name}={p.Default ?? "optional"}"));
-                    sb.Append($"  [{paramList}]");
-                }
-                sb.AppendLine();
-            }
-            sb.AppendLine();
-        }
-
-        // Full knowledge base content
-        var knowledgeBases = engine.KnowledgeBases;
-        if (knowledgeBases.Count > 0)
-        {
-            foreach (var kb in knowledgeBases)
-            {
-                sb.AppendLine($"# Knowledge Base: {kb.ProductName}");
-                sb.AppendLine();
-                sb.AppendLine(kb.FullContent);
-                sb.AppendLine();
-            }
-        }
-
-        var result = sb.ToString().TrimEnd();
-        return result.Length > 0 ? result : "No macros or knowledge bases loaded.";
+        return engine.BuildServerInstructions();
     }
     catch (Exception ex)
     {

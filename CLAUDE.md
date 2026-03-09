@@ -19,7 +19,24 @@ publish/run-indefinite.cmd   # Starts server with --no-idle (runs forever)
 
 Flat layout — NO `src/` or `tests/` subdirectories.
 
-## Architecture: Two-Process Proxy
+## Architecture: Dual Transport (Streamable HTTP + stdio Proxy)
+
+The server supports two MCP transport modes:
+
+### Streamable HTTP (Recommended)
+
+```
+OpenCode (WSL)
+  → HTTP POST http://<host-ip>:5112/mcp  (Streamable HTTP / SSE)
+    → WpfMcp.exe --server  (elevated, Kestrel + Blazor + MCP on port 5112)
+    → Tools execute in DIRECT mode — no pipe proxy overhead
+    → Progress notifications stream as SSE events, keeping the connection alive
+    → No ~15-20s MCP tool timeout — long-running macros work correctly
+```
+
+The elevated server auto-creates a Windows Firewall rule (`WpfMcp-WSL`) on startup to allow inbound TCP on port 5112. OpenCode config uses `type: "remote"` with the WSL2 gateway IP (e.g., `http://172.22.112.1:5112/mcp`). The gateway IP can be found via `ip route show default | awk '{print $3}'`. If the IP changes after a WSL restart, update `~/.config/opencode/opencode.json`.
+
+### stdio Proxy (Legacy Fallback)
 
 ```
 OpenCode (WSL)
@@ -30,22 +47,27 @@ OpenCode (WSL)
     → During macro execution, server streams LOG: prefixed lines before the JSON response
 ```
 
+Subject to ~15-20s MCP client timeout on tool calls. Use when mirrored networking is unavailable.
+
 **Why elevation?** Fuse's UIA providers only respond to elevated processes. Non-elevated processes see only `FrameworkId="Win32"` with a single TitleBar child.
 
-### Web Dashboard
+### Web Dashboard + MCP HTTP Endpoint
 
-The elevated `--server` process also hosts a **Blazor Server dashboard** on `http://localhost:5112` for interactive WPF element inspection, actions, and macro running.
+The elevated `--server` process hosts both the **Blazor Server dashboard** and the **MCP Streamable HTTP endpoint** on the same Kestrel instance at `http://localhost:5112`:
 
 ```
 WpfMcp.Web (RCL)           → IAppState interface + DTOs + Razor components
 WpfMcp (main project)      → AppState implementation + WebServer.cs Kestrel host
 ```
 
+- `http://localhost:5112/` → Blazor Server dashboard
+- `http://localhost:5112/mcp` → MCP Streamable HTTP endpoint (+ legacy SSE at `/mcp/sse`)
 - **Styling**: Tailwind CSS via CDN, dual light/dark theme with Deltek-inspired branding
 - **Communication**: Blazor Server's built-in SignalR (real-time, no polling)
-- **Binding**: `http://*:5112` (all interfaces, accessible from WSL and LAN)
+- **Binding**: `http://*:5112` (all interfaces, accessible from WSL with mirrored networking)
 - **One-way dependency**: `WpfMcp` references `WpfMcp.Web`; the RCL has no reference back
 - **Shared singletons**: `UiaEngine.Instance`, `ElementCache`, `MacroEngine`, and `_commandLock` are shared between pipe server and web dashboard via `AppState`
+- **NuGet**: `ModelContextProtocol.AspNetCore` v1.1.0 provides `.WithHttpTransport()` and `app.MapMcp()`
 
 ## Build & Test
 
@@ -81,6 +103,7 @@ The machine has .NET 10 preview SDK installed; we target `net9.0-windows`.
 ### NuGet
 - Local `nuget.config` with `<clear />` needed to avoid Infragistics NuGet source errors
 - `ModelContextProtocol` NuGet version: `1.1.0`
+- `ModelContextProtocol.AspNetCore` NuGet version: `1.1.0` (Streamable HTTP transport)
 - Server instructions (`options.ServerInstructions`) inject macro list + full knowledge base YAML at MCP handshake
 
 ### MCP Tool Annotations & Features (v1.1.0)
@@ -303,7 +326,7 @@ data_formats: { ... }           # Supported import/export formats
 | `WpfMcp/YamlHelpers.cs` | Shared YAML deserializer/serializer singleton instances |
 | `WpfMcp/ShortcutCreator.cs` | COM-based `.lnk` shortcut creation via `WScript.Shell` |
 | `WpfMcp/Resources.cs` | MCP resources — `knowledge://{productName}` endpoint |
-| `WpfMcp/Web/WebServer.cs` | Kestrel startup for Blazor Server dashboard |
+| `WpfMcp/Web/WebServer.cs` | Kestrel startup for Blazor Server dashboard + MCP Streamable HTTP endpoint |
 | `WpfMcp/Web/AppState.cs` | `IAppState` implementation wrapping UiaEngine + ElementCache + MacroEngine, `BrowseForFileAsync`/`BrowseForFolderAsync` |
 | `WpfMcp.Web/IAppState.cs` | Interface + DTOs for web dashboard (ElementInfo, ActionResult, etc.) |
 | `WpfMcp.Web/Components/` | Razor components: App, Routes, Layout, Dashboard, ElementTree, TreeNode, PropertiesPanel, ActionsPanel, MacroRunner, LogPanel |
@@ -636,7 +659,7 @@ Path-like parameters in the web dashboard's Macro Runner show a browse button (f
 
 ## Discoveries & Gotchas
 
-- **MCP Tool Timeout (~15-20s)**: The MCP client (OpenCode) has a hard ~15-20s timeout on tool call responses. This cannot be configured. Keep macros fast. Reduce `wait` steps to 2-3s max.
+- **MCP Tool Timeout (~15-20s)**: The MCP client (OpenCode) has a hard ~15-20s timeout on tool call responses **over stdio transport**. This cannot be configured. The Streamable HTTP transport eliminates this issue — progress notifications stream as SSE events that keep the connection alive. Use the HTTP transport (recommended) for long-running macros.
 - **Do NOT use sub-macros (`action: macro`)**: Nested macro calls via the `macro` step type will always exceed the MCP client timeout because the parent macro's execution time includes the full sub-macro duration. Always **inline** the steps from sub-macros directly into the parent macro YAML instead of using `action: macro`. The `macro` step type exists in the engine but is not usable in practice due to this timeout constraint.
 - **File dialogs**: Two types — standard Win32 (`AutomationId="1148"`, `wpf_file_dialog` works) and DirectUI Save (`AutomationId="FileNameControlHost"`, must use `wpf_find` + `wpf_type` + `Enter`).
 - **`wpf_screenshot` only captures main app window** — modal OS dialogs are NOT visible.
