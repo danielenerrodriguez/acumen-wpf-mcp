@@ -11,7 +11,7 @@ namespace WpfMcp;
 [McpServerResourceType]
 public static class KnowledgeResources
 {
-    [McpServerResource(UriTemplate = "knowledge://{productName}", Name = "Application Knowledge Base")]
+    [McpServerResource(UriTemplate = "knowledge://{productName}", Name = "Application Knowledge Base", Title = "Product Knowledge Base")]
     [Description("Full knowledge base YAML for navigating a specific application via WPF MCP tools. Contains automation IDs, keytips, workflows, and navigation tips.")]
     public static string GetKnowledgeBase(string productName)
     {

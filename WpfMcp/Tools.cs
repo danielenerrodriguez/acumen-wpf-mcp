@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using System.Windows.Automation;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 
 namespace WpfMcp;
@@ -17,14 +18,15 @@ public static class WpfTools
     // Local element cache (only used in non-proxied / direct mode)
     private static readonly ElementCache _cache = new();
 
-    [McpServerTool, Description("Attach to a running WPF application by process name or PID. Optionally launch the application if it's not running and wait for window readiness.")]
+    [McpServerTool(Destructive = false, OpenWorld = true, Title = "Attach to Application"), Description("Attach to a running WPF application by process name or PID. Optionally launch the application if it's not running and wait for window readiness.")]
     public static async Task<string> wpf_attach(
         [Description("Process name (without .exe)")] string? process_name = null,
         [Description("Process ID")] int? pid = null,
         [Description("Path to .exe — if provided and the process isn't running, launch it first")] string? exe_path = null,
         [Description("Command-line arguments when launching")] string? arguments = null,
         [Description("Wait until the window title contains this string (readiness check)")] string? wait_for_title = null,
-        [Description("Seconds to wait for launch and readiness (default 30)")] int? timeout = null)
+        [Description("Seconds to wait for launch and readiness (default 30)")] int? timeout = null,
+        CancellationToken cancellationToken = default)
     {
         if (process_name == null && pid == null && exe_path == null)
             return "Error: Either process_name, pid, or exe_path must be provided";
@@ -117,7 +119,7 @@ public static class WpfTools
         return $"OK: {result.message}";
     }
 
-    [McpServerTool, Description("Get a snapshot of the UI automation tree. Shows element types, names, automation IDs, and class names in a hierarchical view.")]
+    [McpServerTool(ReadOnly = true, Title = "UI Snapshot"), Description("Get a snapshot of the UI automation tree. Shows element types, names, automation IDs, and class names in a hierarchical view.")]
     public static async Task<string> wpf_snapshot(
         [Description("Maximum tree depth to explore (default 3)")] int max_depth = 3)
     {
@@ -133,7 +135,7 @@ public static class WpfTools
         return result.success ? result.tree : $"Error: {result.tree}";
     }
 
-    [McpServerTool, Description("Find a UI element by its properties. Searches all descendants of the main window.")]
+    [McpServerTool(ReadOnly = true, Title = "Find Element"), Description("Find a UI element by its properties. Searches all descendants of the main window.")]
     public static async Task<string> wpf_find(
         [Description("AutomationId of the element")] string? automation_id = null,
         [Description("Name of the element")] string? name = null,
@@ -162,7 +164,7 @@ public static class WpfTools
         return $"Error: {result.message}";
     }
 
-    [McpServerTool, Description("Find a UI element by walking a hierarchical path (ObjectStore format). Each path segment uses the format 'SearchProp:PropertyName~Value' with semicolons separating multiple properties.")]
+    [McpServerTool(ReadOnly = true, Title = "Find by Path"), Description("Find a UI element by walking a hierarchical path (ObjectStore format). Each path segment uses the format 'SearchProp:PropertyName~Value' with semicolons separating multiple properties.")]
     public static async Task<string> wpf_find_by_path(
         [Description("Array of path segments, each in format 'SearchProp:ControlType~Custom;SearchProp:AutomationId~uxProjectsView'")] string[] path)
     {
@@ -184,7 +186,7 @@ public static class WpfTools
         return $"Error: {result.message}";
     }
 
-    [McpServerTool, Description("Get the children of an element (or the main window if no ref provided). Useful for exploring the UI tree.")]
+    [McpServerTool(ReadOnly = true, Title = "Element Children"), Description("Get the children of an element (or the main window if no ref provided). Useful for exploring the UI tree.")]
     public static async Task<string> wpf_children(
         [Description("Element reference from a previous find (e.g., 'e1'). Omit for main window children.")] string? ref_key = null)
     {
@@ -225,7 +227,7 @@ public static class WpfTools
         catch (Exception ex) { return $"Error: {ex.Message}"; }
     }
 
-    [McpServerTool, Description("Click on an element by its reference key.")]
+    [McpServerTool(Destructive = false, Idempotent = true, OpenWorld = false, Title = "Click Element"), Description("Click on an element by its reference key.")]
     public static async Task<string> wpf_click(
         [Description("Element reference from a previous find (e.g., 'e1')")] string ref_key)
     {
@@ -238,7 +240,7 @@ public static class WpfTools
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
     }
 
-    [McpServerTool, Description("Right-click on an element by its reference key.")]
+    [McpServerTool(Destructive = false, Idempotent = true, OpenWorld = false, Title = "Right Click Element"), Description("Right-click on an element by its reference key.")]
     public static async Task<string> wpf_right_click(
         [Description("Element reference from a previous find (e.g., 'e1')")] string ref_key)
     {
@@ -251,7 +253,7 @@ public static class WpfTools
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
     }
 
-    [McpServerTool, Description("Type text into the currently focused element using simulated keystrokes. For reliable edit-field interaction (especially in dialogs), prefer wpf_set_value instead.")]
+    [McpServerTool(Destructive = true, OpenWorld = false, Title = "Type Text"), Description("Type text into the currently focused element using simulated keystrokes. For reliable edit-field interaction (especially in dialogs), prefer wpf_set_value instead.")]
     public static async Task<string> wpf_type(
         [Description("Text to type")] string text)
     {
@@ -262,7 +264,7 @@ public static class WpfTools
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
     }
 
-    [McpServerTool, Description("Set the value of an element directly using UIA ValuePattern. Works reliably with edit fields and combo boxes in dialogs without focus issues.")]
+    [McpServerTool(Destructive = true, OpenWorld = false, Title = "Set Value"), Description("Set the value of an element directly using UIA ValuePattern. Works reliably with edit fields and combo boxes in dialogs without focus issues.")]
     public static async Task<string> wpf_set_value(
         [Description("Element reference from a previous find (e.g., 'e1')")] string ref_key,
         [Description("Value to set")] string value)
@@ -276,7 +278,7 @@ public static class WpfTools
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
     }
 
-    [McpServerTool, Description("Get the current value of an element using UIA ValuePattern.")]
+    [McpServerTool(ReadOnly = true, Title = "Get Value"), Description("Get the current value of an element using UIA ValuePattern.")]
     public static async Task<string> wpf_get_value(
         [Description("Element reference from a previous find (e.g., 'e1')")] string ref_key)
     {
@@ -294,7 +296,7 @@ public static class WpfTools
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
     }
 
-    [McpServerTool, Description("Navigate a standard Windows file dialog to select a file. Splits the path into folder + filename, navigates to the folder first, then selects the file. The file dialog must already be open.")]
+    [McpServerTool(Destructive = true, OpenWorld = false, Title = "File Dialog"), Description("Navigate a standard Windows file dialog to select a file. Splits the path into folder + filename, navigates to the folder first, then selects the file. The file dialog must already be open.")]
     public static async Task<string> wpf_file_dialog(
         [Description("Full path to the file to select (e.g., 'C:\\Data\\project.xer')")] string file_path)
     {
@@ -305,7 +307,7 @@ public static class WpfTools
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
     }
 
-    [McpServerTool, Description("Send keyboard input. Use '+' for simultaneous keys (e.g., 'Ctrl+S'), comma for sequential keys (e.g., 'Alt,F' to activate ribbon keytips then press F).")]
+    [McpServerTool(Destructive = true, OpenWorld = false, Title = "Send Keys"), Description("Send keyboard input. Use '+' for simultaneous keys (e.g., 'Ctrl+S'), comma for sequential keys (e.g., 'Alt,F' to activate ribbon keytips then press F).")]
     public static async Task<string> wpf_send_keys(
         [Description("Keys to send (e.g., 'Ctrl+S', 'Alt,F', 'Enter', 'Escape')")] string keys)
     {
@@ -316,7 +318,7 @@ public static class WpfTools
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
     }
 
-    [McpServerTool, Description("Focus the main application window.")]
+    [McpServerTool(Destructive = false, Idempotent = true, OpenWorld = false, Title = "Focus Window"), Description("Focus the main application window.")]
     public static async Task<string> wpf_focus()
     {
         if (Proxy != null)
@@ -326,7 +328,7 @@ public static class WpfTools
         return result.success ? $"OK: {result.message}" : $"Error: {result.message}";
     }
 
-    [McpServerTool, Description("Take a screenshot of the attached application window.")]
+    [McpServerTool(ReadOnly = true, Title = "Screenshot"), Description("Take a screenshot of the attached application window.")]
     public static async Task<string> wpf_screenshot()
     {
         if (Proxy != null)
@@ -346,7 +348,7 @@ public static class WpfTools
         return $"OK: {result.message}\n[Screenshot data: {result.base64.Length} chars base64 PNG]";
     }
 
-    [McpServerTool, Description("Get detailed properties of a cached element.")]
+    [McpServerTool(ReadOnly = true, Title = "Element Properties"), Description("Get detailed properties of a cached element.")]
     public static async Task<string> wpf_properties(
         [Description("Element reference (e.g., 'e1')")] string ref_key)
     {
@@ -364,7 +366,7 @@ public static class WpfTools
         return JsonSerializer.Serialize(props, Constants.IndentedJson);
     }
 
-    [McpServerTool, Description("Check if the server is attached to a process. Returns attachment status, window title, and PID.")]
+    [McpServerTool(ReadOnly = true, Title = "Server Status"), Description("Check if the server is attached to a process. Returns attachment status, window title, and PID.")]
     public static async Task<string> wpf_status()
     {
         if (Proxy != null)
@@ -389,7 +391,7 @@ public static class WpfTools
     /// <summary>Shared macro engine instance. Loaded once from the macros/ folder.</summary>
     private static readonly Lazy<MacroEngine> _macroEngine = new(() => new MacroEngine());
 
-    [McpServerTool, Description("List all available macros with their descriptions and parameters. Also shows knowledge base summaries for supported applications.")]
+    [McpServerTool(ReadOnly = true, Title = "List Macros"), Description("List all available macros with their descriptions and parameters. Also shows knowledge base summaries for supported applications.")]
     public static async Task<string> wpf_macro_list()
     {
         if (Proxy != null)
@@ -446,17 +448,23 @@ public static class WpfTools
     internal static IReadOnlyList<KnowledgeBase> GetKnowledgeBases() =>
         _macroEngine.Value.KnowledgeBases;
 
-    [McpServerTool, Description("Run a named macro with optional parameters. Use wpf_macro_list to see available macros.")]
+    [McpServerTool(Destructive = true, OpenWorld = true, Title = "Run Macro"), Description("Run a named macro with optional parameters. Use wpf_macro_list to see available macros.")]
     public static async Task<string> wpf_macro(
         [Description("Macro name (e.g., 'acumen-fuse/import-xer')")] string name,
-        [Description("Parameters as JSON object (e.g., '{\"filePath\":\"C:\\\\data\\\\test.xer\"}')")] string? parameters = null)
+        [Description("Parameters as JSON object (e.g., '{\"filePath\":\"C:\\\\data\\\\test.xer\"}')")] string? parameters = null,
+        IProgress<ProgressNotificationValue>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         if (Proxy != null)
         {
             var args = new Dictionary<string, object?> { ["name"] = name, ["parameters"] = parameters };
+            progress?.Report(new ProgressNotificationValue { Progress = 0, Message = $"Starting macro '{name}' (proxy mode)" });
             var resp = await Proxy.CallAsync(Constants.Commands.Macro, args);
             if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
+            {
+                progress?.Report(new ProgressNotificationValue { Progress = 1, Total = 1, Message = $"Macro '{name}' completed" });
                 return JsonSerializer.Serialize(resp.GetProperty("result"), Constants.IndentedJson);
+            }
             return $"Error: {resp.GetProperty("error").GetString()}";
         }
 
@@ -475,12 +483,33 @@ public static class WpfTools
         }
 
         var engine = _macroEngine.Value;
+        var totalSteps = engine.Get(name)?.Steps.Count ?? 0;
+        var currentStep = 0;
+
+        progress?.Report(new ProgressNotificationValue
+        {
+            Progress = 0,
+            Total = totalSteps,
+            Message = $"Starting macro '{name}' ({totalSteps} steps)"
+        });
+
         var result = await engine.ExecuteAsync(name, parsedParams,
-            onLog: msg => Console.Error.WriteLine(msg));
+            cancellation: cancellationToken,
+            onLog: msg =>
+            {
+                Console.Error.WriteLine(msg);
+                currentStep++;
+                progress?.Report(new ProgressNotificationValue
+                {
+                    Progress = currentStep,
+                    Total = totalSteps > 0 ? totalSteps * 2 : null, // *2 because we get pre + post log per step
+                    Message = msg
+                });
+            });
         return JsonSerializer.Serialize(result, Constants.IndentedJson);
     }
 
-    [McpServerTool, Description("Save a macro YAML file from a list of steps. Auto-derives the product folder from the attached process. Use this to persist workflows as reusable macros.")]
+    [McpServerTool(Destructive = true, OpenWorld = false, Title = "Save Macro"), Description("Save a macro YAML file from a list of steps. Auto-derives the product folder from the attached process. Use this to persist workflows as reusable macros.")]
     public static async Task<string> wpf_save_macro(
         [Description("Macro name without product prefix (e.g., 'import-xer'). Product folder is auto-derived from the attached process.")] string name,
         [Description("Human-readable description of what the macro does")] string description,
@@ -551,7 +580,7 @@ public static class WpfTools
         return $"Error: {result.Message}";
     }
 
-    [McpServerTool, Description("Export a macro as a Windows shortcut (.lnk) file that can be double-clicked to run. The shortcut runs with administrator privileges. Use 'all' as the name to export all macros.")]
+    [McpServerTool(Destructive = false, Idempotent = true, OpenWorld = false, Title = "Export Macro"), Description("Export a macro as a Windows shortcut (.lnk) file that can be double-clicked to run. The shortcut runs with administrator privileges. Use 'all' as the name to export all macros.")]
     public static async Task<string> wpf_export_macro(
         [Description("Macro name (e.g., 'acumen-fuse/import-xer') or 'all' to export all macros")] string name,
         [Description("Output directory for shortcuts (optional, defaults to Shortcuts/ next to exe)")] string? output_path = null,
@@ -624,7 +653,7 @@ public static class WpfTools
         return $"Error: {result.Message}";
     }
 
-    [McpServerTool, Description("Start a watch session that records focus changes, hover changes, and property changes in the attached WPF application. Use this to observe what a user is doing, then replay or optimize their workflow. Only one session can be active at a time.")]
+    [McpServerTool(Destructive = false, OpenWorld = false, Title = "Start Watch"), Description("Start a watch session that records focus changes, hover changes, and property changes in the attached WPF application. Use this to observe what a user is doing, then replay or optimize their workflow. Only one session can be active at a time.")]
     public static async Task<string> wpf_watch_start()
     {
         if (Proxy != null)
@@ -640,7 +669,7 @@ public static class WpfTools
         return "Error: Watch mode requires the elevated server (proxy mode)";
     }
 
-    [McpServerTool, Description("Stop the current watch session and return all recorded entries. Each entry includes timestamps, element details (ControlType, AutomationId, Name), property values, and change diffs. Use this data to understand user workflows, create macros, or optimize interactions.")]
+    [McpServerTool(Destructive = false, OpenWorld = false, Title = "Stop Watch"), Description("Stop the current watch session and return all recorded entries. Each entry includes timestamps, element details (ControlType, AutomationId, Name), property values, and change diffs. Use this data to understand user workflows, create macros, or optimize interactions.")]
     public static async Task<string> wpf_watch_stop()
     {
         if (Proxy != null)
@@ -653,7 +682,7 @@ public static class WpfTools
         return "Error: Watch mode requires the elevated server (proxy mode)";
     }
 
-    [McpServerTool, Description("Get the current or last watch session's entries. Returns the full session log including all focus, hover, and property change events with timestamps and element details.")]
+    [McpServerTool(ReadOnly = true, Title = "Watch Status"), Description("Get the current or last watch session's entries. Returns the full session log including all focus, hover, and property change events with timestamps and element details.")]
     public static async Task<string> wpf_watch_status()
     {
         if (Proxy != null)

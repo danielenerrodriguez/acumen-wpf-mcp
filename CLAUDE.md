@@ -82,6 +82,21 @@ The machine has .NET 10 preview SDK installed; we target `net9.0-windows`.
 - `ModelContextProtocol` NuGet version: `1.1.0`
 - Server instructions (`options.ServerInstructions`) inject macro list + full knowledge base YAML at MCP handshake
 
+### MCP Tool Annotations & Features (v1.1.0)
+All 24 tools in `Tools.cs` use MCP tool annotations to communicate behavioral hints to AI clients:
+- **`ReadOnly = true`**: Tool only reads state, no side effects (snapshot, find, properties, status, etc.)
+- **`Destructive = true`**: Tool can destructively modify state (type, set_value, send_keys, file_dialog, macro, save_macro)
+- **`Destructive = false`**: Tool modifies state but is non-destructive (attach, click, focus, export_macro, watch start/stop)
+- **`Idempotent = true`**: Repeated calls with same args produce same effect (click, right_click, focus, export_macro)
+- **`OpenWorld = true`**: Interacts with unpredictable external entities (attach, macro)
+- **`Title`**: Human-readable display name on every tool and resource (e.g., `Title = "Run Macro"`)
+
+**Progress Reporting**: `wpf_macro` accepts `IProgress<ProgressNotificationValue>` (auto-injected by SDK, excluded from JSON schema). In direct mode, reports step-by-step progress with message text from the macro `onLog` callback. In proxy mode, reports start/end only (proxy blocks during execution).
+
+**CancellationToken**: `wpf_macro` and `wpf_attach` accept `CancellationToken` (auto-injected by SDK). Respects client-initiated cancellation. For `wpf_macro` in direct mode, the token is passed through to `MacroEngine.ExecuteAsync()`.
+
+**Auto-injected parameters** (excluded from tool JSON schema): `IProgress<ProgressNotificationValue>`, `CancellationToken`, `McpServer`, `IServiceProvider`. Add these to any tool method signature to use them.
+
 ### Publish / Runtime
 - `publish/` folder must include `runtimes/` subdirectory — `System.Text.Encodings.Web` v10.0.0.0 assembly is needed at runtime
 - `Environment.ProcessPath` for exe location (NOT `AppContext.BaseDirectory` which points to temp extraction dir for single-file publish)
@@ -273,7 +288,7 @@ data_formats: { ... }           # Supported import/export formats
 |------|---------|
 | `WpfMcp/Program.cs` | Entry point: mode routing (default=server, `--cli`, `--mcp-connect`, `--mcp`, `--export-all`, `--no-idle`, `--idle-timeout`, `run`, drag-drop) |
 | `WpfMcp/Constants.cs` | Shared constants/config, `ResolveMacrosPath()`, `ResolveShortcutsPath()`, `ServerIdleTimeoutMinutes` (mutable), `WebPort`, `Commands` nested class |
-| `WpfMcp/Tools.cs` | 20 MCP tool definitions (including watch mode) |
+| `WpfMcp/Tools.cs` | 24 MCP tool definitions with annotations (ReadOnly/Destructive/Idempotent/OpenWorld/Title), progress reporting, and cancellation support |
 | `WpfMcp/UiaEngine.cs` | Core UI Automation engine (STA thread, SendInput, launch, wait, `ReadElementProperty()`) |
 | `WpfMcp/UiaProxy.cs` | Proxy client/server over named pipe + web dashboard startup |
 | `WpfMcp/MacroDefinition.cs` | YAML POCOs for macros + `KnowledgeBase` + `SaveMacroResult` + `ExportMacroResult` records |
