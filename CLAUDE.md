@@ -27,6 +27,7 @@ OpenCode (WSL)
     → auto-launches WpfMcp.exe --server   (elevated via BeyondTrust/UAC)
     → UiaProxyClient connects to WpfMcp_UIA named pipe
     → MCP tool calls proxy through pipe → UiaProxyServer executes UIA commands
+    → During macro execution, server streams LOG: prefixed lines before the JSON response
 ```
 
 **Why elevation?** Fuse's UIA providers only respond to elevated processes. Non-elevated processes see only `FrameworkId="Win32"` with a single TitleBar child.
@@ -91,9 +92,11 @@ All 24 tools in `Tools.cs` use MCP tool annotations to communicate behavioral hi
 - **`OpenWorld = true`**: Interacts with unpredictable external entities (attach, macro)
 - **`Title`**: Human-readable display name on every tool and resource (e.g., `Title = "Run Macro"`)
 
-**Progress Reporting**: `wpf_macro` accepts `IProgress<ProgressNotificationValue>` (auto-injected by SDK, excluded from JSON schema). In direct mode, reports step-by-step progress with message text from the macro `onLog` callback. In proxy mode, reports start/end only (proxy blocks during execution).
+**Progress Reporting**: `wpf_macro` accepts `IProgress<ProgressNotificationValue>` (auto-injected by SDK, excluded from JSON schema). Reports step-by-step progress in both direct mode and proxy mode (via streaming `LOG:` pipe protocol).
 
-**CancellationToken**: `wpf_macro` and `wpf_attach` accept `CancellationToken` (auto-injected by SDK). Respects client-initiated cancellation. For `wpf_macro` in direct mode, the token is passed through to `MacroEngine.ExecuteAsync()`.
+**MCP Logging Notifications**: `wpf_macro` injects `McpServer` and sends `notifications/message` (logging level `Info`, logger `"macro"`) for each step log line. This makes macro progress visible to AI agents in real time. Requires the `Logging` capability declared in `Program.cs`.
+
+**CancellationToken**: `wpf_macro` and `wpf_attach` accept `CancellationToken` (auto-injected by SDK). Respects client-initiated cancellation. The token is forwarded to `Proxy.CallAsync()` in proxy mode, preventing the deadlock that previously occurred when the MCP client timed out.
 
 **Auto-injected parameters** (excluded from tool JSON schema): `IProgress<ProgressNotificationValue>`, `CancellationToken`, `McpServer`, `IServiceProvider`. Add these to any tool method signature to use them.
 
@@ -513,8 +516,9 @@ Per-step logging for macro execution, visible in both terminal (stderr) and web 
 | Caller | onLog implementation |
 |--------|---------------------|
 | `AppState` (web dashboard) | `msg => Log(LogLevel.Info, msg)` — appears in LogPanel |
-| `UiaProxy` (pipe server) | `msg => Console.Error.WriteLine(msg)` — stderr for MCP client visibility |
-| `Tools.cs` (direct MCP) | `msg => Console.Error.WriteLine(msg)` — stderr fallback |
+| `UiaProxy` (pipe server) | `msg => { fileLog(msg); onPipeLog?.Invoke(msg); }` — stderr + `LOG:` line streamed to pipe client |
+| `Tools.cs` (proxy MCP) | Receives streamed `LOG:` lines via `CallAsync(onLog:)` → stderr + MCP logging notification + progress |
+| `Tools.cs` (direct MCP) | `msg => { Console.Error.WriteLine(msg); SendLog(msg); progress?.Report(...); }` |
 
 ### Log Format Examples
 ```
@@ -639,4 +643,4 @@ Path-like parameters in the web dashboard's Macro Runner show a browse button (f
 - **Sample file gotcha**: `Initial  Plan.xer` has a double space in the filename.
 - **Blazor Server in WPF host — "Assembly already defined"**: When hosting Blazor from a `UseWPF` project, `WebApplicationOptions.ApplicationName` must be set to the RCL assembly name (e.g., `typeof(App).Assembly.GetName().Name`) and `AddAdditionalAssemblies` must NOT re-add the same assembly used in `MapRazorComponents<App>()`.
 - **WSL2 cannot reach Windows localhost ports**: Kestrel running on Windows binds to `0.0.0.0` but WSL2 (VM-based) can't connect to `localhost:5112`. Windows browsers can. This is a WSL2 networking limitation, not a code bug.
-- **Pipe deadlock on slow commands (KNOWN BUG)**: `UiaProxyClient.CallAsync()` holds a `SemaphoreSlim(1,1)` lock during the entire request/response cycle. All `Tools.cs` calls pass **no CancellationToken**. When a slow server command (e.g., macro with file dialog + import exceeding ~15-20s) blocks on `ReadLineAsync`, the lock is held indefinitely and all subsequent MCP tool calls deadlock on `_lock.WaitAsync()`. This requires restarting the MCP server to recover. Two tests in `UiaProxyProtocolTests.cs` reproduce this: `CallAsync_NoCancellationToken_SlowServer_BlocksSubsequentCalls` (deadlock) and `CallAsync_SlowServer_LateResponse_PipeStaysInSync` (pipe stays in sync when server eventually responds).
+- **Pipe deadlock on slow commands (FIXED)**: Previously, `UiaProxyClient.CallAsync()` held a `SemaphoreSlim(1,1)` lock without `CancellationToken`, so MCP client timeouts left the lock held forever. Now `wpf_macro` and `wpf_attach` forward `CancellationToken` to `Proxy.CallAsync()` — when the MCP client times out, `ReadLineAsync(cancellation)` throws `OperationCanceledException`, the lock is released, and subsequent calls proceed normally. Two tests in `UiaProxyProtocolTests.cs` cover this: `CallAsync_NoCancellationToken_SlowServer_BlocksSubsequentCalls` and `CallAsync_SlowServer_LateResponse_PipeStaysInSync`.

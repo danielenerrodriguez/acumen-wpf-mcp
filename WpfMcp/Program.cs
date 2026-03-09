@@ -3,6 +3,7 @@ using System.IO;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using WpfMcp;
 
@@ -154,6 +155,10 @@ static IHost BuildMcpHost(string[] hostArgs, string? macrosPathOverride = null)
                 Version = Constants.ServerVersion
             };
             options.ServerInstructions = BuildServerInstructions(macrosPathOverride);
+            options.Capabilities = new()
+            {
+                Logging = new LoggingCapability()
+            };
         })
         .WithStdioServerTransport()
         .WithToolsFromAssembly()

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text.Json;
 using System.Windows.Automation;
 using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace WpfMcp;
@@ -43,7 +44,7 @@ public static class WpfTools
                     ["ifNotRunning"] = true,
                     ["timeout"] = timeout ?? 30
                 };
-                var launchResp = await Proxy.CallAsync(Constants.Commands.Launch, launchArgs);
+                var launchResp = await Proxy.CallAsync(Constants.Commands.Launch, launchArgs, cancellation: cancellationToken);
                 if (launchResp.TryGetProperty("ok", out var lok) && !lok.GetBoolean())
                     return FormatResponse(launchResp);
 
@@ -55,7 +56,7 @@ public static class WpfTools
                         ["titleContains"] = wait_for_title,
                         ["timeout"] = timeout ?? 30
                     };
-                    var waitResp = await Proxy.CallAsync(Constants.Commands.WaitForWindow, waitArgs);
+                    var waitResp = await Proxy.CallAsync(Constants.Commands.WaitForWindow, waitArgs, cancellation: cancellationToken);
                     if (waitResp.TryGetProperty("ok", out var wok) && !wok.GetBoolean())
                         return FormatResponse(waitResp);
                 }
@@ -64,7 +65,7 @@ public static class WpfTools
             }
 
             var args = new Dictionary<string, object?> { ["processName"] = process_name, ["pid"] = pid };
-            var resp = await Proxy.CallAsync(Constants.Commands.Attach, args);
+            var resp = await Proxy.CallAsync(Constants.Commands.Attach, args, cancellation: cancellationToken);
 
             // If wait_for_title specified, wait for window readiness after attach
             if (resp.TryGetProperty("ok", out var aok) && aok.GetBoolean() && !string.IsNullOrEmpty(wait_for_title))
@@ -74,7 +75,7 @@ public static class WpfTools
                     ["titleContains"] = wait_for_title,
                     ["timeout"] = timeout ?? 30
                 };
-                var waitResp = await Proxy.CallAsync("waitForWindow", waitArgs);
+                var waitResp = await Proxy.CallAsync("waitForWindow", waitArgs, cancellation: cancellationToken);
                 if (waitResp.TryGetProperty("ok", out var wok2) && !wok2.GetBoolean())
                     return FormatResponse(waitResp);
             }
@@ -452,17 +453,50 @@ public static class WpfTools
     public static async Task<string> wpf_macro(
         [Description("Macro name (e.g., 'acumen-fuse/import-xer')")] string name,
         [Description("Parameters as JSON object (e.g., '{\"filePath\":\"C:\\\\data\\\\test.xer\"}')")] string? parameters = null,
+        McpServer server = null!,
         IProgress<ProgressNotificationValue>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        // Send MCP logging notification (fire-and-forget, best-effort)
+        void SendLog(string msg)
+        {
+            _ = server?.SendNotificationAsync(
+                NotificationMethods.LoggingMessageNotification,
+                new LoggingMessageNotificationParams
+                {
+                    Level = LoggingLevel.Info,
+                    Logger = "macro",
+                    Data = JsonSerializer.SerializeToElement(msg)
+                });
+        }
+
         if (Proxy != null)
         {
             var args = new Dictionary<string, object?> { ["name"] = name, ["parameters"] = parameters };
+            var currentStep = 0;
+
             progress?.Report(new ProgressNotificationValue { Progress = 0, Message = $"Starting macro '{name}' (proxy mode)" });
-            var resp = await Proxy.CallAsync(Constants.Commands.Macro, args);
+            SendLog($"Starting macro '{name}'");
+
+            var resp = await Proxy.CallAsync(
+                Constants.Commands.Macro,
+                args,
+                cancellation: cancellationToken,
+                onLog: msg =>
+                {
+                    Console.Error.WriteLine(msg);
+                    SendLog(msg);
+                    currentStep++;
+                    progress?.Report(new ProgressNotificationValue
+                    {
+                        Progress = currentStep,
+                        Message = msg
+                    });
+                });
+
             if (resp.TryGetProperty("ok", out var ok) && ok.GetBoolean())
             {
-                progress?.Report(new ProgressNotificationValue { Progress = 1, Total = 1, Message = $"Macro '{name}' completed" });
+                SendLog($"Macro '{name}' completed successfully");
                 return JsonSerializer.Serialize(resp.GetProperty("result"), Constants.IndentedJson);
             }
             return $"Error: {resp.GetProperty("error").GetString()}";
@@ -484,7 +518,7 @@ public static class WpfTools
 
         var engine = _macroEngine.Value;
         var totalSteps = engine.Get(name)?.Steps.Count ?? 0;
-        var currentStep = 0;
+        var currentStep2 = 0;
 
         progress?.Report(new ProgressNotificationValue
         {
@@ -492,16 +526,18 @@ public static class WpfTools
             Total = totalSteps,
             Message = $"Starting macro '{name}' ({totalSteps} steps)"
         });
+        SendLog($"Starting macro '{name}' ({totalSteps} steps)");
 
         var result = await engine.ExecuteAsync(name, parsedParams,
             cancellation: cancellationToken,
             onLog: msg =>
             {
                 Console.Error.WriteLine(msg);
-                currentStep++;
+                SendLog(msg);
+                currentStep2++;
                 progress?.Report(new ProgressNotificationValue
                 {
-                    Progress = currentStep,
+                    Progress = currentStep2,
                     Total = totalSteps > 0 ? totalSteps * 2 : null, // *2 because we get pre + post log per step
                     Message = msg
                 });

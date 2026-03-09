@@ -47,7 +47,8 @@ public class UiaProxyClient : IDisposable
     public async Task<JsonElement> CallAsync(
         string method,
         Dictionary<string, object?>? args = null,
-        CancellationToken cancellation = default)
+        CancellationToken cancellation = default,
+        Action<string>? onLog = null)
     {
         if (_pipe == null || !_pipe.IsConnected)
             throw new InvalidOperationException("Not connected to elevated UIA server");
@@ -64,11 +65,22 @@ public class UiaProxyClient : IDisposable
             var json = JsonSerializer.Serialize(request);
             await _writer!.WriteLineAsync(json.AsMemory(), cancellation);
 
-            var response = await _reader!.ReadLineAsync(cancellation);
-            if (response == null)
-                throw new IOException("Server closed connection");
+            // Read loop: LOG: prefixed lines are intermediate log messages,
+            // first non-LOG line is the JSON response.
+            while (true)
+            {
+                var line = await _reader!.ReadLineAsync(cancellation);
+                if (line == null)
+                    throw new IOException("Server closed connection");
 
-            return JsonSerializer.Deserialize<JsonElement>(response);
+                if (line.StartsWith("LOG:"))
+                {
+                    onLog?.Invoke(line[4..]);
+                    continue;
+                }
+
+                return JsonSerializer.Deserialize<JsonElement>(line);
+            }
         }
         finally
         {
@@ -319,7 +331,11 @@ public static class UiaProxyServer
                         await _commandLock.WaitAsync();
                         try
                         {
-                            response = await ExecuteCommand(method, args);
+                            response = await ExecuteCommand(method, args, onPipeLog: msg =>
+                            {
+                                writer.WriteLine($"LOG:{msg}");
+                                writer.Flush();
+                            });
                         }
                         finally
                         {
@@ -347,7 +363,7 @@ public static class UiaProxyServer
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Client #{clientId} disconnected.");
     }
 
-    static Task<string> ExecuteCommand(string method, JsonElement args)
+    static Task<string> ExecuteCommand(string method, JsonElement args, Action<string>? onPipeLog = null)
     {
         var engine = UiaEngine.Instance;
 
@@ -537,9 +553,14 @@ public static class UiaProxyServer
                         }
 
                         var logFile = GetStringArg(args, "logFile");
+                        var fileLog = CreateLogCallback(logFile);
                         var macroResult = _macroEngine.Value.ExecuteAsync(
                             macroName, parsedParams, engine, _cache,
-                            onLog: CreateLogCallback(logFile)).GetAwaiter().GetResult();
+                            onLog: msg =>
+                            {
+                                fileLog(msg);
+                                onPipeLog?.Invoke(msg);
+                            }).GetAwaiter().GetResult();
                         return JsonSerializer.Serialize(new { ok = macroResult.Success, result = macroResult });
                     }
                     case Constants.Commands.ExecuteMacroYaml:
@@ -578,9 +599,14 @@ public static class UiaProxyServer
 
                         var displayName = macroDef.Name ?? "inline-macro";
                         var execLogFile = GetStringArg(args, "logFile");
+                        var execFileLog = CreateLogCallback(execLogFile);
                         var execResult = _macroEngine.Value.ExecuteDefinitionAsync(
                             macroDef, displayName, execParams, engine, _cache,
-                            onLog: CreateLogCallback(execLogFile)).GetAwaiter().GetResult();
+                            onLog: msg =>
+                            {
+                                execFileLog(msg);
+                                onPipeLog?.Invoke(msg);
+                            }).GetAwaiter().GetResult();
                         return JsonSerializer.Serialize(new { ok = execResult.Success, result = execResult });
                     }
                     case Constants.Commands.Launch:
