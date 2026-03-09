@@ -685,3 +685,9 @@ The server auto-launches the browser after 3 seconds. If you dismissed it, navig
 
 **Build errors about Infragistics NuGet source**
 The `nuget.config` file clears external sources. Make sure it's present in the project root.
+
+## TODO
+
+- [ ] Support wildcard/glob patterns in `find` action's `name` parameter (e.g., `name: Trace Forward*` to match `Trace Forward - 0550 - Civils`). Currently `find` requires an exact match, which makes it impossible to match dynamic element names without knowing the full string in advance.
+- [ ] Support `contains` match mode in `find` action (e.g., `name_contains: Trace Forward`) as an alternative to wildcards.
+- [ ] Investigate why `wait` action reports TIMEOUT when the overall macro timeout is hit during the wait — the error message should clarify it's the macro-level timeout, not the wait step itself.

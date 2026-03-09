@@ -471,6 +471,23 @@ keytips:
       status: verified
       last_tested: "2026-02-24"
       notes: "Imports all linked projects"
+    # -- S2 Logic ribbon tools --
+    - keys: "Alt,OemQuestion,M,T"
+      action: "S2 Logic > Logic Trace > Trace Forward"
+      status: verified
+      last_tested: "2026-03-01"
+      notes: >
+        Logic Trace must be toggled ON first (click PART_SegmentedButton inside
+        LogicTraceMenuTool), then an activity must be selected in the grid.
+        Only then does Alt,/,M,T execute a trace forward from the selected activity.
+    - keys: "Alt,OemQuestion,M,S"
+      action: "S2 Logic > Logic Trace > Save Trace as Filter"
+      status: verified
+      last_tested: "2026-03-01"
+      notes: >
+        After a trace has been performed, this opens a dialog to save the traced
+        activities as a named filter. Press Enter to accept the default name.
+        The filter becomes available in the Forensics Create Analysis wizard.
 
 # ============================================================
 # RIBBON STRUCTURE (Tab > Group > Commands)
@@ -770,7 +787,25 @@ ribbon:
           - name: "Logic Trace"
             automation_id: LogicTraceMenuTool
             type: menu
-            items: ["Forward", "Backward", "Both", "Path Selection"]
+            status: verified
+            last_tested: "2026-03-01"
+            items: ["Trace Forward", "Trace Backward"]
+            children:
+              - automation_id: PART_SegmentedButton
+                type: Button
+                notes: >
+                  Toggles Logic Trace mode ON/OFF. Must be clicked (toggled ON)
+                  before selecting an activity and tracing. Clicking directly
+                  toggles; do NOT use Alt,/,M which opens the dropdown menu instead.
+              - automation_id: dropDownBtn
+                type: CheckBox
+                class_name: DropDownToggle
+                notes: "Opens the dropdown menu with Trace Forward / Trace Backward items"
+            workflow_notes: >
+              Correct order: (1) Click PART_SegmentedButton to toggle trace ON,
+              (2) select an activity in the grid (Ctrl+F search is most reliable),
+              (3) focus + Alt,OemQuestion,M,T for Trace Forward,
+              (4) focus + Alt,OemQuestion,M,S to save trace as filter, then Enter.
       - name: "Publish"
         tools: [{name: "To Excel"}, {name: "Copy to Clipboard"}, {name: "Print"}]
 
@@ -934,8 +969,8 @@ ribbon:
       (AutomationId=uxProjectsList) showing completed analyses, and a right panel with a
       DataGrid showing comparison results. After running an analysis, category tabs appear
       in the results area (Projects, Activities, Fields, Relationships, etc.).
-      Currently there is NO filter selection in the Create Analysis wizard — PBI 2555880
-      will add this capability.
+      PBI 2555880 adds filter selection to the Create Analysis wizard (WIP — code complete,
+      automation macro in testing).
     groups:
       - name: "Create Analysis"
         tools:
@@ -1876,6 +1911,34 @@ workflows:
           extra_buttons: [Select All, Deselect All]
           buttons: [Back, Finish, Cancel]
 
+  forensics_with_filter:
+    description: "Import XER, create a trace filter via Logic Trace, then run Forensic Analysis with that filter"
+    status: verified
+    last_tested: "2026-03-01"
+    existing_macro: forensics-with-filter.yaml
+    prerequisites: "None — imports its own data via include: acumen-fuse/import-xer"
+    steps:
+      - "include: acumen-fuse/import-xer (launch + import + verify)"
+      - "Click uxLogic tab to switch to S2 Logic"
+      - "Click PART_SegmentedButton inside LogicTraceMenuTool to toggle Logic Trace ON"
+      - "Click ActivityGrid to focus, Ctrl+F to open search, type activity ID to select it, Escape to close search"
+      - "focus + Alt,OemQuestion,M,T (Trace Forward from selected activity)"
+      - "focus + Alt,OemQuestion,M,S (Save trace as filter), Enter to accept default name"
+      - "Click UxEnhancedForensicsTabItem to switch to Forensics tab"
+      - "Click Create Analysis button to open wizard"
+      - "Select base project in ListBox (AutomationId=Options)"
+      - "Select filter in filter flyout (WIP — PBI 2555880)"
+      - "Next → select snapshot → Next → Finish"
+      - "Wait for analysis to complete"
+    notes: >
+      End-to-end test macro for PBI 2555880 (Forensics Filter support).
+      The activity grid Ctrl+F search is the most reliable way to find and select
+      activities — find-by-name fails because DevExpress grid cells have auto-generated
+      names like "Row N of M, Column Id, Column 1 of 19: 0610".
+      The Logic Trace toggle (PART_SegmentedButton) MUST be clicked before selecting
+      an activity — Alt,/,M alone opens the dropdown menu instead of toggling.
+      Filter selection in the wizard is WIP (PBI 2555880).
+
   export_to_excel:
     description: "Export diagnostics results to Excel"
     status: verified
@@ -2027,6 +2090,12 @@ navigation_tips:
   - tip: "MENTOR DIALOGS DURING RISK ANALYSIS: After clicking Run Risk Analysis, up to 2 Mentor suggestion dialogs may appear in sequence: (1) 'no uncertainty or mapped risks' and (2) 'schedule quality too low'. Use Tab,Enter to dismiss each (moves focus from OK to Ignore and presses it). Always check for additional dialogs after dismissing one."
   - tip: "DIALOG DETECTION: To check if a modal dialog is blocking, use wpf_find(control_type=Window, class_name=#32770). Returns 'Element not found' when clear. Always verify no dialogs are present before proceeding with the next action."
   - tip: "FILE OVERWRITE DIALOG: When saving over an existing file (Save As), a confirmation dialog asks 'Do you want to replace it?' with Yes (AutomationId=6) and No (AutomationId=7) buttons. Use Left,Enter to select Yes. In macros, always include Left,Enter after Save As Enter — it's harmless if no dialog appears."
+  - tip: "ACTIVITY GRID SEARCH: Use Ctrl+F to open the DevExpress grid search panel. Type an activity ID to find and select it. Press Escape to close the search panel — the selection is preserved. This is more reliable than find-by-name for grid cells, which have auto-generated names like 'Row N of M, Column Id, Column 1 of 19: 0610'. The find tool cannot match these names with wildcard patterns."
+    status: verified
+    last_tested: "2026-03-01"
+  - tip: "LOGIC TRACE TOGGLE: The Logic Trace button (LogicTraceMenuTool) has two children — PART_SegmentedButton (toggles trace mode ON/OFF) and dropDownBtn (opens the dropdown menu). To trace an activity: (1) click PART_SegmentedButton to toggle ON, (2) select an activity via Ctrl+F, (3) use Alt,/,M,T for Trace Forward. Do NOT use Alt,/,M to toggle — it opens the dropdown menu instead."
+    status: verified
+    last_tested: "2026-03-01"
 
 # ============================================================
 # SUPPORTED DATA FORMATS

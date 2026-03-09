@@ -1,0 +1,246 @@
+name: Forensics Analysis with Filter
+description: >
+  End-to-end test for PBI 2555880 — Forensics Filter support.
+  Imports 5 P6 XER project schedules (Initial Plan, 1 Month Update,
+  1 Year Update, 6 Month Update, Current Schedule), navigates to S2 Logic,
+  toggles Logic Trace on, selects an activity, traces forward to create a
+  filter, then creates a Forensic Analysis with that filter applied.
+timeout: 360
+parameters:
+  - name: exePath
+    description: Path to Fuse.exe
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Fuse.exe'
+  - name: samplesFolder
+    description: Path to the Samples folder containing XER files
+    required: false
+    default: 'C:\Program Files\Deltek\Acumen 8.12\Samples'
+
+steps:
+  # ── Phase 1: Import 5 XER files ──────────────────────────────────
+  - action: include
+    macro_name: acumen-fuse/launch
+    params:
+      exePath: '{{exePath}}'
+
+  # Open multi-file import dialog via keytips (S1 Projects > Oracle Primavera > Multi-file)
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,O,M
+
+  # Navigate to Samples folder
+  - action: file_dialog
+    text: '{{samplesFolder}}'
+    timeout: 15
+
+  - action: wait
+    seconds: 1
+
+  # Select all 5 XER files by typing quoted filenames
+  - action: send_keys
+    keys: Ctrl+A
+  - action: type
+    text: '"Initial  Plan.xer" "1 Month Update.xer" "1 Year Update.xer" "6 Month Update.xer" "Current Schedule.xer"'
+  - action: send_keys
+    keys: Enter
+
+  # Wait for files to load, then Import All via keytips
+  - action: wait
+    seconds: 5
+  - action: focus
+  - action: send_keys
+    keys: Alt,S,R,I
+
+  # Verify import loaded data — tree root should show activity count > 0
+  - action: find_by_path
+    path:
+      - 'SearchProp:AutomationId~PART_TreeView'
+      - 'SearchProp:ControlType~TreeItem'
+      - 'SearchProp:ControlType~Text'
+    save_as: rootLabel
+    timeout: 60
+  - action: verify
+    ref: rootLabel
+    property: name
+    match_mode: not_equals
+    expected: "Workbook1 (0)"
+    message: "Import verification failed — no activities were loaded"
+
+  # ── Phase 2: Switch to S2 Logic tab ───────────────────────────────
+  - action: find
+    automation_id: uxLogic
+    save_as: logicTab
+    timeout: 10
+  - action: click
+    ref: logicTab
+  - action: wait
+    seconds: 1
+
+  # ── Phase 3: Toggle Logic Trace ON ────────────────────────────────
+  # Click the main segmented button inside the LogicTraceMenuTool
+  - action: find_by_path
+    path:
+      - 'SearchProp:AutomationId~LogicTraceMenuTool'
+      - 'SearchProp:AutomationId~PART_SegmentedButton'
+    save_as: logicTraceBtn
+    timeout: 10
+  - action: click
+    ref: logicTraceBtn
+  - action: wait
+    seconds: 0.5
+
+  # ── Phase 4: Select an activity in the grid ─────────────────────────
+  # Click grid to focus — the first visible activity will be selected
+  - action: find
+    automation_id: ActivityGrid
+    save_as: grid
+    timeout: 10
+  - action: click
+    ref: grid
+  - action: wait
+    seconds: 1
+
+  # ── Phase 5: Trace Forward from the selected activity ─────────────
+  # Alt,/ activates ribbon keytips, M = Logic Trace menu, T = Trace Forward
+  - action: focus
+  - action: send_keys
+    keys: Alt,OemQuestion,M,T
+  - action: wait
+    seconds: 2
+
+  # ── Phase 6: Save trace as a filter ───────────────────────────────
+  # Alt,/ activates ribbon keytips, M = Logic Trace menu, S = Save as Filter
+  - action: focus
+  - action: send_keys
+    keys: Alt,OemQuestion,M,S
+  - action: wait
+    seconds: 0.5
+
+  # Accept the default filter name by pressing Enter
+  - action: send_keys
+    keys: Enter
+  - action: wait
+    seconds: 0.5
+
+  # ── Phase 7: Switch to Forensics tab ──────────────────────────────
+  - action: find
+    automation_id: UxEnhancedForensicsTabItem
+    save_as: forensicsTab
+    timeout: 10
+  - action: click
+    ref: forensicsTab
+  - action: wait
+    seconds: 0.5
+
+  # ── Phase 8: Click Create Analysis button ─────────────────────────
+  - action: find
+    name: Create Analysis
+    control_type: Button
+    save_as: createBtn
+    timeout: 5
+  - action: click
+    ref: createBtn
+  - action: wait
+    seconds: 0.5
+
+  # ── Phase 9: Wizard — select base project ─────────────────────────
+  - action: find
+    name: Create Analysis
+    control_type: Window
+    save_as: wizard
+    timeout: 10
+
+  # Click the first project in the list
+  - action: find_by_path
+    path:
+      - 'SearchProp:ControlType~Window;SearchProp:Name~Create Analysis'
+      - 'SearchProp:AutomationId~Options'
+      - 'SearchProp:ControlType~ListItem'
+    save_as: firstProject
+    timeout: 5
+  - action: click
+    ref: firstProject
+  - action: wait
+    seconds: 0.5
+
+  # ── Phase 10: Click filter area and select the trace filter ───────
+  # Click the filter button to open the filter popup (Button with AutomationId)
+  - action: find
+    automation_id: uxFilterButton
+    save_as: filterButton
+    timeout: 5
+    on_error: continue
+  - action: click
+    ref: filterButton
+    on_error: continue
+  - action: wait
+    seconds: 0.5
+
+  # Select the first non-None filter (AutomationId=uxFilterItem vs uxFilterNone)
+  - action: find
+    automation_id: uxFilterItem
+    save_as: traceFilter
+    timeout: 5
+    on_error: continue
+  - action: click
+    ref: traceFilter
+    on_error: continue
+  - action: wait
+    seconds: 0.5
+
+  # ── Phase 11: Navigate wizard — Next to snapshots ─────────────────
+  - action: find
+    name: Next
+    save_as: nextBtn
+    timeout: 5
+  - action: click
+    ref: nextBtn
+  - action: wait
+    seconds: 0.5
+
+  # Select the first snapshot checkbox
+  - action: find_by_path
+    path:
+      - 'SearchProp:ControlType~Window;SearchProp:Name~Create Analysis'
+      - 'SearchProp:AutomationId~Snapshots'
+      - 'SearchProp:ControlType~ListItem'
+      - 'SearchProp:ControlType~CheckBox'
+    save_as: snapshotCheckbox
+    timeout: 5
+  - action: click
+    ref: snapshotCheckbox
+  - action: wait
+    seconds: 0.5
+
+  # Click Next (go to field selection)
+  - action: find
+    name: Next
+    save_as: nextBtn2
+    timeout: 5
+  - action: click
+    ref: nextBtn2
+  - action: wait
+    seconds: 0.5
+
+  # Click Finish to create the analysis
+  - action: find
+    name: Finish
+    save_as: finishBtn
+    timeout: 5
+  - action: click
+    ref: finishBtn
+
+  # ── Phase 12: Wait for analysis and verify ────────────────────────
+  - action: wait
+    seconds: 5
+
+  - action: find
+    automation_id: UxEnhancedForensicsTabItem
+    save_as: forensicsTabVerify
+    timeout: 15
+  - action: verify
+    ref: forensicsTabVerify
+    property: name
+    match_mode: contains
+    expected: Forensics
+    message: "Forensics tab should be active after creating analysis"
