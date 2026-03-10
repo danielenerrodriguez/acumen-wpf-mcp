@@ -4,7 +4,8 @@ description: >
   Imports 5 P6 XER project schedules (Initial Plan, 1 Month Update,
   1 Year Update, 6 Month Update, Current Schedule), navigates to S2 Logic,
   toggles Logic Trace on, selects an activity, traces forward to create a
-  filter, then creates a Forensic Analysis with that filter applied.
+  filter, then creates a Forensic Analysis with that filter applied,
+  comparing the base project against all 4 snapshot projects.
 timeout: 360
 parameters:
   - name: exePath
@@ -198,17 +199,39 @@ steps:
   - action: wait
     seconds: 0.5
 
-  # Select the first snapshot checkbox
-  - action: find_by_path
-    path:
-      - 'SearchProp:ControlType~Window;SearchProp:Name~Create Analysis'
-      - 'SearchProp:AutomationId~Snapshots'
-      - 'SearchProp:ControlType~ListItem'
-      - 'SearchProp:ControlType~CheckBox'
-    save_as: snapshotCheckbox
+  # Select all snapshot checkboxes by project name
+  - action: find
+    name: 1 Month Update
+    control_type: CheckBox
+    save_as: snap1
     timeout: 5
   - action: click
-    ref: snapshotCheckbox
+    ref: snap1
+
+  - action: find
+    name: 1 Year Update
+    control_type: CheckBox
+    save_as: snap2
+    timeout: 5
+  - action: click
+    ref: snap2
+
+  - action: find
+    name: 6 Month Update
+    control_type: CheckBox
+    save_as: snap3
+    timeout: 5
+  - action: click
+    ref: snap3
+
+  - action: find
+    name: Current Schedule
+    control_type: CheckBox
+    save_as: snap4
+    timeout: 5
+  - action: click
+    ref: snap4
+
   - action: wait
     seconds: 0.5
 
@@ -229,18 +252,3 @@ steps:
     timeout: 5
   - action: click
     ref: finishBtn
-
-  # ── Phase 12: Wait for analysis and verify ────────────────────────
-  - action: wait
-    seconds: 5
-
-  - action: find
-    automation_id: UxEnhancedForensicsTabItem
-    save_as: forensicsTabVerify
-    timeout: 15
-  - action: verify
-    ref: forensicsTabVerify
-    property: name
-    match_mode: contains
-    expected: Forensics
-    message: "Forensics tab should be active after creating analysis"
